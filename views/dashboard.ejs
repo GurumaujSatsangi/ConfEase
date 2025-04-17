@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
+      integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+      crossorigin="anonymous"
+    />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+  </head>
+  <body>
+    <% if (data) { %>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+      <a class="navbar-brand" href="#">ConfEase</a>
+    </nav>
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        <li class="breadcrumb-item active" aria-current="page">
+          <b>Name:</b> <%= data.name %> | <b>Email ID:</b> <%= data.email %> |
+          <b>Organization:</b> <%= data.organization %>
+        </li>
+      </ol>
+    </nav>
+    <% if (conferences && conferences.length > 0) { %> <%
+    conferences.forEach(event => { %>
+    <div class="card">
+      <div class="card-header">
+        <h4><span class="badge badge-success">Active Event</span></h4>
+      </div>
+      <div class="card-body">
+        <h5 class="card-title"><%= event.title %></h5>
+        <p class="card-text"><%= event.description %></p>
+        <table class="table">
+          <tbody>
+            <tr>
+              <td colspan="2"><b>Conference Timeline</b></td>
+            </tr>
+            <tr>
+              <td>Start Date: <%= event.conference_start_date %></td>
+              <td>End Date: <%= event.conference_end_date %></td>
+            </tr>
+            <tr>
+              <td colspan="2"><b>Submission Timeline</b></td>
+            </tr>
+            <tr>
+              <td>Start Date: <%= event.submission_start_date %> | 12:00 AM</td>
+              <td>End Date: <%= event.submission_end_date %> | 11:59 PM</td>
+            </tr>
+          </tbody>
+        </table>
+        <a href="<%= event.brochure %>" class="btn btn-primary"
+          >View Brochure</a
+        >
+      </div>
+    </div>
+    <% }); %> <% } else { %>
+    <p>No conferences available.</p>
+    <% } %> <% } else { %>
+    <p>No user data available.</p>
+    <% } %>
+  </body>
+</html>
