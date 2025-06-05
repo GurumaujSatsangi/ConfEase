@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AlgoLeap</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script
+      src="https://code.jquery.com/jquery-3.2.1.slim.min.js"
+      integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js"
+      integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/js/bootstrap.min.js"
+      integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+      crossorigin="anonymous"
+    ></script>
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
+      integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://kit.fontawesome.com/a076d05399.js"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <header>
+      <div class="header-left">
+        <button class="menu-btn">
+          <i class="fas fa-bars"></i>
+        </button>
+        <div class="logo">
+          <img src="/dei_logo.png" alt="DEI" />
+        </div>
+      </div>
+
+      <div class="header-right">
+        <%= user.email %>
+        <a href="/logout" class="btn btn-block" role="button"> Logout</a>
+      </div>
+    </header>
+
+    <main>
+      <div class="welcome-section">
+        <div class="welcome-content">
+          <div class="welcome-header">
+            <h1>Welcome to DEI Conference Management Toolkit!</h1>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-access">
+        <h2>Submit Paper / Poster for <b><%= conferences.title %></b></h2>
+        <hr>
+
+
+        <form action="/submit" method="POST">
+  <div class="form-group row">
+    <label for="Title" class="col-4 col-form-label">Title</label> 
+    <div class="col-8">
+      <textarea id="Title" name="Title" cols="40" rows="2" class="form-control" required="required"></textarea>
+    </div>
+  </div>
+  <div class="form-group row">
+    <label class="col-4 col-form-label" for="abstract">Abstract</label> 
+    <div class="col-8">
+      <textarea id="abstract" name="abstract" cols="40" rows="10" class="form-control" required="required"></textarea>
+    </div>
+  </div>
+  <div class="form-group row">
+    <label class="col-4 col-form-label">Areas</label> 
+    <div class="col-8">
+      <div class="custom-controls-stacked">
+        <div class="custom-control custom-radio">
+          <input name="areas" id="areas_0" type="radio" required="required" class="custom-control-input" value=""> 
+          <label for="areas_0" class="custom-control-label"></label>
+        </div>
+      </div>
+      <div class="custom-controls-stacked">
+        <div class="custom-control custom-radio">
+          <input name="areas" id="areas_1" type="radio" required="required" class="custom-control-input" value=""> 
+          <label for="areas_1" class="custom-control-label"></label>
+        </div>
+      </div>
+      <div class="custom-controls-stacked">
+        <div class="custom-control custom-radio">
+          <input name="areas" id="areas_2" type="radio" required="required" class="custom-control-input" value=""> 
+          <label for="areas_2" class="custom-control-label"></label>
+        </div>
+      </div>
+    </div>
+  </div> 
+   <div class="form-group row">
+    <label class="col-4 col-form-label" for="file">File</label> 
+    <div class="col-8">
+        <input class="form-control" type="file" id="file" required>
+
+    </div>
+  </div>
+  <div class="form-group row">
+    <div class="offset-4 col-8">
+      <input type="submit" name="submit" value="Submit" class="btn btn-success">
+    </div>
+  </div>
+</form>
+      </div>
+    </main>
+
+    <script src="/script.js"></script>
+  </body>
+</html>

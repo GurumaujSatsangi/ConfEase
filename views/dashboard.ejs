@@ -68,8 +68,37 @@
 
       <div class="quick-access">
         <h2>Active Events</h2>
+<% if (conferences && conferences.length > 0) { %>
+  <% conferences.forEach(function(conference) { %>
+    <div class="card mb-3">
+      <div class="card-header">
+        <%= conference.title %> <!-- or whatever fields you have -->
+      </div>
+      <div class="card-body">
+        
+       <table class="table table-hover">
+<tr>
+      <td>Conference Timeline</td>
+      <td>Submission Timeline</td>
+    </tr>
+    <tr>
+      <td><%= conference.conference_start_date %> - <%= conference.conference_end_date %></td>
+      <td><%= conference.submission_start_date %> - <%= conference.submission_end_date %></td>
 
-        <h1>No Active Events Found</h1>
+    </tr>
+    <tr>
+      <td><a href="<%= conference.brochure %>" class="btn btn-outline-warning" tabindex="-1" role="button" aria-disabled="true">View Brochure</a></td>
+<td><a href="/submission/<%= conference.id %>" class="btn btn-outline-success" tabindex="-1" role="button" id="<%= conference.id %>" aria-disabled="true">Submit Paper / Poster</a></td>
+    </tr>
+</table>
+      </div>
+    </div>
+  <% }); %>
+<% } else { %>
+ <h1>No Active Conferences Found</h1><% } %>
+
+
+       
         <hr />
         <h2>My Submissions</h2>
         <h1>No Submission has been made by you</h1>

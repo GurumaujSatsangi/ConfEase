@@ -67,13 +67,8 @@ app.get(
   }),
   async (req, res) => {
     const { data, error } = await supabase
-      .from("enabled_apis")
-      .select("*")
-      .eq("uid", req.user.uid)
-      .single();
-      
-    
-     // since only 1 key per user
+      .from("conferences")
+      .select("*");
 
     if (error && error.code !== "PGRST116") {
       console.error(error);
@@ -82,21 +77,44 @@ app.get(
 
     res.render("dashboard.ejs", {
       user: req.user,
+      conferences: data || [] // Pass conferences to EJS
     });
   }
 );
 
-
-app.get("/dashboard", (req, res) => {
+app.get("/dashboard", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
   }
 
+  const { data, error } = await supabase
+    .from("conferences")
+    .select("*");
+
+  if (error && error.code !== "PGRST116") {
+    console.error(error);
+    return res.send("Database error!");
+  }
+
   res.render("dashboard.ejs", {
     user: req.user,
+    conferences: data || []
   });
 });
 
+
+app.get("/submission/:id" , async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+ const { data, error } = await supabase
+  .from("conferences")
+  .select("*")
+  .eq("id", req.params.id)
+  .single();
+
+  res.render("submission.ejs", { user: req.user, conferences: data });
+});
 
 passport.use(
   "google",
