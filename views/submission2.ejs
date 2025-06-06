@@ -61,40 +61,23 @@
 
       <div class="quick-access">
         <h2>
-          Submit Paper / Poster for
+          Join a Paper / Poster for
           <b
             ><%= conferences.title %>
-            <p>Primary Author: <%=user.name %></p></b
+            <p>Co-Author: <%=user.name %></p></b
           >
         </h2>
         <hr />
-<form action="/submit" method="POST">
+<form action="/join" method="POST">
     <div class="form-group">
     <input type="text" readonly hidden value="<%=conferences.id %>" name="id" class="form-control"  id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
   </div>
   <div class="form-group">
-    <label for="exampleInputEmail1">Title</label>
-    <input type="text" class="form-control" name="title" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
+    <label for="exampleInputEmail1">Paper Code</label>
+    <input type="text" class="form-control" name="paper_code" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
   </div>
-  <div class="form-group">
-    <label for="exampleFormControlTextarea1">Abstract</label>
-    <textarea class="form-control" name="abstract" id="exampleFormControlTextarea1" rows="3"></textarea>
-  </div>
-   <div class="form-group">
-    <label for="exampleFormControlSelect1">Area</label>
-    <select class="form-control" name="areas" id="exampleFormControlSelect1">
-      <option>1</option>
-      <option>2</option>
-      <option>3</option>
-      <option>4</option>
-      <option>5</option>
-    </select>
-  </div>
-    <div class="form-group">
-    <label for="exampleFormControlFile1">Upload Paper </label>
-    <input type="file" class="form-control-file" id="exampleFormControlFile1">
-  </div>
-<input type="submit" class="btn btn-outline-success" value="Submit"></form>
+  
+<input type="submit" class="btn btn-outline-success" value="Join"></form>
         <div class="container px-5 my-5"></div>
         <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
       </div>
