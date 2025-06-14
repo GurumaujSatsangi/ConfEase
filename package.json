@@ -10,6 +10,7 @@
   "author": "Gurumauj Satsangi",
   "license": "ISC",
   "dependencies": {
+    "@imagekit/javascript": "^5.1.0",
     "@supabase/supabase-js": "^2.49.4",
     "body-parser": "^2.2.0",
     "cloudinary": "^2.6.1",
@@ -18,7 +19,9 @@
     "ejs": "^3.1.10",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
+    "googleapis": "^150.0.1",
     "mdb-ui-kit": "^9.0.0",
+    "multer": "^2.0.1",
     "nodemailer": "^7.0.3",
     "nodemon": "^3.1.9",
     "passport": "^0.7.0",

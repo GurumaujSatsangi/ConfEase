@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+ <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
@@ -10,6 +10,7 @@
       integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT"
       crossorigin="anonymous"
     />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
       integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO"
@@ -48,20 +49,18 @@
         </div>
       </div>
 
-     
+      
       <div class="header-right">
         You are logged in as <%= user.name %> (<%= user.email %>) &nbsp;
         <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
-
 <nav style="--bs-breadcrumb-divider: '>';" aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/dashboard">Home</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Join a Paper as  Co-Author</li>
+    <li class="breadcrumb-item active" aria-current="page">Edit your Submission</li>
   </ol>
 </nav>
-
     <main>
       <div class="welcome-section">
         <div class="welcome-content">
@@ -72,24 +71,38 @@
       </div>
 
       <div class="quick-access">
-        <h2>
-          Join a Paper / Poster for
-          <b
-            ><%= conferences.title %>
-            <p>Co-Author: <%=user.name %></p></b
-          >
-        </h2>
+       
         <hr />
-<form action="/join" method="POST">
+<form action="/edit-submission" method="POST" enctype="multipart/form-data">
     <div class="form-group">
-    <input type="text" readonly hidden value="<%=conferences.id %>" name="id" class="form-control"  id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
+    <input type="text" readonly hidden value="<%=submission.id %>" name="id" class="form-control"  id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
   </div>
   <div class="form-group">
-    <label for="exampleInputEmail1">Paper Code</label>
-    <input type="text" class="form-control" name="paper_code" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
+    <label for="exampleInputEmail1">Title</label>
+    <input type="text" class="form-control" required name="title" id="exampleInputEmail1" aria-describedby="emailHelp" value="<%=submission.title %>">
   </div><br>
-  
-<input type="submit" class="btn btn-outline-success" value="Join"></form>
+  <div class="form-group">
+    <label for="exampleFormControlTextarea1">Abstract</label>
+    <textarea class="form-control" required name="abstract" id="exampleFormControlTextarea1"  rows="3"><%=submission.abstract %></textarea>
+  </div><br>
+   <div class="form-group">
+    <label for="exampleFormControlSelect1">Area</label>
+    <select class="form-control"  value="<%=submission.area %>" required name="areas" id="exampleFormControlSelect1">
+      <option>1</option>
+      <option>2</option>
+      <option>3</option>
+      <option>4</option>
+      <option>5</option>
+    </select>
+  </div><br>
+    <div class="form-group">
+    <label for="exampleFormControlFile1">Re-Upload Paper </label>
+    <input type="file" required class="form-control-file" name="file" >
+<a class="btn btn-outline-warning" href="<%= submission.file_url %>" target="_blank" role="button">
+          <i class="bi bi-eye-fill"></i> &nbsp; View Uploaded Paper
+        </a>
+  </div><br>
+<input type="submit" class="btn btn-outline-success" value="Update"></form>
         <div class="container px-5 my-5"></div>
         <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
       </div>
@@ -110,9 +123,25 @@
       integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
       crossorigin="anonymous"
     ></script>
-        <script src="/script.js"></script>
-    <footer class="footer bg-dark text-white text-center py-3" style="position:fixed; left:0; bottom:0; width:100%; z-index:1030;">
-  Copyright Dayalbagh Educational Institute. All rights reserved. <br>Powered by DEI Multimedia Laboratory / Centre
-</footer>
+
+<!-- Spinner Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-transparent border-0 shadow-none">
+      <div class="modal-body d-flex justify-content-center align-items-center">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+          <span class="visually-hidden">Please wait...submitting data.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelector("form").addEventListener("submit", function() {
+  var loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+  loadingModal.show();
+});
+</script>
   </body>
 </html>

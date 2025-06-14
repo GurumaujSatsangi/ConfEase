@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AlgoLeap</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
+      integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+      crossorigin="anonymous"
+    />
+
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://kit.fontawesome.com/a076d05399.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://code.jquery.com/jquery-3.2.1.slim.min.js"
+      integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js"
+      integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <!-- MDB -->
+
+    <header>
+      <div class="header-left">
+        <button class="menu-btn">
+          <i class="fas fa-bars"></i>
+        </button>
+        <div class="logo">
+          <img src="/dei_logo.png" alt="DEI" />
+        </div>
+      </div>
+
+      <div class="header-right">
+        <a href="/logout" class="btn btn-block" role="button"> Logout</a>
+      </div>
+    </header>
+
+    <main>
+      <div class="welcome-section">
+        <div class="welcome-content">
+          <div class="welcome-header">
+            <h1>Welcome to DEI Conference Management Toolkit!</h1>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-access">
+        <h1>Create New Conference</h1>
+        <hr />
+        <form action="/create-new-conference" method="POST">
+          <div class="form-group">
+            <input
+              type="text"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="title"
+              aria-describedby="emailHelp"
+              placeholder="Conference Title"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <textarea
+              class="form-control"
+              id="exampleFormControlTextarea1"
+              name="description"
+              rows="3"
+              placeholder="Conference Description"
+            ></textarea>
+          </div>
+
+          <hr />
+          <div class="form-group">
+            <label class="form-check-label" for="conference_start_date">
+              Conference Start Date
+            </label>
+            <input
+              type="date"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="conference_start_date"
+              aria-describedby="emailHelp"
+              placeholder="Conference Start Date"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-check-label" for="conference_start_date">
+              Conference End Date
+            </label>
+            <input
+              type="date"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="conference_end_date"
+              aria-describedby="emailHelp"
+              placeholder="Conference Start Date"
+              required
+            />
+          </div>
+          <hr />
+
+          <div class="form-group">
+            <label class="form-check-label" for="full_paper_submission">
+              Full Paper Submission
+            </label>
+            <input
+              type="date"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="full_paper_submission"
+              aria-describedby="emailHelp"
+              placeholder="Conference Start Date"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-check-label" for="acceptance_notification">
+              Acceptance Notification
+            </label>
+            <input
+              type="date"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="acceptance_notification"
+              aria-describedby="emailHelp"
+              placeholder="Conference Start Date"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-check-label" for="camera_ready_paper_submission">
+              Final Camera Ready Paper Submission
+            </label>
+            <input
+              type="date"
+              class="form-control"
+              id="exampleInputEmail1"
+              name="camera_ready_paper_submission"
+              aria-describedby="emailHelp"
+              placeholder="Conference Start Date"
+              required
+            />
+          </div>
+
+          <hr />
+
+          <table class="table table-bordered">
+            <tbody>
+              <tr>
+                <td>Track Title</td>
+                <td>Track Reviewer's Email ID 
+                  <div class="alert alert-info" role="alert">
+  If the reviewer does not have an account, they will receive an email to create one.
+</div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+                  <tr>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_title"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div class="form-group">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="exampleInputEmail1"
+                      name="track_reviewer"
+                      aria-describedby="emailHelp"
+                      required
+                    />
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="form-group">
+            <input
+              type="submit"
+              class="btn btn-outline-success"
+              value="Create Conference"
+            />
+          </div>
+        </form>
+        <div class="container px-5 my-5"></div>
+        <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
+      </div>
+    </main>
+
+    <script
+      src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+      integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.14.7/dist/umd/popper.min.js"
+      integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/js/bootstrap.min.js"
+      integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+      crossorigin="anonymous"
+    ></script>
+  </body>
+</html>
