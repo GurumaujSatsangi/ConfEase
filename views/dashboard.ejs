@@ -177,6 +177,9 @@
                 <span class="badge-review">Review is still in Progress</span>
                 <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
                 <span class="badge-submitted">You have already submitted your Final Camera Ready Paper</span>
+                <% } else if (submission.submission_status == "Reviewed" ) { %>
+                <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
+                
                 <% } else { %>
                                  <span class="badge-rejected"> Not Eligible</span>
                 <% } %></td>

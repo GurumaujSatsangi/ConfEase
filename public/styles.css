@@ -54,6 +54,15 @@ body {
   /* margin-left: 10px; */
   vertical-align: middle;
 }
+#mean_score{
+    color:green;
+    font-weight: bold;
+}
+
+#mean_score_title{
+     color:green;
+    font-weight: bold;
+}
 .badge-submitted {
   display: inline-block;
   color: white;
@@ -68,6 +77,16 @@ body {
   display: inline-block;
   color: black;
   background-color: yellow;
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  /* margin-left: 10px; */
+  vertical-align: middle;
+}
+.badge-reviewed {
+  display: inline-block;
+  color: white;
+  background-color: green;
   font-size: 0.8em;
   padding: 2px 6px;
   border-radius: 5px;

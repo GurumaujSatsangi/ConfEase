@@ -49,11 +49,12 @@ app.set("views", path.join(__dirname, "views"));
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   if (req.isAuthenticated()) {
     return res.redirect("/dashboard");
   }
-  res.render("home.ejs");
+const { data, error } = await supabase.from("conferences").select("*");
+  res.render("home.ejs", {conferences:data });
 });
 
 app.get(
@@ -61,6 +62,62 @@ app.get(
   passport.authenticate("google", {
     scope: ["profile", "email"],
   })
+);
+
+app.get(
+  "/auth2/google",
+  passport.authenticate("google2", {
+    scope: ["profile", "email"],
+  })
+);
+
+app.get(
+  "/auth2/google/dashboard2",
+  passport.authenticate("google2", {
+    failureRedirect: "/",
+    successRedirect: "/reviewer/dashboard",
+  }),
+  async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.redirect("/");
+    }
+
+    const { data, error } = await supabase.from("conference_tracks").select("*");
+  const reviewerTracks = (data || []).filter(track =>
+  Array.isArray(track.track_reviewers) && track.track_reviewers.includes(req.user.email)
+);
+
+if (reviewerTracks.length > 0) {
+  const trackNames = reviewerTracks.map(track => track.track_name);
+
+  // Fetch all submissions for these tracks
+  let submissiondata = [];
+  if (trackNames.length > 0) {
+    const { data: submissions, error: submissionerror } = await supabase
+      .from("submissions")
+      .select("*")
+      .in("area", trackNames);
+
+    if (submissionerror) {
+      console.error(submissionerror);
+      return res.send("Error fetching submissions.");
+    }
+    submissiondata = submissions || [];
+  }
+
+  res.render("reviewer/dashboard", {
+    user: req.user,
+    tracks: reviewerTracks,
+    userSubmissions: submissiondata,
+  });
+} else {
+  res.send("You are not assigned to any tracks. Please contact the conference organizers for more information.");
+}
+    if (error && error.code !== "PGRST116") {
+      console.error(error);
+      return res.send("We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused.");
+    }
+  }
 );
 
 app.get(
@@ -113,6 +170,103 @@ app.get("/dashboard", async (req, res) => {
     userSubmissions: submissiondata || [], // Initialize submissions as an empty array
   });
 });
+
+app.get("/reviewer/dashboard", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const { data: tracks, error } = await supabase.from("conference_tracks").select("*");
+  if (error && error.code !== "PGRST116") {
+    console.error(error);
+    return res.send("We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused.");
+  }
+
+  // Find all tracks where the user is a reviewer
+  const reviewerTracks = (tracks || []).filter(track =>
+    Array.isArray(track.track_reviewers) && track.track_reviewers.includes(req.user.email)
+  );
+
+  if (reviewerTracks.length === 0) {
+    return res.send("You are not assigned to any tracks. Please contact the conference organizers for more information.");
+  }
+
+  // Collect all track names
+  const trackNames = reviewerTracks.map(track => track.track_name);
+
+  // Fetch all submissions for these tracks
+  let submissiondata = [];
+  if (trackNames.length > 0) {
+    const { data: submissions, error: submissionerror } = await supabase
+      .from("submissions")
+      .select("*")
+      .in("area", trackNames);
+
+    if (submissionerror) {
+      console.error(submissionerror);
+      return res.send("Error fetching submissions.");
+    }
+    submissiondata = submissions || [];
+  }
+
+  res.render("reviewer/dashboard", {
+    user: req.user,
+    tracks: reviewerTracks,
+    userSubmissions: submissiondata,
+  });
+});
+
+app.get("/reviewer/dashboard/review/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("paper_code", req.params.id)
+    .single();
+
+  if (error) {
+    console.error("Error fetching submission:", error);
+    return res.status(500).send("Error fetching submission.");
+  }
+
+  if (!data) {
+    return res.status(404).send("Submission not found.");
+  }
+
+  res.render("reviewer/review", {
+    user: req.user,
+    userSubmissions: data,
+  });
+});
+
+app.post("/mark-as-reviewed", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const { paper_id, conference_id,status,originality_score,relevance_score,technical_quality_score,clarity_score,impact_score, remarks } = req.body;
+
+  const { data, error } = await supabase
+    .from("peer_review")
+    .insert({ conference_id: conference_id, paper_id: paper_id, review_status: "Reviewed", remarks: remarks, originality_score: originality_score, relevance_score: relevance_score, technical_quality_score: technical_quality_score, clarity_score: clarity_score, impact_score: impact_score, acceptance_status: status })
+await supabase
+    .from("submissions")
+    .update({ submission_status: "Reviewed" })
+    .eq("id", paper_id);
+
+
+  if (error) {
+    console.error("Error updating submission:", error);
+    return res.status(500).send("Error marking submission as reviewed.");
+  }
+
+  res.redirect("/reviewer/dashboard");
+});
+
+
 
 app.get("/submission/co-author/:id", async (req, res) => {
   if (!req.isAuthenticated()) {
@@ -461,6 +615,59 @@ fetch('https://api.gowinston.ai/v2/plagiarism', options)
     res.redirect("/dashboard");
   }
 });
+
+passport.use(
+  "google2",
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID2,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
+      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    async (accessToken, refreshToken, profile, cb) => {
+      try {
+        const result = await supabase
+          .from("users")
+          .select("*")
+          .eq("uid", profile.id)
+          .single();
+        if (!result.data) {
+          const { error } = await supabase.from("users").insert([
+            {
+              uid: profile.id,
+              name: profile.displayName,
+              email: profile.emails[0].value,
+              profile_picture: profile.photos[0].value,
+            },
+          ]);
+          if (error) {
+            console.error("Error inserting user:", error);
+            return cb(error);
+          }
+
+          // Now re-fetch inserted user to pass a clean object to Passport
+          const { data: newUser, error: fetchError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("uid", profile.id)
+            .single();
+
+          if (fetchError) {
+            console.error("Fetch after insert failed:", fetchError);
+            return cb(fetchError);
+          }
+
+          return cb(null, newUser);
+        } else {
+          return cb(null, result.data);
+        }
+      } catch (err) {
+        return cb(err);
+      }
+    }
+  )
+);
 
 passport.use(
   "google",
