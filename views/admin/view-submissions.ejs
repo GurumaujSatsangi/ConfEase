@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-   <head>
+  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
@@ -10,7 +10,10 @@
       integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT"
       crossorigin="anonymous"
     />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+    />
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
       integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO"
@@ -48,7 +51,6 @@
       </div>
 
       <div class="header-right">
-        You are logged in as <%= user.name %> (<%= user.email %>) &nbsp;
         <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
@@ -56,72 +58,56 @@
     <main>
       <div class="welcome-section">
         <div class="welcome-content">
-         
           <div class="welcome-header">
-          
             <h1>Welcome to DEI Conference Management Toolkit!</h1>
           </div>
-             <div class="alert alert-info" role="alert">
-
-    <ul>    <li>
-<b>Please note, after a paper has been reviewed it is mandatory to click on the "Save" button or else the progress will be lost.</b> 
-  </li>
-
-  <li><b>A submission can be reviewed only once. Once the "Save" button is clicked, the submission cannot be viewed again.</b></li>
-
-</ul>
-</div>
         </div>
       </div>
 
       <div class="quick-access">
-        <h1>My Tracks</h1>
-        <% if (tracks && tracks.length > 0) { %> <%
-       tracks.forEach(function(conference) { %>
-<table class="table">
-  
-  <tbody>
-   
-    <tr>
-      <td><%= conference.track_name %></td>
-    </tr>  </tbody></table>      
+        <h1>Manage Submissions</h1>
+        <a href="#" type="button" class="btn btn-outline-danger" disabled>Publish Review Results</a>
+
+        <hr>
+        
+        <% if (submissions && submissions.length > 0) { %> <%
+        submissions.forEach(function(submission) { %>
+        <table class="table" border="1">
+          <tbody>
+            <tr>
+              <td ><b>Title</b></td>
+              <td ><b>Track</b></td>
+              <td ><b>Primary Author</b></td>
+
+              <td ><b>Co-Authors</b></td>
+              <td ><b>Submission Status</b></td>
+              <td ><b>View Paper</b></td>
+            </tr>
+            
+            <tr>
+              <td><%= submission.title %></td>
+              <td><%= submission.area %></td>
+              <td><%= submission.primary_author %></td>
+              <td><%= submission.co_authors %></td>
+              <td><%= submission.submission_status %></td>
+              <td><a href="<%= submission.file_url %>" target="_blank"><i class="bi bi-eye-fill"></i></a></td>
+              
+            </tr>
+          </tbody>
+        </table>
         <% }); %> <% } else { %>
-        <h2>No Tracks have been assigned to you.</h2>
-        <% } %>
-
-        <h1>Review Submissions</h1>
-        <% if (userSubmissions && userSubmissions.length > 0) { %> <%
-        userSubmissions.forEach(function(submission) { %>
-
-              <table class="table table-bordered">
-              <tr>
-                <td>Paper Title</td>
-                <td>Action</td>
-              </tr>
-              <tr>
-                <td><%= submission.title %></td>
-                <td>
-                  <% if (submission.submission_status=="Reviewed") { %>
-                    <b>Already Reviewed</b>
-                   <% } else { %>
-                  <a type="button" class="btn btn-success" href="/reviewer/dashboard/review/<%= submission.paper_code %>"><i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review</a></td>
-<% } %>
-               
-               
-
-              </tr>
-            </table>
-
-       
-        <% }); %> <% } else { %>
-        <h2>No Submissions Found</h2>
+        <h2>No Submissions found.</h2>
         <% } %>
       </div>
     </main>
 
     <script src="/script.js"></script>
-    <footer class="footer bg-dark text-white text-center py-3" style="position:relative; left:0; bottom:0; width:100%; z-index:1030;">
-  Copyright Dayalbagh Educational Institute. All rights reserved. <br>Powered by DEI Multimedia Laboratory / Centre
-</footer>
+    <footer
+      class="footer bg-dark text-white text-center py-3"
+      style="position: relative; left: 0; bottom: 0; width: 100%; z-index: 1030"
+    >
+      Copyright Dayalbagh Educational Institute. All rights reserved.
+      <br />Powered by DEI Multimedia Laboratory / Centre
+    </footer>
   </body>
 </html>

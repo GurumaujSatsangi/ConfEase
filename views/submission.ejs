@@ -90,16 +90,18 @@
     <label for="exampleFormControlTextarea1">Abstract</label>
     <textarea class="form-control" required name="abstract" id="exampleFormControlTextarea1" rows="3"></textarea>
   </div><br>
-   <div class="form-group">
-    <label for="exampleFormControlSelect1">Area</label>
-    <select class="form-control" required name="areas" id="exampleFormControlSelect1">
-      <option>1</option>
-      <option>2</option>
-      <option>3</option>
-      <option>4</option>
-      <option>5</option>
-    </select>
-  </div><br>
+<div class="form-group">
+  <label for="exampleFormControlSelect1">Area</label>
+  <select class="form-control" required name="areas" id="exampleFormControlSelect1">
+    <% if (tracks && tracks.length > 0) { %>
+      <% tracks.forEach(function(track) { %>
+        <option value="<%= track.track_name %>"><%= track.track_name %></option>
+      <% }); %>
+    <% } else { %>
+      <option disabled>No tracks available</option>
+    <% } %>
+  </select>
+</div><br>
     <div class="form-group">
     <label for="exampleFormControlFile1">Upload Paper </label>
     <input type="file" required class="form-control-file" name="file" >

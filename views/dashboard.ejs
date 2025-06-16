@@ -105,16 +105,21 @@
                         aria-disabled="true"
                         >View Brochure</a
                       ></td>
-                    <td>  <a
-                        href="/submission/primary-author/<%= conference.id %>"
-                        class="btn btn-outline-success"
-                        tabindex="-1"
-                        style="width: 350px"
-                        role="button"
-                        id="<%= conference.id %>"
-                        aria-disabled="true"
-                        >Submit a Paper as Primary Author</a
-                      >
+
+                       <% if (currentDate > conference.full_paper_submission) { %>
+                        <td colspan="2">  <span class="badge-rejected">Due Date to submit or join a paper is over</span>
+</td>
+      <% } else { %>              
+        <td>  
+  <a
+    href="/submission/primary-author/<%= conference.id %>"
+    class="btn btn-outline-success"
+    style="width: 350px"
+    role="button"
+    id="<%= conference.id %>"
+    aria-disabled="true"
+  >Submit a Paper as Primary Author</a>
+
                </td>
                   <td>    <a
                         href="/submission/co-author/<%= conference.id %>"
@@ -127,13 +132,14 @@
                         >Join a Paper as Co-Author</a
                       >
                     </td>
-                      
+                      <% } %>
                    
                 </td>
               </tr>
             </table>
           </div>
         </div>
+        
         <% }); %> <% } else { %>
         <h2>No Active Conferences Found</h2>
         <% } %>
@@ -158,7 +164,12 @@
               <tr>
                 <td>Abstract</td>
                 <td>Paper URL</td>
+             <% if (submission.primary_author === user.email) { %>
+
                 <td>Co-Authors</td>
+                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                <td>Primary Author</td>
+                 <% } %>
                 <td>Paper Code</td>
                 <td>Submission Status</td>
                 <td>Final Camera Ready Paper Submission</td>
@@ -167,28 +178,55 @@
               <tr>
                 <td><%= submission.abstract %></td>
                 <td><a href="<%= submission.file_url %>">View Paper</a></td>
+<% if (submission.primary_author === user.email) { %>
 
                 <td><%= submission.co_authors %></td>
+                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                <td><%= submission.primary_author %></td>
+                 <% } %>
                 <td><%= submission.paper_code %></td>
                 <td><%= submission.submission_status %></td>
-                <td><% if (submission.submission_status == "Accepted" ) { %>
-                <a href="/submission/final-camera-ready/primary-author/<%= submission.id %>">Submit</a>
-                <% } else if (submission.submission_status == "Submitted for Review" ) { %>
-                <span class="badge-review">Review is still in Progress</span>
-                <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
-                <span class="badge-submitted">You have already submitted your Final Camera Ready Paper</span>
-                <% } else if (submission.submission_status == "Reviewed" ) { %>
-                <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
-                
-                <% } else { %>
-                                 <span class="badge-rejected"> Not Eligible</span>
-                <% } %></td>
+               <td>
+  <% if (submission.submission_status == "Accepted" ) { %>
+    <% if (submission.primary_author === user.email) { %>
+            <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br><a href="/submission/final-camera-ready/primary-author/<%= submission.id %>">Submit</a>
+
+    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+      <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please ask the Primary Author to submit the Final Camera Ready Paper.</span>
+    <% } %>
+  <% } else if (submission.submission_status == "Submitted for Review" ) { %>
+    <span class="badge-review">Review is still in Progress</span>
+  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
+      <% if (submission.primary_author === user.email) { %>
+    <span class="badge-submitted">You have already submitted your Final Camera Ready Paper.</span>
+
+    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+    <span class="badge-submitted">The Primary Author has already submitted the Final Camera Ready Paper.</span>
+    <% } %>
+    
+    
+  <% } else if (submission.submission_status == "Reviewed" ) { %>
+    <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
+  <% } else { %>
+    <span class="badge-rejected"> Not Eligible</span>
+  <% } %>
+</td>
                 <td>
-                 <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.id %>" role="button">
+
+
+              <% if (submission.primary_author === user.email) { %>
+              
+                <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.id %>" role="button">
           <i class="bi bi-pencil-square"></i>
         </a><br><br>
          <a class="btn btn-outline-danger" href="/submission/delete/primary-author/<%= submission.id %>" role="button">
-<i class="bi bi-trash3-fill"></i>        </a>  
+<i class="bi bi-trash3-fill"></i>        </a> 
+
+                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                <span class="badge-rejected"><i class="bi bi-lock-fill"></i> <br> Only Primary Authors are allowed to modify or delete submissions.</span>
+                 <% } %>
+                  
+                 
                   
                   
                   
