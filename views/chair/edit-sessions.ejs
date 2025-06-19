@@ -104,6 +104,7 @@
                   class="form-control"
                   type="date"
                   name="session_date"
+                  value="<%= track.presentation_date %>"
                   required
                 />
               </td>
@@ -112,6 +113,7 @@
                   class="form-control"
                   type="time"
                   name="start_time"
+                  value="<%= track.presentation_start_time %>"
                   required
                 />
               </td>
@@ -121,6 +123,7 @@
                   class="form-control"
                   type="time"
                   name="end_time"
+                  value="<%= track.presentation_end_time %>"
                   required
                 />
               </td>
@@ -131,13 +134,17 @@
                   name="panelists"
                   placeholder="Email IDs of the Panelists...seperated by comma"
                   required
-                ></textarea>
+                ><%= track.panelists %></textarea>
               </td>
             </tr>
           </table>
 
           <br />
-          <input type="submit" class="btn btn-outline-success" value="Save" />
+          <% if (track.status == "Scheduled") { %>
+  <input type="submit" class="btn btn-outline-success" value="Update" />
+<% } else { %>
+  <input type="submit" class="btn btn-outline-success" value="Save" />
+<% } %>
         </form>
 
         <div class="container px-5 my-5"></div>
