@@ -183,7 +183,7 @@
                 <td><a href="<%= submission.file_url %>" target="_blank"><i class="bi bi-eye-fill"></i></a></td>
 <% if (submission.primary_author === user.email) { %>
 
-                <td><%= submission.co_authors %></td>
+<td><%= submission.co_authors.join(", ") %></td>
                 <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
                 <td><%= submission.primary_author %></td>
                  <% } %>

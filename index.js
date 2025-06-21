@@ -21,7 +21,7 @@ const upload = multer({ dest: "uploads/" });
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "your_secret_key",
+    secret: process.env.SESSION_SECRET || "deimml",
     resave: false,
     saveUninitialized: false,
   })
@@ -88,8 +88,8 @@ app.get(
 app.get(
   "/auth2/google/dashboard2",
   passport.authenticate("google2", {
-    failureRedirect: "/?message=You are not authorized to access this page.",
-    // successRedirect: "/reviewer/dashboard", // REMOVED
+    failureRedirect: "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information.s",
+    successRedirect: "/reviewer/dashboard", // REMOVED
   }),
   async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -145,7 +145,7 @@ app.get(
   "/auth3/google/dashboard3",
   passport.authenticate("google3", {
     failureRedirect: "/?message=You are not authorized to access this page.",
-    successRedirect: "/chair/dashboard", // REMOVE THIS
+    successRedirect: "/chair/dashboard",
   }),
   async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -205,41 +205,20 @@ app.get(
 app.get("/error", (req, res) => {
   res.render("error.ejs", { message });
 });
-app.get(
-  "/auth/google/dashboard",
-  passport.authenticate("google", {
-    failureRedirect: "/?message=Please login to access your dashboard.",
-    successRedirect: "/dashboard",
-  }),
-  async (req, res) => {
-    const { data, error } = await supabase.from("conferences").select("*");
 
-    if (error && error.code !== "PGRST116") {
-      console.error(error);
-      res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
-    }
-
-    const { data: submissiondata, error: submissionerror } = await supabase
-      .from("submissions")
-      .select("*")
-      .or(
-        `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
-      );
-
-    res.render("dashboard.ejs", {
-      user: req.user,
-      conferences: data || [],
-      userSubmissions: submissiondata || [],
-      currentDate: new Date().toISOString().split("T")[0], // Pass as YYYY-MM-DD
-      // Initialize submissions as an empty array
-    });
-  }
-);
 app.get("/panelist/dashboard", (req, res) => {
   res.render("panelist/dashboard.ejs");
 });
+app.get(
+  "/auth/google/dashboard",
+  passport.authenticate("google", {
+    failureRedirect: "/",
+    successRedirect: "/dashboard",
+  })
+);
+
 app.get("/dashboard", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "author") {
+  if (!req.isAuthenticated()) {
     return res.redirect("/");
   }
 
@@ -247,8 +226,7 @@ app.get("/dashboard", async (req, res) => {
 
   if (error && error.code !== "PGRST116") {
     console.error(error);
-          res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
-
+    return res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
   }
 
   const { data: submissiondata, error: submissionerror } = await supabase
@@ -258,19 +236,46 @@ app.get("/dashboard", async (req, res) => {
       `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
     );
 
-  const { data: presentationdata, error: presentationerror } = await supabase
-    .from("conference_tracks")
-    .select("*").eq("track_name",submissiondata[0]?.area).single();
-    
-   
-
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: data || [],
     userSubmissions: submissiondata || [],
-    currentDate: new Date().toISOString().split("T")[0], 
-    presentationdata: presentationdata || [],
+    currentDate: new Date().toISOString().split("T")[0],
   });
+});
+
+
+app.get("/publish/review-results", async(req,res) => {
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
+
+  const { conference_id } = req.body;
+
+  const { data: reviewdata, error: reviewdataError } = await supabase
+    .from("peer_review")
+    .select("*")
+    .eq("conference_id", conference_id);
+
+  if (reviewdataError) {
+    console.error("Error fetching tracks:", tracksError);
+    return res.status(500).send("Error fetching tracks.");
+  }
+
+  // Update the status of each track to 'Results Published'
+  for (const data of reviewdata) {
+    const { error: updateError } = await supabase
+      .from("submissions")
+      .update({ submission_status: data.acceptance_status })
+      .eq("id", data.paper_id);
+
+    if (updateError) {
+      console.error(`Error updating track ${data.id}:`, updateError);
+      return res.status(500).send(`Error updating track ${data.id}.`);
+    }
+  }
+
+  res.redirect("/chair/dashboard");
 });
 
 app.get("/reviewer/dashboard", async (req, res) => {
@@ -286,7 +291,6 @@ app.get("/reviewer/dashboard", async (req, res) => {
           res.redirect("/reviewer/dashboard?message=We are facing some issues in connecting to the database. Please try again later.");
 
   }
-
   // Find all tracks where the user is a reviewer
   const reviewerTracks = (tracks || []).filter(
     (track) =>
@@ -325,9 +329,9 @@ app.get("/reviewer/dashboard", async (req, res) => {
   });
 });
 app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   // Fetch the track (optional, for display)
   const { data: track, error: trackError } = await supabase
@@ -991,9 +995,9 @@ app.get("/chair/dashboard", async (req, res) => {
 });
 
 app.get("/chair/dashboard/edit-conference/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const { data: conference, error } = await supabase
     .from("conferences")
@@ -1091,9 +1095,9 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
   res.redirect("/chair/dashboard");
 });
 app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const { data, error } = await supabase
     .from("submissions")
@@ -1236,52 +1240,50 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        // Find or create author in users table
-        let { data: user, error } = await supabase
+        const { data: userData, error } = await supabase
           .from("users")
           .select("*")
           .eq("uid", profile.id)
           .single();
 
-        if (!user) {
-          // Insert new author
-          const { error: insertError } = await supabase.from("users").insert([
-            {
+        let user = userData;
+
+        if (error && error.code === "PGRST116") {
+          // Not found: insert
+          const { data: newUser, error: insertError } = await supabase
+            .from("users")
+            .insert([{
               uid: profile.id,
               name: profile.displayName,
-              email: profile.emails[0].value,
-              profile_picture: profile.photos[0].value,
+              email: profile.emails?.[0]?.value || '',
+              profile_picture: profile.photos?.[0]?.value || '',
               role: "author",
-            },
-          ]);
-          if (insertError) return cb(insertError);
-
-          // Fetch the new user
-          const { data: newUser, error: fetchError } = await supabase
-            .from("users")
-            .select("*")
-            .eq("uid", profile.id)
+            }])
+            .select()
             .single();
-          if (fetchError) return cb(fetchError);
+          if (insertError) return cb(insertError);
           user = newUser;
+        } else if (error) {
+          return cb(error);
         } else {
-          // Update missing fields if needed
+          // Found: maybe update
           const updates = {};
-          if (!user.profile_picture) updates.profile_picture = profile.photos[0].value;
           if (!user.name) updates.name = profile.displayName;
+          if (!user.profile_picture) updates.profile_picture = profile.photos?.[0]?.value;
           if (!user.uid) updates.uid = profile.id;
+
           if (Object.keys(updates).length > 0) {
             await supabase.from("users").update(updates).eq("uid", profile.id);
             user = { ...user, ...updates };
           }
         }
-        user.role = "author";
-        return cb(null, user);
+
+        return cb(null, user); // Pass user to serializeUser
       } catch (err) {
         return cb(err);
       }
@@ -1289,13 +1291,14 @@ passport.use(
   )
 );
 
+
 passport.use(
   "google3",
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1342,7 +1345,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
