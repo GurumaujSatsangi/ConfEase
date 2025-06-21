@@ -56,9 +56,7 @@ app.get("/", async (req, res) => {
       return res.redirect("/reviewer/dashboard");
     } else if (req.user.role === "chair") {
       return res.redirect("/chair/dashboard");
-    } else if (req.user.role === "panelist") {
-      return res.redirect("/panelist/dashboard");
-    }
+    } 
     // Add more roles as needed
   }
   const message = req.query.message || null;
@@ -210,7 +208,7 @@ app.get("/error", (req, res) => {
 app.get(
   "/auth/google/dashboard",
   passport.authenticate("google", {
-    failureRedirect: "/",
+    failureRedirect: "/?message=Please login to access your dashboard.",
     successRedirect: "/dashboard",
   }),
   async (req, res) => {
@@ -218,10 +216,7 @@ app.get(
 
     if (error && error.code !== "PGRST116") {
       console.error(error);
-      return res.render("error.ejs", {
-        message:
-          "We are facing some issues in connecting to the database. Please try again later.",
-      });
+      res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
     }
 
     const { data: submissiondata, error: submissionerror } = await supabase
@@ -252,10 +247,8 @@ app.get("/dashboard", async (req, res) => {
 
   if (error && error.code !== "PGRST116") {
     console.error(error);
-    return res.render("error.ejs", {
-      message:
-        "We are facing some issues in connecting to the database. Please try again later.",
-    });
+          res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
+
   }
 
   const { data: submissiondata, error: submissionerror } = await supabase
@@ -290,9 +283,8 @@ app.get("/reviewer/dashboard", async (req, res) => {
     .select("*");
   if (error && error.code !== "PGRST116") {
     console.error(error);
-    return res.send(
-      "We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused."
-    );
+          res.redirect("/reviewer/dashboard?message=We are facing some issues in connecting to the database. Please try again later.");
+
   }
 
   // Find all tracks where the user is a reviewer
@@ -303,9 +295,8 @@ app.get("/reviewer/dashboard", async (req, res) => {
   );
 
   if (reviewerTracks.length === 0) {
-    return res.send(
-      "You are not assigned to any tracks. Please contact the conference organizers for more information."
-    );
+              res.redirect("/?message=You are not assigned to any tracks. Please contact the conference organizers for more information.");
+
   }
 
   // Collect all track names
@@ -357,9 +348,9 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   });
 });
 app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   // Fetch tracks for this conference
   const { data: tracks, error: tracksError } = await supabase
@@ -409,9 +400,9 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 });
 
 app.post("/chair/dashboard/set-session/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const { session_date, start_time, end_time, panelists } = req.body;
   const trackId = req.params.id;
@@ -544,9 +535,9 @@ app.get("/reviewer/dashboard/review/:id", async (req, res) => {
   });
 });
 app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const conferenceId = req.params.id;
 
@@ -681,9 +672,9 @@ app.post("/mark-as-reviewed", async (req, res) => {
 });
 
 app.get("/chair/dashboard/delete-conference/:id", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const { error } = await supabase
     .from("conferences")
@@ -789,7 +780,6 @@ app.post("/create-new-conference", async (req, res) => {
     full_paper_submission,
     acceptance_notification,
     camera_ready_paper_submission,
-    // ...other fields...
   } = req.body;
 
   // 1. Insert the conference
