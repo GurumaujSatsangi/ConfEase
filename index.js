@@ -50,10 +50,18 @@ app.use(passport.session());
 
 app.get("/", async (req, res) => {
   if (req.isAuthenticated()) {
-    return res.redirect("/dashboard");
+    if (req.user.role === "author") {
+      return res.redirect("/dashboard");
+    } else if (req.user.role === "reviewer") {
+      return res.redirect("/reviewer/dashboard");
+    } else if (req.user.role === "chair") {
+      return res.redirect("/chair/dashboard");
+    } else if (req.user.role === "panelist") {
+      return res.redirect("/panelist/dashboard");
+    }
+    // Add more roles as needed
   }
-    const message = req.query.message || null;
-
+  const message = req.query.message || null;
   const { data, error } = await supabase.from("conferences").select("*");
   res.render("home.ejs", { conferences: data, message: message });
 });
@@ -976,10 +984,9 @@ app.post(
 );
 
 app.get("/chair/dashboard", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
+   if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
   }
-
   const { data, error } = await supabase.from("conferences").select("*");
 
   if (error && error.code !== "PGRST116") {
