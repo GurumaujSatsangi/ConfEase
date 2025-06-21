@@ -1347,46 +1347,37 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        // Find or create reviewer in users table
-        let { data: user, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("uid", profile.id)
-          .single();
+        // Fetch all tracks
+        const { data: tracks, error: tracksError } = await supabase
+          .from("conference_tracks")
+          .select("*");
 
-        if (!user) {
-          // Insert new reviewer
-          const { error: insertError } = await supabase.from("users").insert([
-            {
-              uid: profile.id,
-              name: profile.displayName,
-              email: profile.emails[0].value,
-              profile_picture: profile.photos[0].value,
-              role: "reviewer",
-            },
-          ]);
-          if (insertError) return cb(insertError);
+        if (tracksError) return cb(tracksError);
 
-          // Fetch the new user
-          const { data: newUser, error: fetchError } = await supabase
-            .from("users")
-            .select("*")
-            .eq("uid", profile.id)
-            .single();
-          if (fetchError) return cb(fetchError);
-          user = newUser;
-        } else {
-          // Update missing fields if needed
-          const updates = {};
-          if (!user.profile_picture) updates.profile_picture = profile.photos[0].value;
-          if (!user.name) updates.name = profile.displayName;
-          if (!user.uid) updates.uid = profile.id;
-          if (Object.keys(updates).length > 0) {
-            await supabase.from("users").update(updates).eq("uid", profile.id);
-            user = { ...user, ...updates };
-          }
+        // Check if user is a reviewer for any track
+        const isReviewer = (tracks || []).some(
+          (track) =>
+            Array.isArray(track.track_reviewers) &&
+            track.track_reviewers.includes(profile.emails[0].value)
+        );
+
+        if (!isReviewer) {
+          return cb(
+            null,
+            false,
+            { message: "You are not authorized as a reviewer for any track." }
+          );
         }
-        user.role = "reviewer";
+
+        // Do NOT insert into users table. Just use Google profile info.
+        const user = {
+          uid: profile.id,
+          name: profile.displayName,
+          email: profile.emails[0].value,
+          profile_picture: profile.photos[0].value,
+          role: "reviewer",
+        };
+
         return cb(null, user);
       } catch (err) {
         return cb(err);
@@ -1394,7 +1385,6 @@ passport.use(
     }
   )
 );
-
 passport.serializeUser((user, cb) => {
   cb(null, { ...user, role: user.role });
 });
