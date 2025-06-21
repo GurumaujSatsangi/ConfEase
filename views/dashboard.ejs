@@ -175,6 +175,7 @@
                 <td>Paper Code</td>
                 <td>Submission Status</td>
                 <td>Final Camera Ready Paper Submission</td>
+                <td>Presentation Date & Time</td>
                 <td>Action</td>
               </tr>
               <tr>
@@ -213,7 +214,15 @@
     <span class="badge-rejected"> Not Eligible</span>
   <% } %>
 </td>
-                <td>
+<td>
+  
+    <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && presentationdata.status == "Scheduled" ) { %>
+
+  <span class="badge-reviewed">Your presentation is on <b><%= presentationdata.presentation_date %></b> between <b><%= presentationdata.presentation_start_time %></b> & <b><%= presentationdata.presentation_end_time %></b></span><br></td>
+       <% } else { %> 
+       <span class="badge-rejected"> Not Scheduled Yet</span>
+        <% } %>
+  <td>
 
 
               <% if (submission.primary_author === user.email) { %>

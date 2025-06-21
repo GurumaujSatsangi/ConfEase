@@ -6,7 +6,6 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import session from "express-session";
 import dotenv from "dotenv";
 import { v2 as cloudinary } from "cloudinary";
-
 import { createClient } from "@supabase/supabase-js";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -165,7 +164,9 @@ app.get(
     });
   }
 );
-
+app.get("/panelist/dashboard", (req, res) => {
+  res.render("panelist/dashboard.ejs");
+});
 app.get("/dashboard", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "author") {
     return res.redirect("/");
@@ -188,12 +189,18 @@ app.get("/dashboard", async (req, res) => {
       `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
     );
 
+  const { data: presentationdata, error: presentationerror } = await supabase
+    .from("conference_tracks")
+    .select("*").eq("track_name",submissiondata[0]?.area).single();
+    
+   
+
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: data || [],
     userSubmissions: submissiondata || [],
-    currentDate: new Date().toISOString().split("T")[0], // Pass as YYYY-MM-DD
-    // Initialize submissions as an empty array
+    currentDate: new Date().toISOString().split("T")[0], 
+    presentationdata: presentationdata || [],
   });
 });
 
@@ -332,6 +339,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
   const { session_date, start_time, end_time, panelists } = req.body;
   const trackId = req.params.id;
+const otp = Math.floor(100000 + Math.random() * 900000);
 
   // Insert the session details into the sessions table
   const { error } = await supabase
@@ -345,6 +353,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
         .map((e) => e.trim())
         .filter((e) => e), // Convert to array
       status: "Scheduled",
+      session_code: otp,
     })
     .eq("id", trackId);
 
@@ -356,6 +365,72 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
   res.redirect(`/chair/dashboard/manage-sessions`);
 });
 
+app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
+  
+const { data: trackinfo, error:trackError } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  // Fetch the session details
+  const { data: session, error } = await supabase
+    .from("final_camera_ready_submissions")
+    .select("*")
+    .eq("area", trackinfo.track_name);
+
+
+  if (error) {
+    console.error("Error fetching session:", error);
+    return res.status(500).send("Error fetching session details.");
+  }
+
+  if (!session) {
+    return res.status(404).send("Session not found.");
+  }
+if(trackinfo.status !== "In Progress") {
+  return res.send("Unauthorized Access. Session is not in progress.");
+}
+  res.render("panelist/active-session.ejs", {
+    session: session,
+    trackinfo: trackinfo,
+  });
+});
+app.post("/start-session", async (req,res) => {
+ 
+  const { session_code } = req.body;
+
+  // Fetch the track to verify the session code
+  const { data: track, error: trackError } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("session_code", session_code)
+    .single();
+
+
+  if (trackError || !track) {
+    console.error("Error fetching track:", trackError);
+    return res.status(500).send("Error starting the session.");
+  }
+
+  if (track.session_code !== session_code) {
+    return res.status(400).send("Invalid session code.");
+  }
+
+  // Update the status of the track to 'In Progress'
+  const { error: updateError } = await supabase
+    .from("conference_tracks")
+    .update({ status: "In Progress" })
+    .eq("session_code", session_code);
+
+  if (updateError) {
+    console.error("Error updating track status:", updateError);
+    return res.status(500).send("Error starting the session.");
+  }
+
+  res.redirect(`/panelist/dashboard/active-session/${track.id}`);
+
+  await supabase.from("conference_tracks").update({"session_code": null}).eq("id", track.id);
+}); 
 app.get("/reviewer/dashboard/review/:id", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
