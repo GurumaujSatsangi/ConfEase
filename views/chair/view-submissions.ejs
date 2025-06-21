@@ -66,8 +66,13 @@
 
       <div class="quick-access">
         <h1>Manage Submissions</h1>
-        <a href="/publish/review-results" type="button" class="btn btn-outline-danger" disabled>Publish Review Results</a>
-
+<form
+          action="/publish/review-results"
+          method="POST"
+        >
+               <input type="hidden" id="conferenceId" name="conference_id" value="<%= conferencedata %>" />
+               <input type="submit" class="btn btn-outline-danger" value="Publish Review Results" />
+</form>
         <hr>
         
         <% if (submissions && submissions.length > 0) { %> <%

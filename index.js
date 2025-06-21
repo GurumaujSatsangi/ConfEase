@@ -213,8 +213,12 @@ app.get(
   "/auth/google/dashboard",
   passport.authenticate("google", {
     failureRedirect: "/",
-    successRedirect: "/dashboard",
-  })
+    // successRedirect: "/dashboard", // REMOVE THIS
+  }),
+  (req, res) => {
+    // Now this handler will be called after successful login
+    res.redirect("/dashboard");
+  }
 );
 
 app.get("/dashboard", async (req, res) => {
@@ -245,24 +249,29 @@ app.get("/dashboard", async (req, res) => {
 });
 
 
-app.get("/publish/review-results", async(req,res) => {
+app.post("/publish/review-results", async(req,res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
   }
 
   const { conference_id } = req.body;
 
+  if (!conference_id || isNaN(Number(conference_id))) {
+    return res.status(400).send("Invalid or missing conference_id.");
+  }
+
+  const confId = Number(conference_id);
+
   const { data: reviewdata, error: reviewdataError } = await supabase
     .from("peer_review")
     .select("*")
-    .eq("conference_id", conference_id);
+    .eq("conference_id", confId);
 
   if (reviewdataError) {
-    console.error("Error fetching tracks:", tracksError);
-    return res.status(500).send("Error fetching tracks.");
+    console.error("Error fetching tracks:", reviewdataError);
+    return res.status(500).send("Error.");
   }
 
-  // Update the status of each track to 'Results Published'
   for (const data of reviewdata) {
     const { error: updateError } = await supabase
       .from("submissions")
@@ -1104,6 +1113,8 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     .select("*")
     .eq("conference_id", req.params.id);
 
+    
+
   if (error) {
     console.error("Error fetching submissions:", error);
     return res.status(500).send("Error fetching submissions.");
@@ -1112,6 +1123,7 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
   res.render("chair/view-submissions.ejs", {
     user: req.user,
     submissions: data || [],
+    conferencedata: req.params.id,
   });
 });
 app.post("/edit-submission", upload.single("file"), async (req, res) => {
@@ -1245,45 +1257,40 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        const { data: userData, error } = await supabase
+        const result = await supabase
           .from("users")
           .select("*")
           .eq("uid", profile.id)
           .single();
-
-        let user = userData;
-
-        if (error && error.code === "PGRST116") {
-          // Not found: insert
-          const { data: newUser, error: insertError } = await supabase
-            .from("users")
-            .insert([{
+        let user;
+        if (!result.data) {
+          const { error } = await supabase.from("users").insert([
+            {
               uid: profile.id,
               name: profile.displayName,
-              email: profile.emails?.[0]?.value || '',
-              profile_picture: profile.photos?.[0]?.value || '',
-              role: "author",
-            }])
-            .select()
-            .single();
-          if (insertError) return cb(insertError);
-          user = newUser;
-        } else if (error) {
-          return cb(error);
-        } else {
-          // Found: maybe update
-          const updates = {};
-          if (!user.name) updates.name = profile.displayName;
-          if (!user.profile_picture) updates.profile_picture = profile.photos?.[0]?.value;
-          if (!user.uid) updates.uid = profile.id;
-
-          if (Object.keys(updates).length > 0) {
-            await supabase.from("users").update(updates).eq("uid", profile.id);
-            user = { ...user, ...updates };
+              email: profile.emails[0].value,
+              profile_picture: profile.photos[0].value,
+            },
+          ]);
+          if (error) {
+            console.error("Error inserting user:", error);
+            return cb(error);
           }
+          const { data: newUser, error: fetchError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("uid", profile.id)
+            .single();
+          if (fetchError) {
+            console.error("Fetch after insert failed:", fetchError);
+            return cb(fetchError);
+          }
+          user = newUser;
+        } else {
+          user = result.data;
         }
-
-        return cb(null, user); // Pass user to serializeUser
+        user.role = "author";
+        return cb(null, user);
       } catch (err) {
         return cb(err);
       }
