@@ -1251,14 +1251,16 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        const result = await supabase
+        // Find or create author in users table
+        let { data: user, error } = await supabase
           .from("users")
           .select("*")
           .eq("uid", profile.id)
           .single();
-        let user;
-        if (!result.data) {
-          const { error } = await supabase.from("users").insert([
+
+        if (!user) {
+          // Insert new author
+          const { error: insertError } = await supabase.from("users").insert([
             {
               uid: profile.id,
               name: profile.displayName,
@@ -1267,22 +1269,26 @@ passport.use(
               role: "author",
             },
           ]);
-          if (error) {
-            console.error("Error inserting user:", error);
-            return cb(error);
-          }
+          if (insertError) return cb(insertError);
+
+          // Fetch the new user
           const { data: newUser, error: fetchError } = await supabase
             .from("users")
             .select("*")
             .eq("uid", profile.id)
             .single();
-          if (fetchError) {
-            console.error("Fetch after insert failed:", fetchError);
-            return cb(fetchError);
-          }
+          if (fetchError) return cb(fetchError);
           user = newUser;
         } else {
-          user = result.data;
+          // Update missing fields if needed
+          const updates = {};
+          if (!user.profile_picture) updates.profile_picture = profile.photos[0].value;
+          if (!user.name) updates.name = profile.displayName;
+          if (!user.uid) updates.uid = profile.id;
+          if (Object.keys(updates).length > 0) {
+            await supabase.from("users").update(updates).eq("uid", profile.id);
+            user = { ...user, ...updates };
+          }
         }
         user.role = "author";
         return cb(null, user);
@@ -1304,7 +1310,7 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        // Find chair by email
+        // Only allow if email is in chair table
         const { data: chair, error } = await supabase
           .from("chair")
           .select("*")
@@ -1312,7 +1318,6 @@ passport.use(
           .single();
 
         if (error || !chair) {
-          // Not a valid chair
           return cb(
             null,
             false,
@@ -1320,16 +1325,20 @@ passport.use(
           );
         }
 
-        // If profile_picture is empty, update it
-        if (!chair.profile_picture || !chair.name || !chair.uid) {
+        // Update missing fields if needed
+        const updates = {};
+        if (!chair.profile_picture) updates.profile_picture = profile.photos[0].value;
+        if (!chair.name) updates.name = profile.displayName;
+        if (!chair.uid) updates.uid = profile.id;
+        if (Object.keys(updates).length > 0) {
           await supabase
             .from("chair")
-            .update({ profile_picture: profile.photos[0].value, name: profile.displayName, uid: profile.id })
+            .update(updates)
             .eq("email_id", profile.emails[0].value);
         }
 
         chair.role = "chair";
-        return cb(null, chair);
+        return cb(null, { ...chair, ...updates });
       } catch (err) {
         return cb(err);
       }
@@ -1348,14 +1357,16 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        const result = await supabase
+        // Find or create reviewer in users table
+        let { data: user, error } = await supabase
           .from("users")
           .select("*")
           .eq("uid", profile.id)
           .single();
-        let user;
-        if (!result.data) {
-          const { error } = await supabase.from("users").insert([
+
+        if (!user) {
+          // Insert new reviewer
+          const { error: insertError } = await supabase.from("users").insert([
             {
               uid: profile.id,
               name: profile.displayName,
@@ -1364,22 +1375,26 @@ passport.use(
               role: "reviewer",
             },
           ]);
-          if (error) {
-            console.error("Error inserting user:", error);
-            return cb(error);
-          }
+          if (insertError) return cb(insertError);
+
+          // Fetch the new user
           const { data: newUser, error: fetchError } = await supabase
             .from("users")
             .select("*")
             .eq("uid", profile.id)
             .single();
-          if (fetchError) {
-            console.error("Fetch after insert failed:", fetchError);
-            return cb(fetchError);
-          }
+          if (fetchError) return cb(fetchError);
           user = newUser;
         } else {
-          user = result.data;
+          // Update missing fields if needed
+          const updates = {};
+          if (!user.profile_picture) updates.profile_picture = profile.photos[0].value;
+          if (!user.name) updates.name = profile.displayName;
+          if (!user.uid) updates.uid = profile.id;
+          if (Object.keys(updates).length > 0) {
+            await supabase.from("users").update(updates).eq("uid", profile.id);
+            user = { ...user, ...updates };
+          }
         }
         user.role = "reviewer";
         return cb(null, user);
