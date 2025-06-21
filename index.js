@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import multer from "multer";
 import fs from "fs/promises";
+import { name } from "ejs";
 
 const app = express();
 dotenv.config();
@@ -51,8 +52,10 @@ app.get("/", async (req, res) => {
   if (req.isAuthenticated()) {
     return res.redirect("/dashboard");
   }
+    const message = req.query.message || null;
+
   const { data, error } = await supabase.from("conferences").select("*");
-  res.render("home.ejs", { conferences: data });
+  res.render("home.ejs", { conferences: data, message: message });
 });
 
 app.get(
@@ -70,10 +73,73 @@ app.get(
 );
 
 app.get(
+  "/auth3/google",
+  passport.authenticate("google3", {
+    scope: ["profile", "email"],
+  })
+);
+
+app.get(
   "/auth2/google/dashboard2",
   passport.authenticate("google2", {
-    failureRedirect: "/",
-    successRedirect: "/reviewer/dashboard", // REMOVE THIS
+    failureRedirect: "/?message=You are not authorized to access this page.",
+    // successRedirect: "/reviewer/dashboard", // REMOVED
+  }),
+  async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.redirect("/");
+    }
+
+    // Fetch all tracks
+    const { data: tracks, error } = await supabase
+      .from("conference_tracks")
+      .select("*");
+
+    if (error) {
+      console.error(error);
+      return res.redirect("/?message=We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused.");
+    }
+
+    // Check if user is a reviewer for any track
+    const reviewerTracks = (tracks || []).filter(
+      (track) =>
+        Array.isArray(track.track_reviewers) &&
+        track.track_reviewers.includes(req.user.email)
+    );
+
+    if (reviewerTracks.length === 0) {
+      return res.redirect("/?message=You are not authorized as a reviewer for any track.");
+    }
+
+    // Fetch all submissions for these tracks
+    const trackNames = reviewerTracks.map((track) => track.track_name);
+    let submissiondata = [];
+    if (trackNames.length > 0) {
+      const { data: submissions, error: submissionerror } = await supabase
+        .from("submissions")
+        .select("*")
+        .in("area", trackNames);
+
+      if (submissionerror) {
+        console.error(submissionerror);
+        return res.redirect("/?message=We are facing some issues in fetching the submissions.");
+      }
+      submissiondata = submissions || [];
+    }
+
+    return res.render("reviewer/dashboard", {
+      user: req.user,
+      tracks: reviewerTracks,
+      userSubmissions: submissiondata,
+    });
+  }
+);
+
+app.get(
+  "/auth3/google/dashboard3",
+  passport.authenticate("google3", {
+    failureRedirect: "/?message=You are not authorized to access this page.",
+    successRedirect: "/chair/dashboard", // REMOVE THIS
   }),
   async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -128,6 +194,8 @@ app.get(
     }
   }
 );
+
+
 app.get("/error", (req, res) => {
   res.render("error.ejs", { message });
 });
@@ -908,9 +976,9 @@ app.post(
 );
 
 app.get("/chair/dashboard", async (req, res) => {
-  // if (!req.isAuthenticated() || req.user.role !== "chair") {
-  //   return res.redirect("/");
-  // }
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
 
   const { data, error } = await supabase.from("conferences").select("*");
 
@@ -1211,6 +1279,50 @@ passport.use(
         }
         user.role = "author";
         return cb(null, user);
+      } catch (err) {
+        return cb(err);
+      }
+    }
+  )
+);
+
+passport.use(
+  "google3",
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID3,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    async (accessToken, refreshToken, profile, cb) => {
+      try {
+        // Find chair by email
+        const { data: chair, error } = await supabase
+          .from("chair")
+          .select("*")
+          .eq("email_id", profile.emails[0].value)
+          .single();
+
+        if (error || !chair) {
+          // Not a valid chair
+          return cb(
+            null,
+            false,
+            { message: "You are not authorized as a chair for this conference." }
+          );
+        }
+
+        // If profile_picture is empty, update it
+        if (!chair.profile_picture || !chair.name || !chair.uid) {
+          await supabase
+            .from("chair")
+            .update({ profile_picture: profile.photos[0].value, name: profile.displayName, uid: profile.id })
+            .eq("email_id", profile.emails[0].value);
+        }
+
+        chair.role = "chair";
+        return cb(null, chair);
       } catch (err) {
         return cb(err);
       }

@@ -496,10 +496,7 @@ h2 {
     gap: 16px;
     margin-bottom: 24px;
 }
-.card:hover{
-    background-color: #e0f2fb;
 
-}
 
 .access-card {
     padding: 24px;
