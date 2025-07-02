@@ -502,6 +502,8 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     .select("*")
     .eq("area", trackinfo.track_name);
 
+  
+
   if (error) {
     console.error("Error fetching session:", error);
     return res.status(500).send("Error fetching session details.");
@@ -520,8 +522,12 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   res.render("panelist/active-session.ejs", {
     session: session,
     trackinfo: trackinfo,
+    message: req.query.message || null,
   });
 });
+
+
+
 app.post("/start-session", async (req, res) => {
   const { session_code } = req.body;
 
@@ -706,6 +712,8 @@ app.post("/mark-as-reviewed", async (req, res) => {
     technical_quality_score: technical_quality_score,
     clarity_score: clarity_score,
     impact_score: impact_score,
+    mean_score: (originality_score+relevance_score+technical_quality_score+clarity_score+impact_score)/5,
+    reviewer: req.user.email,
     acceptance_status: status,
   });
   await supabase
@@ -765,6 +773,57 @@ app.post("/mark-as-reviewed", async (req, res) => {
     message: "Submission has been successfully marked as reviewed.",
   });
 });
+
+app.post("/mark-presentation-as-complete", async (req, res) => {
+  const { paper_id, panelist_score, track_id } = req.body;
+  
+  // Validate required fields
+  if (!paper_id || !track_id) {
+    return res.render("error.ejs", {
+      message: "Missing required fields: paper_id or track_id",  
+    });
+  }
+
+  // Convert and validate panelist_score
+  const scoreValue = panelist_score ? Number(panelist_score) : null;
+  if (panelist_score && isNaN(scoreValue)) {
+    return res.render("error.ejs", {
+      message: "Invalid panelist score provided",  
+    });
+  }
+
+  // Convert paper_id to number (for bigint column)
+  const paperIdValue = Number(paper_id);
+  if (isNaN(paperIdValue)) {
+    return res.render("error.ejs", {
+      message: "Invalid paper ID provided",  
+    });
+  }
+
+  // Update submissions table
+  const { data, error } = await supabase
+    .from("submissions")
+    .update({ submission_status: "Presentation Completed" })
+    .eq("id", paperIdValue);
+
+  // Update final_camera_ready_submissions table
+  const { data: finalpresentation, error: finalpresentationerror } = await supabase
+    .from("final_camera_ready_submissions")
+    .update({ panelist_score: scoreValue,status:"Completed" }) // Remove quotes around column name
+    .eq("paper_id", paperIdValue);
+    
+  if (error || finalpresentationerror) {
+    console.error("Error updating submission:", error || finalpresentationerror);
+    return res.render("error.ejs", {
+      message: "We are facing some issues in marking this submission as completed.",  
+    });
+  }
+
+  // Redirect to active session with success message
+  res.redirect(`/panelist/dashboard/active-session/${track_id}?message=Submission has been successfully marked as completed.`);
+});
+
+
 
 app.get("/chair/dashboard/delete-conference/:id", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
@@ -1334,7 +1393,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "http://localhost:3000/auth/google/dashboard",
+      callbackURL: "http://confease.onrender.com/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1386,7 +1445,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
+      callbackURL: "http://confease.onrender.com/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1432,7 +1491,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
+      callbackURL: "http://confease.onrender.com/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
