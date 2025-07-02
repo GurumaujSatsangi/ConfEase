@@ -20,6 +20,7 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "googleapis": "^150.0.1",
+    "macaddress": "^0.5.3",
     "mdb-ui-kit": "^9.0.0",
     "multer": "^2.0.1",
     "nodemailer": "^7.0.3",
@@ -28,6 +29,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "supabase": "^2.20.12",
+    "sweetalert2": "^11.22.2",
     "uuid": "^11.1.0"
   }
 }

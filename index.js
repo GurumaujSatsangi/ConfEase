@@ -12,8 +12,13 @@ import path from "path";
 import multer from "multer";
 import fs from "fs/promises";
 import { name } from "ejs";
+import crypto from "crypto";
+import macaddress from "macaddress";
 
 const app = express();
+const device_mac_address=await macaddress.one();
+console.log("Device MAC Address:", device_mac_address);
+
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -207,7 +212,7 @@ app.get("/error", (req, res) => {
 });
 
 app.get("/panelist/dashboard", (req, res) => {
-  res.render("panelist/dashboard.ejs");
+  res.render("panelist/dashboard.ejs", {message: req.query.message || null});
 });
 app.get(
   "/auth/google/dashboard",
@@ -233,18 +238,41 @@ app.get("/dashboard", async (req, res) => {
     return res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
   }
 
+  // Get all user's submissions (remove .single())
+  const { data: trackinfodata, error: trackinfoError } = await supabase
+    .from("submissions")
+    .select("area")
+    .or(`primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`);
+
+  // Get unique areas from all submissions
+  const areas = [...new Set((trackinfodata || []).map(t => t.area))];
+
+  // Get presentation data for all areas (use .in() instead of .eq())
+  let presentationdatainfo = [];
+  if (areas.length > 0) {
+    const { data: presentationData, error: presentationError } = await supabase
+      .from("conference_tracks")
+      .select("*")
+      .in("track_name", areas);
+    
+    if (!presentationError) {
+      presentationdatainfo = presentationData || [];
+    }
+  }
+
+  // Get all user's submission details
   const { data: submissiondata, error: submissionerror } = await supabase
     .from("submissions")
     .select("*")
-    .or(
-      `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
-    );
+    .or(`primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`);
 
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: data || [],
     userSubmissions: submissiondata || [],
+    presentationdata: presentationdatainfo || [],
     currentDate: new Date().toISOString().split("T")[0],
+    message: req.query.message || null,
   });
 });
 
@@ -284,7 +312,7 @@ app.post("/publish/review-results", async(req,res) => {
     }
   }
 
-  res.redirect("/chair/dashboard");
+  res.redirect("/chair/dashboard?message=Review results have been successfully published.");
 });
 
 app.get("/reviewer/dashboard", async (req, res) => {
@@ -378,11 +406,11 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     .eq("id", req.params.id)
     .single();
 
-  // Fetch all submissions for this conference
-  const { data: submissions, error: submissionsError } = await supabase
-    .from("submissions")
-    .select("area, id")
-    .eq("conference_id", req.params.id, "submision_status", "Accepted");
+const { data: submissions, error: submissionsError } = await supabase
+  .from("submissions")
+  .select("area, id")
+  .eq("conference_id", req.params.id)
+  .eq("submission_status", "Accepted"); // Fixed typo: submision -> submission
 
   // Count submissions per track (area)
   const trackCounts = {};
@@ -442,8 +470,7 @@ const otp = Math.floor(100000 + Math.random() * 900000);
     return res.status(500).send("Error setting up the session.");
   }
 
-  res.redirect(`/chair/dashboard/manage-sessions`);
-});
+res.redirect(`/chair/dashboard/manage-sessions/${req.body.conference_id || ''}`);});
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   
@@ -467,8 +494,8 @@ const { data: trackinfo, error:trackError } = await supabase
   if (!session) {
     return res.status(404).send("Session not found.");
   }
-if(trackinfo.status !== "In Progress") {
-  return res.send("Unauthorized Access. Session is not in progress.");
+if(trackinfo.device_mac_address !== device_mac_address) {
+return res.redirect("/?message=Your MAC Address ("+device_mac_address+") is not same to the one in our records. Please contact someone from the DEI Multimedia Team for assistance.");
 }
   res.render("panelist/active-session.ejs", {
     session: session,
@@ -478,6 +505,7 @@ if(trackinfo.status !== "In Progress") {
 app.post("/start-session", async (req,res) => {
  
   const { session_code } = req.body;
+
 
   // Fetch the track to verify the session code
   const { data: track, error: trackError } = await supabase
@@ -489,17 +517,32 @@ app.post("/start-session", async (req,res) => {
 
   if (trackError || !track) {
     console.error("Error fetching track:", trackError);
-    return res.status(500).send("Error starting the session.");
-  }
+return res.redirect("/panelist/dashboard?message=Database Error, Please try again.")  }
 
   if (track.session_code !== session_code) {
-    return res.status(400).send("Invalid session code.");
+return res.redirect("/panelist/dashboard?message=Invalid session code. Please check and try again.");}
+
+if(track.presentation_date == new Date().toISOString().split("T")[0]) {
+  const currentTime = new Date().toISOString().split("T")[1].slice(0,5);
+  
+  if(currentTime < track.presentation_start_time) {
+    return res.redirect("/panelist/dashboard?message=The scheduled start time for this session is "+track.presentation_start_time+". Please try again later.");
   }
+  
+  else if(currentTime > track.presentation_end_time) {
+    return res.redirect("/panelist/dashboard?message=The scheduled end time for this session was "+track.presentation_end_time+". The session has ended.");
+  }
+  
+
+}
+else {
+    return res.redirect("/panelist/dashboard?message=The scheduled date for this session is "+track.presentation_date+". Please try again later.");
+}
 
   // Update the status of the track to 'In Progress'
   const { error: updateError } = await supabase
     .from("conference_tracks")
-    .update({ status: "In Progress" })
+    .update({ status: "In Progress", device_mac_address: device_mac_address })
     .eq("session_code", session_code);
 
   if (updateError) {
@@ -747,20 +790,20 @@ app.post("/join", async (req, res) => {
     .single();
 
   if (error) {
-    console.error("Error fetching submission:", error);
-    return res.status(500).send("Error joining submission.");
-  }
+return res.redirect("/dashboard?message=Invalid Paper Code. Please try again.");}
 
   if (!data) {
-    return res.status(404).send("Submission not found.");
-  }
+return res.redirect("/dashboard?message=Submission not found. Please try again.");  }
 
   let coAuthors = data.co_authors || [];
-  if (data.primary_author_uid === req.user.uid) {
-    return res
-      .status(400)
-      .send("You are already the primary author of this submission.");
-  } else if (!coAuthors.includes(req.user.email)) {
+// In /join route - add return statements:
+if (data.primary_author === req.user.email) {
+  return res.redirect("/dashboard?message=You are the primary author of this paper. You cannot join as a co-author.");
+} else if (coAuthors.includes(req.user.email)) {
+  return res.redirect("/dashboard?message=You are already a co-author of this paper");
+}
+  
+  else if (!coAuthors.includes(req.user.email)) {
     coAuthors.push(req.user.email);
   }
 
@@ -771,10 +814,7 @@ app.post("/join", async (req, res) => {
     .eq("paper_code", paper_code)
     .eq("conference_id", id);
 
-  if (updateError) {
-    console.error("Error updating co-author:", updateError);
-    return res.status(500).send("Error joining submission.");
-  }
+  
 
   if (updateError) {
     console.error("Error inserting co-author:", insertError);
@@ -840,7 +880,7 @@ app.post("/create-new-conference", async (req, res) => {
     }
   }
 
-  res.redirect("/dashboard");
+  res.redirect("/chair/dashboard");
 });
 
 app.get("/chair/create-new-conference", (req, res) => {
@@ -966,8 +1006,7 @@ app.post(
         area: areas,
         co_authors: co_authors,
         file_url: uploadResult.secure_url,
-      })
-      .eq("id", id);
+      });
 
     await supabase
       .from("submissions")

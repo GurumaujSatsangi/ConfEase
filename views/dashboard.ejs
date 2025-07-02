@@ -162,21 +162,21 @@
             <!-- or whatever fields you have -->
           </div>
           <div class="card-body">
-            <table class="table table-bordered">
+            <table style="width:100%" class="table table-bordered">
               <tr>
-                <td>Abstract</td>
-                <td>View Paper</td>
+                <th>Abstract</th>
+                <th>View Paper</th>
              <% if (submission.primary_author === user.email) { %>
 
-                <td>Co-Authors</td>
+                <th style="width:10%">Co-Authors</th>
                 <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                <td>Primary Author</td>
+                <th style="width:10%">Primary Author</th>
                  <% } %>
-                <td>Paper Code</td>
-                <td>Submission Status</td>
-                <td>Final Camera Ready Paper Submission</td>
-                <td>Presentation Date & Time</td>
-                <td>Action</td>
+                <th>Paper Code</th>
+                <th>Submission Status</th>
+                <th>Final Camera Ready Paper Submission</th>
+                <th>Presentation Date & Time</th>
+                <th>Action</th>
               </tr>
               <tr>
                 <td><%= submission.abstract %></td>
@@ -215,61 +215,46 @@
   <% } %>
 </td>
 <td>
-  
-    <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && presentationdata.status == "Scheduled" ) { %>
-
-  <span class="badge-reviewed">Your presentation is on <b><%= presentationdata.presentation_date %></b> between <b><%= presentationdata.presentation_start_time %></b> & <b><%= presentationdata.presentation_end_time %></b></span><br></td>
-       <% } else { %> 
-       <span class="badge-rejected"> Not Scheduled Yet</span>
-        <% } %>
-  <td>
-
-
-              <% if (submission.primary_author === user.email) { %>
-              
-                <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.id %>" role="button">
-          <i class="bi bi-pencil-square"></i>
-        </a><br><br>
-         <a
-  class="btn btn-outline-danger delete-btn"
-  href="/submission/delete/primary-author/<%= submission.id %>"
-  role="button"
->
-  <i class="bi bi-trash3-fill"></i>
-</a>
-<script>
-document.querySelectorAll('.delete-btn').forEach(function(btn) {
-  btn.addEventListener('click', function(e) {
-    e.preventDefault();
-    const href = this.getAttribute('href');
-    Swal.fire({
-      title: "Alert!",
-      text: "Are you sure you want to delete your submission titled '<%= submission.title %>'? This action cannot be undone. ",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#3085d6",
-      cancelButtonColor: "#d33",
-      confirmButtonText: "Yes, Delete my submission."
-    }).then((result) => {
-      if (result.isConfirmed) {
-        window.location.href = href;
-      }
-    });
-  });
-});
-</script>
-
-
-
-                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                <span class="badge-rejected"><i class="bi bi-lock-fill"></i> <br> Only Primary Authors are allowed to modify or delete submissions.</span>
-                 <% } %>
-                  
-                 
-                  
-                  
-                  
+    <% 
+        // Find the presentation data for this submission's area
+        const matchingPresentation = presentationdata.find(p => p.track_name === submission.area);
+    %>
+    <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && matchingPresentation && matchingPresentation.status == "Scheduled") { %>
+        <span class="badge-reviewed">Your presentation is on <b><%= matchingPresentation.presentation_date %></b> between <b><%= matchingPresentation.presentation_start_time %></b> & <b><%= matchingPresentation.presentation_end_time %></b></span><br>
+    <% } else { %> 
+        <span class="badge-rejected"> Not Scheduled Yet</span>
+    <% } %>
 </td>
+<td>
+    <% if (submission.primary_author === user.email) { %>
+        <% 
+            // Find the conference for this submission to check deadline
+            const submissionConference = conferences.find(c => c.id == submission.conference_id);
+            const isDeadlinePassed = submissionConference && currentDate > submissionConference.full_paper_submission;
+        %>
+        
+        <% if (isDeadlinePassed) { %>
+            <!-- Disabled buttons when deadline is over -->
+                   <span class="badge-rejected"><i class="bi bi-lock-fill"></i> <br>Due date to Modify / Delete Submission is over.</span>
+
+        <% } else { %>
+            <!-- Active buttons when deadline hasn't passed -->
+            <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.id %>" role="button">
+                <i class="bi bi-pencil-square"></i>
+            </a><br><br>
+            <a class="btn btn-outline-danger delete-btn" 
+               href="/submission/delete/primary-author/<%= submission.id %>" 
+               data-title="<%= submission.title %>"
+               role="button">
+                <i class="bi bi-trash3-fill"></i>
+            </a>
+        <% } %>
+    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+        <span class="badge-rejected"><i class="bi bi-lock-fill"></i> <br> Only Primary Authors are allowed to modify or delete submissions.</span>
+    <% } %>
+</td>
+
+
 
               </tr>
             </table>
@@ -281,6 +266,44 @@ document.querySelectorAll('.delete-btn').forEach(function(btn) {
       </div>
     </main>
 
+<% if (message) { %>
+  <script>
+    Swal.fire({
+      title: 'Alert',
+      text: '<%= message %>',
+      icon: 'info',
+      confirmButtonText: 'OK'
+    });
+    if (window.location.search.includes('message=')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  </script>
+  <% } %>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.delete-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      const href = this.getAttribute('href');
+      const title = this.getAttribute('data-title');
+      Swal.fire({
+        title: "Alert!",
+        text: "Are you sure you want to delete your submission titled '" + title + "'? This action cannot be undone.",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#3085d6",
+        cancelButtonColor: "#d33",
+        confirmButtonText: "Yes, Delete my submission."
+      }).then((result) => {
+        if (result.isConfirmed) {
+          window.location.href = href;
+        }
+      });
+    });
+  });
+});
+</script>
     <script src="/script.js"></script>
     <footer class="footer bg-dark text-white text-center py-3" style="position:relative; left:0; bottom:0; width:100%; z-index:1030;">
   Copyright Dayalbagh Educational Institute. All rights reserved. <br>Powered by DEI Multimedia Laboratory / Centre
