@@ -16,7 +16,7 @@ import crypto from "crypto";
 import macaddress from "macaddress";
 
 const app = express();
-const device_mac_address=await macaddress.one();
+const device_mac_address = await macaddress.one();
 console.log("Device MAC Address:", device_mac_address);
 
 dotenv.config();
@@ -61,7 +61,7 @@ app.get("/", async (req, res) => {
       return res.redirect("/reviewer/dashboard");
     } else if (req.user.role === "chair") {
       return res.redirect("/chair/dashboard");
-    } 
+    }
     // Add more roles as needed
   }
   const message = req.query.message || null;
@@ -93,7 +93,8 @@ app.get(
 app.get(
   "/auth2/google/dashboard2",
   passport.authenticate("google2", {
-    failureRedirect: "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information.s",
+    failureRedirect:
+      "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information.s",
     successRedirect: "/reviewer/dashboard", // REMOVED
   }),
   async (req, res) => {
@@ -108,7 +109,9 @@ app.get(
 
     if (error) {
       console.error(error);
-      return res.redirect("/?message=We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused.");
+      return res.redirect(
+        "/?message=We are facing some issues in fetching your assigned tracks. Please try again later. Sincere apologies for the inconvenience caused."
+      );
     }
 
     // Check if user is a reviewer for any track
@@ -119,7 +122,9 @@ app.get(
     );
 
     if (reviewerTracks.length === 0) {
-      return res.redirect("/?message=You are not authorized as a reviewer for any track.");
+      return res.redirect(
+        "/?message=You are not authorized as a reviewer for any track."
+      );
     }
 
     // Fetch all submissions for these tracks
@@ -133,7 +138,9 @@ app.get(
 
       if (submissionerror) {
         console.error(submissionerror);
-        return res.redirect("/?message=We are facing some issues in fetching the submissions.");
+        return res.redirect(
+          "/?message=We are facing some issues in fetching the submissions."
+        );
       }
       submissiondata = submissions || [];
     }
@@ -206,13 +213,12 @@ app.get(
   }
 );
 
-
 app.get("/error", (req, res) => {
   res.render("error.ejs", { message });
 });
 
 app.get("/panelist/dashboard", (req, res) => {
-  res.render("panelist/dashboard.ejs", {message: req.query.message || null});
+  res.render("panelist/dashboard.ejs", { message: req.query.message || null });
 });
 app.get(
   "/auth/google/dashboard",
@@ -235,17 +241,21 @@ app.get("/dashboard", async (req, res) => {
 
   if (error && error.code !== "PGRST116") {
     console.error(error);
-    return res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later.");
+    return res.redirect(
+      "/?message=We are facing some issues in connecting to the database. Please try again later."
+    );
   }
 
   // Get all user's submissions (remove .single())
   const { data: trackinfodata, error: trackinfoError } = await supabase
     .from("submissions")
     .select("area")
-    .or(`primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`);
+    .or(
+      `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
+    );
 
   // Get unique areas from all submissions
-  const areas = [...new Set((trackinfodata || []).map(t => t.area))];
+  const areas = [...new Set((trackinfodata || []).map((t) => t.area))];
 
   // Get presentation data for all areas (use .in() instead of .eq())
   let presentationdatainfo = [];
@@ -254,7 +264,7 @@ app.get("/dashboard", async (req, res) => {
       .from("conference_tracks")
       .select("*")
       .in("track_name", areas);
-    
+
     if (!presentationError) {
       presentationdatainfo = presentationData || [];
     }
@@ -264,7 +274,9 @@ app.get("/dashboard", async (req, res) => {
   const { data: submissiondata, error: submissionerror } = await supabase
     .from("submissions")
     .select("*")
-    .or(`primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`);
+    .or(
+      `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
+    );
 
   res.render("dashboard.ejs", {
     user: req.user,
@@ -276,8 +288,7 @@ app.get("/dashboard", async (req, res) => {
   });
 });
 
-
-app.post("/publish/review-results", async(req,res) => {
+app.post("/publish/review-results", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
   }
@@ -312,7 +323,9 @@ app.post("/publish/review-results", async(req,res) => {
     }
   }
 
-  res.redirect("/chair/dashboard?message=Review results have been successfully published.");
+  res.redirect(
+    "/chair/dashboard?message=Review results have been successfully published."
+  );
 });
 
 app.get("/reviewer/dashboard", async (req, res) => {
@@ -325,8 +338,9 @@ app.get("/reviewer/dashboard", async (req, res) => {
     .select("*");
   if (error && error.code !== "PGRST116") {
     console.error(error);
-          res.redirect("/reviewer/dashboard?message=We are facing some issues in connecting to the database. Please try again later.");
-
+    res.redirect(
+      "/reviewer/dashboard?message=We are facing some issues in connecting to the database. Please try again later."
+    );
   }
   // Find all tracks where the user is a reviewer
   const reviewerTracks = (tracks || []).filter(
@@ -336,8 +350,9 @@ app.get("/reviewer/dashboard", async (req, res) => {
   );
 
   if (reviewerTracks.length === 0) {
-              res.redirect("/?message=You are not assigned to any tracks. Please contact the conference organizers for more information.");
-
+    res.redirect(
+      "/?message=You are not assigned to any tracks. Please contact the conference organizers for more information."
+    );
   }
 
   // Collect all track names
@@ -406,11 +421,11 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     .eq("id", req.params.id)
     .single();
 
-const { data: submissions, error: submissionsError } = await supabase
-  .from("submissions")
-  .select("area, id")
-  .eq("conference_id", req.params.id)
-  .eq("submission_status", "Accepted"); // Fixed typo: submision -> submission
+  const { data: submissions, error: submissionsError } = await supabase
+    .from("submissions")
+    .select("area, id")
+    .eq("conference_id", req.params.id)
+    .eq("submission_status", "Accepted"); // Fixed typo: submision -> submission
 
   // Count submissions per track (area)
   const trackCounts = {};
@@ -447,7 +462,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
   const { session_date, start_time, end_time, panelists } = req.body;
   const trackId = req.params.id;
-const otp = Math.floor(100000 + Math.random() * 900000);
+  const otp = Math.floor(100000 + Math.random() * 900000);
 
   // Insert the session details into the sessions table
   const { error } = await supabase
@@ -470,11 +485,13 @@ const otp = Math.floor(100000 + Math.random() * 900000);
     return res.status(500).send("Error setting up the session.");
   }
 
-res.redirect(`/chair/dashboard/manage-sessions/${req.body.conference_id || ''}`);});
+  res.redirect(
+    `/chair/dashboard/manage-sessions/${req.body.conference_id || ""}`
+  );
+});
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
-  
-const { data: trackinfo, error:trackError } = await supabase
+  const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
     .eq("id", req.params.id)
@@ -485,7 +502,6 @@ const { data: trackinfo, error:trackError } = await supabase
     .select("*")
     .eq("area", trackinfo.track_name);
 
-
   if (error) {
     console.error("Error fetching session:", error);
     return res.status(500).send("Error fetching session details.");
@@ -494,18 +510,20 @@ const { data: trackinfo, error:trackError } = await supabase
   if (!session) {
     return res.status(404).send("Session not found.");
   }
-if(trackinfo.device_mac_address !== device_mac_address) {
-return res.redirect("/?message=Your MAC Address ("+device_mac_address+") is not same to the one in our records. Please contact someone from the DEI Multimedia Team for assistance.");
-}
+  if (trackinfo.device_mac_address !== device_mac_address) {
+    return res.redirect(
+      "/?message=Your MAC Address (" +
+        device_mac_address +
+        ") is not same to the one in our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
+    );
+  }
   res.render("panelist/active-session.ejs", {
     session: session,
     trackinfo: trackinfo,
   });
 });
-app.post("/start-session", async (req,res) => {
- 
+app.post("/start-session", async (req, res) => {
   const { session_code } = req.body;
-
 
   // Fetch the track to verify the session code
   const { data: track, error: trackError } = await supabase
@@ -514,46 +532,69 @@ app.post("/start-session", async (req,res) => {
     .eq("session_code", session_code)
     .single();
 
-
   if (trackError || !track) {
     console.error("Error fetching track:", trackError);
-return res.redirect("/panelist/dashboard?message=Database Error, Please try again.")  }
+    return res.redirect(
+      "/panelist/dashboard?message=Database Error, Please try again."
+    );
+  }
 
   if (track.session_code !== session_code) {
-return res.redirect("/panelist/dashboard?message=Invalid session code. Please check and try again.");}
-
-if(track.presentation_date == new Date().toISOString().split("T")[0]) {
-  const currentTime = new Date().toISOString().split("T")[1].slice(0,5);
-  
-  if(currentTime < track.presentation_start_time) {
-    return res.redirect("/panelist/dashboard?message=The scheduled start time for this session is "+track.presentation_start_time+". Please try again later.");
-  }
-  
-  else if(currentTime > track.presentation_end_time) {
-    return res.redirect("/panelist/dashboard?message=The scheduled end time for this session was "+track.presentation_end_time+". The session has ended.");
-  }
-  
-
-}
-else {
-    return res.redirect("/panelist/dashboard?message=The scheduled date for this session is "+track.presentation_date+". Please try again later.");
-}
-
-  // Update the status of the track to 'In Progress'
-  const { error: updateError } = await supabase
-    .from("conference_tracks")
-    .update({ status: "In Progress", device_mac_address: device_mac_address })
-    .eq("session_code", session_code);
-
-  if (updateError) {
-    console.error("Error updating track status:", updateError);
-    return res.status(500).send("Error starting the session.");
+    return res.redirect(
+      "/panelist/dashboard?message=Invalid session code. Please check and try again."
+    );
   }
 
-  res.redirect(`/panelist/dashboard/active-session/${track.id}`);
+const now = new Date();
+const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+const istTime = new Date(now.getTime() + istOffset);
 
-  await supabase.from("conference_tracks").update({"session_code": null}).eq("id", track.id);
-}); 
+const currentDate = istTime.toISOString().split("T")[0];
+const currentTime = istTime.toISOString().split("T")[1].slice(0, 5);
+
+console.log("Current Date (IST):", currentDate);
+console.log("Current Time (IST):", currentTime);
+  
+  if (track.presentation_date == currentDate) {
+    if (currentTime < track.presentation_start_time) {
+      return res.redirect(
+        "/panelist/dashboard?message=The scheduled start time for this session is " +
+          track.presentation_start_time +
+          ". Please try again later."
+      );
+    } else if (currentTime > track.presentation_end_time) {
+      return res.redirect(
+        "/panelist/dashboard?message=The scheduled end time for this session was " +
+          track.presentation_end_time +
+          ". The session has ended."
+      );
+    } else {
+      // Update everything in ONE operation using track.id
+      const { error: updateError } = await supabase
+        .from("conference_tracks")
+        .update({
+          status: "In Progress",
+          device_mac_address: device_mac_address,
+          session_code: null
+        })
+        .eq("id", track.id);
+
+      if (updateError) {
+        console.error("Error updating track status:", updateError);
+        return res.status(500).send("Error starting the session.");
+      }
+
+      // Only redirect after successful update
+      res.redirect(`/panelist/dashboard/active-session/${track.id}`);
+    }
+  } else {
+    return res.redirect(
+      "/panelist/dashboard?message=The scheduled date for this session is " +
+        track.presentation_date +
+        ". Please try again later."
+    );
+  }
+});
 app.get("/reviewer/dashboard/review/:id", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
@@ -655,20 +696,18 @@ app.post("/mark-as-reviewed", async (req, res) => {
     remarks,
   } = req.body;
 
-  const { data, error } = await supabase
-    .from("peer_review")
-    .insert({
-      conference_id: conference_id,
-      paper_id: paper_id,
-      review_status: "Reviewed",
-      remarks: remarks,
-      originality_score: originality_score,
-      relevance_score: relevance_score,
-      technical_quality_score: technical_quality_score,
-      clarity_score: clarity_score,
-      impact_score: impact_score,
-      acceptance_status: status,
-    });
+  const { data, error } = await supabase.from("peer_review").insert({
+    conference_id: conference_id,
+    paper_id: paper_id,
+    review_status: "Reviewed",
+    remarks: remarks,
+    originality_score: originality_score,
+    relevance_score: relevance_score,
+    technical_quality_score: technical_quality_score,
+    clarity_score: clarity_score,
+    impact_score: impact_score,
+    acceptance_status: status,
+  });
   await supabase
     .from("submissions")
     .update({ submission_status: "Reviewed", remarks: remarks })
@@ -790,20 +829,28 @@ app.post("/join", async (req, res) => {
     .single();
 
   if (error) {
-return res.redirect("/dashboard?message=Invalid Paper Code. Please try again.");}
+    return res.redirect(
+      "/dashboard?message=Invalid Paper Code. Please try again."
+    );
+  }
 
   if (!data) {
-return res.redirect("/dashboard?message=Submission not found. Please try again.");  }
+    return res.redirect(
+      "/dashboard?message=Submission not found. Please try again."
+    );
+  }
 
   let coAuthors = data.co_authors || [];
-// In /join route - add return statements:
-if (data.primary_author === req.user.email) {
-  return res.redirect("/dashboard?message=You are the primary author of this paper. You cannot join as a co-author.");
-} else if (coAuthors.includes(req.user.email)) {
-  return res.redirect("/dashboard?message=You are already a co-author of this paper");
-}
-  
-  else if (!coAuthors.includes(req.user.email)) {
+  // In /join route - add return statements:
+  if (data.primary_author === req.user.email) {
+    return res.redirect(
+      "/dashboard?message=You are the primary author of this paper. You cannot join as a co-author."
+    );
+  } else if (coAuthors.includes(req.user.email)) {
+    return res.redirect(
+      "/dashboard?message=You are already a co-author of this paper"
+    );
+  } else if (!coAuthors.includes(req.user.email)) {
     coAuthors.push(req.user.email);
   }
 
@@ -813,8 +860,6 @@ if (data.primary_author === req.user.email) {
     .update({ co_authors: coAuthors })
     .eq("paper_code", paper_code)
     .eq("conference_id", id);
-
-  
 
   if (updateError) {
     console.error("Error inserting co-author:", insertError);
@@ -1026,7 +1071,7 @@ app.post(
 );
 
 app.get("/chair/dashboard", async (req, res) => {
-   if (!req.isAuthenticated() || req.user.role !== "chair") {
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
   }
   const { data, error } = await supabase.from("conferences").select("*");
@@ -1151,8 +1196,6 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     .from("submissions")
     .select("*")
     .eq("conference_id", req.params.id);
-
-    
 
   if (error) {
     console.error("Error fetching submissions:", error);
@@ -1337,7 +1380,6 @@ passport.use(
   )
 );
 
-
 passport.use(
   "google3",
   new GoogleStrategy(
@@ -1357,16 +1399,15 @@ passport.use(
           .single();
 
         if (error || !chair) {
-          return cb(
-            null,
-            false,
-            { message: "You are not authorized as a chair for this conference." }
-          );
+          return cb(null, false, {
+            message: "You are not authorized as a chair for this conference.",
+          });
         }
 
         // Update missing fields if needed
         const updates = {};
-        if (!chair.profile_picture) updates.profile_picture = profile.photos[0].value;
+        if (!chair.profile_picture)
+          updates.profile_picture = profile.photos[0].value;
         if (!chair.name) updates.name = profile.displayName;
         if (!chair.uid) updates.uid = profile.id;
         if (Object.keys(updates).length > 0) {
@@ -1411,11 +1452,9 @@ passport.use(
         );
 
         if (!isReviewer) {
-          return cb(
-            null,
-            false,
-            { message: "You are not authorized as a reviewer for any track." }
-          );
+          return cb(null, false, {
+            message: "You are not authorized as a reviewer for any track.",
+          });
         }
 
         // Do NOT insert into users table. Just use Google profile info.
