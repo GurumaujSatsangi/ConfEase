@@ -236,7 +236,9 @@ app.get("/dashboard", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
   }
-
+if (req.user.role !== "author") {
+    return res.redirect("/?message=You are not authorized to access the author dashboard.");
+  }
   const { data, error } = await supabase.from("conferences").select("*");
 
   if (error && error.code !== "PGRST116") {
@@ -665,15 +667,14 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
       .split(",")
       .map((e) => e.trim())
       .filter((e) => e); // removes empty strings
-    const { error: updateError } = await supabase.from("sessions").insert({
-      conference_id: conferenceId,
-      session_title: track.track_name,
-      session_date: session_date,
-      session_start_time: session_start_time,
-      session_end_time: session_end_time,
+    const { error: updateError } = await supabase.from("conference_tracks").update({
+      track_name: track.track_name,
+      presentation_date: session_date,
+      presentation_start_time: session_start_time,
+      presentation_end_time: session_end_time,
       panelists: session_panelists,
       status: "Scheduled",
-    });
+    }).eq("id", track.id);
 
     if (updateError) {
       console.error(`Error updating track ${track.track_name}:`, updateError);
@@ -929,6 +930,7 @@ app.post("/join", async (req, res) => {
 });
 
 app.post("/create-new-conference", async (req, res) => {
+ 
   const {
     title,
     description,
@@ -988,7 +990,13 @@ app.post("/create-new-conference", async (req, res) => {
 });
 
 app.get("/chair/create-new-conference", (req, res) => {
-  res.render("chair/create-new-conference.ejs");
+   if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
+  res.render("chair/create-new-conference.ejs" , {
+    user: req.user,
+    message: req.query.message || null,
+  });
 });
 app.get("/submission/primary-author/:id", async (req, res) => {
   if (!req.isAuthenticated()) {
@@ -1189,7 +1197,6 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
     full_paper_submission,
     acceptance_notification,
     camera_ready_paper_submission,
-    // ...other fields...
   } = req.body;
 
   // 1. Update conference details
@@ -1211,36 +1218,82 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
     return res.status(500).send("Error updating conference.");
   }
 
-  // 2. Delete old tracks for this conference
-  const { error: delError } = await supabase
+  // 2. Get existing tracks for this conference
+  const { data: existingTracks, error: fetchError } = await supabase
     .from("conference_tracks")
-    .delete()
+    .select("*")
     .eq("conference_id", conferenceId);
 
-  if (delError) {
-    console.error("Error deleting old tracks:", delError);
-    return res.status(500).send("Error updating tracks.");
+  if (fetchError) {
+    console.error("Error fetching existing tracks:", fetchError);
+    return res.status(500).send("Error fetching existing tracks.");
   }
 
-  // 3. Insert new/edited tracks
-  const tracks = [];
+  // 3. Collect new tracks from form
+  const newTracks = [];
   let i = 1;
   while (req.body[`track_title_${i}`] && req.body[`track_reviewer_${i}`]) {
-    tracks.push({
-      conference_id: conferenceId,
+    newTracks.push({
       track_name: req.body[`track_title_${i}`],
-      track_reviewers: [req.body[`track_reviewer_${i}`]], // as array
+      track_reviewers: [req.body[`track_reviewer_${i}`]],
+      index: i - 1 // to match with existing tracks by position
     });
     i++;
   }
 
-  if (tracks.length > 0) {
-    const { error: tracksError } = await supabase
+  // 4. Update existing tracks (preserve presentation data)
+  for (let idx = 0; idx < Math.min(existingTracks.length, newTracks.length); idx++) {
+    const existingTrack = existingTracks[idx];
+    const newTrack = newTracks[idx];
+
+    const { error: updateError } = await supabase
       .from("conference_tracks")
-      .insert(tracks);
-    if (tracksError) {
-      console.error("Error inserting tracks:", tracksError);
-      return res.status(500).send("Error updating tracks.");
+      .update({
+        track_name: newTrack.track_name,
+        track_reviewers: newTrack.track_reviewers,
+        // Keep existing presentation data
+        // presentation_date, presentation_start_time, presentation_end_time, panelists will remain unchanged
+      })
+      .eq("id", existingTrack.id);
+
+    if (updateError) {
+      console.error(`Error updating track ${existingTrack.id}:`, updateError);
+      return res.status(500).send(`Error updating track ${existingTrack.track_name}.`);
+    }
+  }
+
+  // 5. If there are more new tracks than existing ones, insert the additional ones
+  if (newTracks.length > existingTracks.length) {
+    const tracksToInsert = newTracks.slice(existingTracks.length).map(track => ({
+      conference_id: conferenceId,
+      track_name: track.track_name,
+      track_reviewers: track.track_reviewers,
+      // New tracks will have null presentation data initially
+    }));
+
+    const { error: insertError } = await supabase
+      .from("conference_tracks")
+      .insert(tracksToInsert);
+
+    if (insertError) {
+      console.error("Error inserting new tracks:", insertError);
+      return res.status(500).send("Error inserting new tracks.");
+    }
+  }
+
+  // 6. If there are fewer new tracks than existing ones, delete the extra ones
+  if (newTracks.length < existingTracks.length) {
+    const tracksToDelete = existingTracks.slice(newTracks.length);
+    const trackIdsToDelete = tracksToDelete.map(track => track.id);
+
+    const { error: deleteError } = await supabase
+      .from("conference_tracks")
+      .delete()
+      .in("id", trackIdsToDelete);
+
+    if (deleteError) {
+      console.error("Error deleting extra tracks:", deleteError);
+      return res.status(500).send("Error deleting extra tracks.");
     }
   }
 
@@ -1256,6 +1309,11 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     .select("*")
     .eq("conference_id", req.params.id);
 
+    const {data:confdata, error: conferror} = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("id", req.params.id).single();
+
   if (error) {
     console.error("Error fetching submissions:", error);
     return res.status(500).send("Error fetching submissions.");
@@ -1265,6 +1323,7 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     user: req.user,
     submissions: data || [],
     conferencedata: req.params.id,
+    confdata: confdata || {},
   });
 });
 app.post("/edit-submission", upload.single("file"), async (req, res) => {
@@ -1393,7 +1452,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1445,7 +1504,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1491,7 +1550,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {

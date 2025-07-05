@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-   <head>
+     <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
@@ -9,6 +9,10 @@
       rel="stylesheet"
       integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT"
       crossorigin="anonymous"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
     />
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
@@ -48,19 +52,24 @@
         </div>
       </div>
 
-      <div class="header-right">
-        <a href="/logout" class="btn btn-block" role="button"> Logout</a>
+     <div class="header-right">
+        You are logged in as <%= user.name %> (<%= user.email_id %>) &nbsp;
+        <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
+    <div class="alert alert-primary" id="homescroll" role="alert">
+  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! |  In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
+</marquee>
 
+</div>
+<nav style="--bs-breadcrumb-divider: '>';" aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/chair/dashboard">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Edit Conference</li>
+  </ol>
+</nav>
     <main>
-      <div class="welcome-section">
-        <div class="welcome-content">
-          <div class="welcome-header">
-            <h1>Welcome to DEI Conference Management Toolkit!</h1>
-          </div>
-        </div>
-      </div>
+   
 
       <div class="quick-access">
         <h1>Edit Conference</h1>
@@ -309,5 +318,12 @@ document.querySelector("form").addEventListener("submit", function() {
       integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
       crossorigin="anonymous"
     ></script>
+      <footer
+      class="footer bg-dark text-white text-center py-3"
+      style="position: static; left: 0; bottom: 0; width: 100%; z-index: 1030"
+    >
+      Copyright Dayalbagh Educational Institute. All rights reserved.
+      <br />Powered by DEI Multimedia Laboratory / Centre
+    </footer>
   </body>
 </html>

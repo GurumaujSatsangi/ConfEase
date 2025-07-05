@@ -54,19 +54,18 @@
         <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
+<div class="alert alert-primary" id="homescroll" role="alert">
+  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! | <a href="#welcome-content">View Active Conferences</a> | In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
+</marquee>
 
-    <main>
-      <div class="welcome-section">
-        <div class="welcome-content">
-            <div class="alert alert-info" role="alert">
-  <marquee>In case of any queries, please feel free to reach out to us at <b>multimedia@dei.ac.in</b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
 </div>
-          <div class="welcome-header">
+    <main>
+      <!-- <div class="welcome-section">
+        <div class="welcome-content">
+            
           
-            <h1>Welcome to DEI Conference Management Toolkit!</h1>
-          </div>
         </div>
-      </div>
+      </div> -->
 
       <div class="quick-access">
         <h1>Active Conferences</h1>
@@ -210,7 +209,11 @@
     
   <% } else if (submission.submission_status == "Reviewed" ) { %>
     <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
-  <% } else { %>
+  
+  <% } else if (submission.submission_status == "Presentation Completed" ) { %>
+      <span class="badge-reviewed">Your presentation is over.</span>
+
+    <% } else { %>
     <span class="badge-rejected"> Not Eligible</span>
   <% } %>
 </td>

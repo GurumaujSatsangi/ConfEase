@@ -51,18 +51,17 @@
       </div>
 
       <div class="header-right">
+        You are logged in as <%= user.name %> (<%= user.email_id %>) &nbsp;
         <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
+<div class="alert alert-primary" id="homescroll" role="alert">
+  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! |  In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
+</marquee>
 
+</div>
     <main>
-      <div class="welcome-section">
-        <div class="welcome-content">
-          <div class="welcome-header">
-            <h1>Welcome to DEI Conference Management Toolkit!</h1>
-          </div>
-        </div>
-      </div>
+    
 
       <div class="quick-access">
         <h1>Manage Conferences</h1>
@@ -125,7 +124,7 @@
     <script src="/script.js"></script>
     <footer
       class="footer bg-dark text-white text-center py-3"
-      style="position: relative; left: 0; bottom: 0; width: 100%; z-index: 1030"
+      style="position: static; left: 0; bottom: 0; width: 100%; z-index: 1030"
     >
       Copyright Dayalbagh Educational Institute. All rights reserved.
       <br />Powered by DEI Multimedia Laboratory / Centre

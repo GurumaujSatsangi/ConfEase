@@ -51,18 +51,24 @@
       </div>
 
       <div class="header-right">
+        You are logged in as <%= user.name %> (<%= user.email_id %>) &nbsp;
         <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
       </div>
     </header>
+<div class="alert alert-primary" id="homescroll" role="alert">
+  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! |  In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
+</marquee>
+
+</div>
+    <nav style="--bs-breadcrumb-divider: '>';" aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/chair/dashboard">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">View Submissions</li>
+  </ol>
+</nav>
 
     <main>
-      <div class="welcome-section">
-        <div class="welcome-content">
-          <div class="welcome-header">
-            <h1>Welcome to DEI Conference Management Toolkit!</h1>
-          </div>
-        </div>
-      </div>
+  
 
       <div class="quick-access">
         <h1>Manage Submissions</h1>
@@ -71,7 +77,31 @@
           method="POST"
         >
                <input type="hidden" id="conferenceId" name="conference_id" value="<%= conferencedata %>" />
-               <input type="submit" class="btn btn-outline-danger" value="Publish Review Results" />
+             <% 
+  // Get current date in IST
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+  const istTime = new Date(now.getTime() + istOffset);
+  const currentDate = istTime.toISOString().split("T")[0];
+  
+  // Simple string comparison (works for YYYY-MM-DD format)
+  const isNotificationDateReached = currentDate >= confdata.acceptance_notification;
+%>
+
+
+
+<% if (isNotificationDateReached) { %>
+  <div class="alert alert-success mb-3">
+    <i class="bi bi-check-circle"></i> Review results can now be published!
+  </div>
+  <input type="submit" class="btn btn-outline-danger" value="Publish Review Results" />
+<% } else { %>
+ 
+  <button type="button" class="btn btn-outline-secondary" disabled 
+          title="Available from <%= confdata.acceptance_notification %>">
+    <i class="bi bi-lock"></i> Publish Review Results
+  </button>
+<% } %>
 </form>
         <hr>
         
@@ -109,7 +139,7 @@
     <script src="/script.js"></script>
     <footer
       class="footer bg-dark text-white text-center py-3"
-      style="position: relative; left: 0; bottom: 0; width: 100%; z-index: 1030"
+      style="position: static; left: 0; bottom: 0; width: 100%; z-index: 1030"
     >
       Copyright Dayalbagh Educational Institute. All rights reserved.
       <br />Powered by DEI Multimedia Laboratory / Centre
