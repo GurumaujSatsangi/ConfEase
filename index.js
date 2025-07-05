@@ -494,7 +494,15 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
 
-  if (trackinfo.device_mac_address !== device_mac_address) {
+
+  
+    const { data: trackinfo, error: trackError } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+
+    if (trackinfo.device_mac_address !== device_mac_address) {
     return res.redirect(
       "/?message=Your MAC Address (" +
         device_mac_address +
@@ -502,13 +510,7 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     );
   }
   else{
-    const { data: trackinfo, error: trackError } = await supabase
-    .from("conference_tracks")
-    .select("*")
-    .eq("id", req.params.id)
-    .single();
-  // Fetch the session details
-  const { data: session, error } = await supabase
+const { data: session, error } = await supabase
     .from("final_camera_ready_submissions")
     .select("*")
     .eq("area", trackinfo.track_name);
@@ -529,7 +531,10 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     trackinfo: trackinfo,
     message: req.query.message || null,
   });
+  
   }
+  // Fetch the session details
+  
   
 });
 
@@ -1457,7 +1462,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1509,7 +1514,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1555,7 +1560,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
