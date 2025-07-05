@@ -493,7 +493,16 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
-  const { data: trackinfo, error: trackError } = await supabase
+
+  if (trackinfo.device_mac_address !== device_mac_address) {
+    return res.redirect(
+      "/?message=Your MAC Address (" +
+        device_mac_address +
+        ") is not same to the one in our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
+    );
+  }
+  else{
+    const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
     .eq("id", req.params.id)
@@ -514,18 +523,14 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   if (!session) {
     return res.status(404).send("Session not found.");
   }
-  if (trackinfo.device_mac_address !== device_mac_address) {
-    return res.redirect(
-      "/?message=Your MAC Address (" +
-        device_mac_address +
-        ") is not same to the one in our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
-    );
-  }
+  
   res.render("panelist/active-session.ejs", {
     session: session,
     trackinfo: trackinfo,
     message: req.query.message || null,
   });
+  }
+  
 });
 
 
