@@ -16,8 +16,17 @@ import crypto from "crypto";
 import macaddress from "macaddress";
 
 const app = express();
-const device_mac_address = await macaddress.one();
-console.log("Device MAC Address:", device_mac_address);
+let device_mac_address;
+macaddress.all().then(all => {
+  for (const iface in all) {
+    const data = all[iface];
+    if (data.ipv4 && data.mac && data.mac !== '00:00:00:00:00:00') {
+      console.log('Active MAC Address:', data.mac);
+      device_mac_address = data.mac;
+      break;
+    }
+  }
+});
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
