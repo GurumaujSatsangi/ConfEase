@@ -1452,7 +1452,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "http://localhost:3000/auth/google/dashboard",
+      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1504,7 +1504,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
+      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1550,7 +1550,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
+      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
