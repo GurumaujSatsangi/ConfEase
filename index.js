@@ -17,6 +17,7 @@ import macaddress from "macaddress";
 
 const app = express();
 let device_mac_address = null;
+
 async function initializeMacAddress() {
   try {
     const all = await macaddress.all();
@@ -28,11 +29,17 @@ async function initializeMacAddress() {
         break;
       }
     }
+    if (!device_mac_address) {
+      console.warn('No valid MAC address found, using fallback');
+      device_mac_address = 'unknown';
+    }
   } catch (error) {
     console.error('Error fetching MAC address:', error);
     device_mac_address = 'unknown';
   }
 }
+
+
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -1649,6 +1656,9 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+initializeMacAddress().then(() => {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+    console.log(`Device MAC Address: ${device_mac_address}`);
+  });
 });
