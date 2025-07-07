@@ -496,9 +496,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/?message=Please login to access this feature.");
-  }
+
 
   const userFingerprint = req.session.fingerprint;
   
