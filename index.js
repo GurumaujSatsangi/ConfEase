@@ -16,28 +16,9 @@ import crypto from "crypto";
 import macaddress from "macaddress";
 
 const app = express();
-let device_mac_address = null;
+let fingerprint = null;
 
-async function initializeMacAddress() {
-  try {
-    const all = await macaddress.all();
-    for (const iface in all) {
-      const data = all[iface];
-      if (data.ipv4 && data.mac && data.mac !== '00:00:00:00:00:00') {
-        console.log('Active MAC Address:', data.mac);
-        device_mac_address = data.mac;
-        break;
-      }
-    }
-    if (!device_mac_address) {
-      console.warn('No valid MAC address found, using fallback');
-      device_mac_address = 'unknown';
-    }
-  } catch (error) {
-    console.error('Error fetching MAC address:', error);
-    device_mac_address = 'unknown';
-  }
-}
+
 
 
 
@@ -623,7 +604,7 @@ console.log("Current Time (IST):", currentTime);
         .from("conference_tracks")
         .update({
           status: "In Progress",
-          device_mac_address: device_mac_address,
+          fingerprint: fingerprint,
           session_code: null
         })
         .eq("id", track.id);
@@ -1646,7 +1627,13 @@ passport.deserializeUser((user, cb) => {
 // passport.deserializeUser((user, cb) => {
 //   cb(null, user);
 // });
-
+app.post('/api/fingerprint', (req, res) => {
+  const { fingerprint } = req.body;
+  console.log('Received fingerprint:', fingerprint);
+  fingerprint = req.body.fingerprint;
+  // You can now store it in a database or compare with known fingerprints
+  res.status(200).send('Fingerprint received');
+});
 app.get("/logout", (req, res) => {
   req.logout(function (err) {
     if (err) {
@@ -1656,9 +1643,7 @@ app.get("/logout", (req, res) => {
   });
 });
 
-initializeMacAddress().then(() => {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
-    console.log(`Device MAC Address: ${device_mac_address}`);
   });
-});
+

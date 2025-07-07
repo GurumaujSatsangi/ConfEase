@@ -66,7 +66,8 @@
   </ol>
 </nav>
     <main>
-   
+   <div class="alert alert-primary" role="alert">
+<b>For security reasons, your browser fingerprint will be stored once you enter the session code and click on 'Start Session'. It will be deleted once the conference is over. Incase of any clarification, please contact someone from the DEI Multimedia Team.</b></div>
 
       <div class="quick-access">
         <h1>Panelist - Poster / Paper Presentation</h1>
@@ -98,6 +99,20 @@
   </script>
   <% } %>
     <script src="/script.js"></script>
+    <script src="https://openfpcdn.io/fingerprintjs/v3"></script>
+<script>
+  FingerprintJS.load().then(fp => {
+    fp.get().then(result => {
+      // Send visitorId (the fingerprint) to your server
+      fetch('/api/fingerprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: result.visitorId })
+      });
+    });
+  });
+</script>
+
     <footer
       class="footer bg-dark text-white text-center py-3"
       style="position: fixed; left: 0; bottom: 0; width: 100%; z-index: 1030"
