@@ -496,32 +496,34 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
-  // 1. Check if MAC address is available
- 
+  if (!req.isAuthenticated()) {
+    return res.redirect("/?message=Please login to access this feature.");
+  }
 
-  // 2. Fetch track info with proper error handling
+  const userFingerprint = req.session.fingerprint;
+  
+  if (!userFingerprint) {
+    return res.redirect("/panelist/dashboard?message=Session expired. Please start a new session.");
+  }
+
   const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
     .eq("id", req.params.id)
     .single();
 
-  // 3. Check for errors or missing data
   if (trackError || !trackinfo) {
-    console.error("Error fetching track info:", trackError);
-    return res.redirect("/panelist/dashboard?message=Track not found or database error.");
+    return res.redirect("/panelist/dashboard?message=Track not found.");
   }
 
-  // 4. Check MAC address (handle null/undefined cases)
-  if (trackinfo.fingerprint !== fingerprint) {
+  // Check fingerprint instead of MAC address
+  if (trackinfo.fingerprint !== userFingerprint) {
     return res.redirect(
-      "/?message=Browser Fingerprint does not matches our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
+      "/?message=Browser fingerprint does not match our records. Please contact DEI Multimedia Team."
     );
   }
 
- 
-
-  // 6. Fetch session data
+  // Rest of your existing code...
   const { data: session, error } = await supabase
     .from("final_camera_ready_submissions")
     .select("*")
@@ -546,9 +548,19 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
 
 
 app.post("/start-session", async (req, res) => {
-  const { session_code } = req.body;
+  if (!req.isAuthenticated()) {
+    return res.redirect("/?message=Please login to access this feature.");
+  }
 
-  // Fetch the track to verify the session code
+  const { session_code } = req.body;
+  const userFingerprint = req.session.fingerprint;
+
+  // Check if fingerprint is available
+  if (!userFingerprint) {
+    return res.redirect("/panelist/dashboard?message=Please refresh the page and try again.");
+  }
+
+  // Fetch track with session code
   const { data: track, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
@@ -556,66 +568,41 @@ app.post("/start-session", async (req, res) => {
     .single();
 
   if (trackError || !track) {
-    console.error("Error fetching track:", trackError);
-    return res.redirect(
-      "/panelist/dashboard?message=Database Error, Please try again."
-    );
+    return res.redirect("/panelist/dashboard?message=Invalid session code.");
   }
 
-  if (track.session_code !== session_code) {
-    return res.redirect(
-      "/panelist/dashboard?message=Invalid session code. Please check and try again."
-    );
-  }
+  // Your existing time validation...
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(now.getTime() + istOffset);
+  const currentDate = istTime.toISOString().split("T")[0];
+  const currentTime = istTime.toISOString().split("T")[1].slice(0, 5);
 
-const now = new Date();
-const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-const istTime = new Date(now.getTime() + istOffset);
-
-const currentDate = istTime.toISOString().split("T")[0];
-const currentTime = istTime.toISOString().split("T")[1].slice(0, 5);
-
-console.log("Current Date (IST):", currentDate);
-console.log("Current Time (IST):", currentTime);
-  
   if (track.presentation_date == currentDate) {
     if (currentTime < track.presentation_start_time) {
-      return res.redirect(
-        "/panelist/dashboard?message=The scheduled start time for this session is " +
-          track.presentation_start_time +
-          ". Please try again later."
-      );
+      return res.redirect("/panelist/dashboard?message=Session not started yet.");
     } else if (currentTime > track.presentation_end_time) {
-      return res.redirect(
-        "/panelist/dashboard?message=The scheduled end time for this session was " +
-          track.presentation_end_time +
-          ". The session has ended."
-      );
+      return res.redirect("/panelist/dashboard?message=Session has ended.");
     } else {
-      // Update everything in ONE operation using track.id
+      // Update track with fingerprint instead of MAC address
       const { error: updateError } = await supabase
         .from("conference_tracks")
         .update({
           status: "In Progress",
-          fingerprint: fingerprint,
+          fingerprint: userFingerprint, // Store fingerprint instead of MAC
           session_code: null
         })
         .eq("id", track.id);
 
       if (updateError) {
-        console.error("Error updating track status:", updateError);
-        return res.status(500).send("Error starting the session.");
+        console.error("Error updating track:", updateError);
+        return res.redirect("/panelist/dashboard?message=Error starting session.");
       }
 
-      // Only redirect after successful update
-      res.redirect(`/panelist/dashboard/active-session/${track.id}`);
+      return res.redirect(`/panelist/dashboard/active-session/${track.id}`);
     }
   } else {
-    return res.redirect(
-      "/panelist/dashboard?message=The scheduled date for this session is " +
-        track.presentation_date +
-        ". Please try again later."
-    );
+    return res.redirect("/panelist/dashboard?message=Session date mismatch.");
   }
 });
 app.get("/reviewer/dashboard/review/:id", async (req, res) => {
@@ -1620,12 +1607,24 @@ passport.deserializeUser((user, cb) => {
 // passport.deserializeUser((user, cb) => {
 //   cb(null, user);
 // });
+// Add this route to handle fingerprint storage
 app.post('/api/fingerprint', (req, res) => {
   const { fingerprint } = req.body;
-  console.log('Received fingerprint:', fingerprint);
-  fingerprint = req.body.fingerprint;
-  // You can now store it in a database or compare with known fingerprints
-  res.status(200).send('Fingerprint received');
+  
+  if (!fingerprint) {
+    return res.status(400).json({ error: 'Fingerprint is required' });
+  }
+  
+  // Store fingerprint in session for this user
+  req.session.fingerprint = fingerprint;
+  
+  console.log('Fingerprint stored:', fingerprint);
+  
+  res.json({ 
+    success: true, 
+    message: 'Fingerprint stored successfully',
+    fingerprint: fingerprint 
+  });
 });
 app.get("/logout", (req, res) => {
   req.logout(function (err) {

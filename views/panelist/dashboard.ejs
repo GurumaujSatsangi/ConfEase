@@ -103,13 +103,34 @@
 <script>
   FingerprintJS.load().then(fp => {
     fp.get().then(result => {
-      // Send visitorId (the fingerprint) to your server
+      console.log('Browser fingerprint:', result.visitorId);
+      
+      // Send fingerprint to server with error handling
       fetch('/api/fingerprint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fingerprint: result.visitorId })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('Fingerprint stored successfully:', data);
+      })
+      .catch(error => {
+        console.error('Error storing fingerprint:', error);
+        // You might want to show a user-friendly message here
       });
+    })
+    .catch(error => {
+      console.error('Error generating fingerprint:', error);
     });
+  })
+  .catch(error => {
+    console.error('Error loading FingerprintJS:', error);
   });
 </script>
 
