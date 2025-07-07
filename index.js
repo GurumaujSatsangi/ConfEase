@@ -519,10 +519,7 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     );
   }
 
-  // 5. If MAC address is null in database, allow access (session not started yet)
-  if (!trackinfo.fingerprint) {
-    return res.redirect("/panelist/dashboard?message=This session has not been started yet. Please enter the session code to begin.");
-  }
+ 
 
   // 6. Fetch session data
   const { data: session, error } = await supabase
