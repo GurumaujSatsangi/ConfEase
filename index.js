@@ -497,9 +497,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   // 1. Check if MAC address is available
-  if (!fingerprint) {
-    return res.redirect("/?message=System initializing. Please try again in a moment.");
-  }
+ 
 
   // 2. Fetch track info with proper error handling
   const { data: trackinfo, error: trackError } = await supabase
