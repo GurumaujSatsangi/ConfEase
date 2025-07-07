@@ -534,7 +534,7 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   }
 
   // 4. Check MAC address (handle null/undefined cases)
-  if (trackinfo.device_mac_address && trackinfo.device_mac_address !== device_mac_address) {
+  if (trackinfo.device_mac_address !== device_mac_address) {
     return res.redirect(
       "/?message=Your MAC Address (" +
         device_mac_address +
