@@ -497,7 +497,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   // 1. Check if MAC address is available
-  if (!device_mac_address) {
+  if (!fingerprint) {
     return res.redirect("/?message=System initializing. Please try again in a moment.");
   }
 
@@ -515,16 +515,14 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
   }
 
   // 4. Check MAC address (handle null/undefined cases)
-  if (trackinfo.device_mac_address !== device_mac_address) {
+  if (trackinfo.fingerprint !== fingerprint) {
     return res.redirect(
-      "/?message=Your MAC Address (" +
-        device_mac_address +
-        ") is not same to the one in our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
+      "/?message=Browser Fingerprint does not matches our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
     );
   }
 
   // 5. If MAC address is null in database, allow access (session not started yet)
-  if (!trackinfo.device_mac_address) {
+  if (!trackinfo.fingerprint) {
     return res.redirect("/panelist/dashboard?message=This session has not been started yet. Please enter the session code to begin.");
   }
 
