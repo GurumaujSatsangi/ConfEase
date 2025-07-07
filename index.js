@@ -16,17 +16,23 @@ import crypto from "crypto";
 import macaddress from "macaddress";
 
 const app = express();
-let device_mac_address;
-macaddress.all().then(all => {
-  for (const iface in all) {
-    const data = all[iface];
-    if (data.ipv4 && data.mac && data.mac !== '00:00:00:00:00:00') {
-      console.log('Active MAC Address:', data.mac);
-      device_mac_address = data.mac;
-      break;
+let device_mac_address = null;
+async function initializeMacAddress() {
+  try {
+    const all = await macaddress.all();
+    for (const iface in all) {
+      const data = all[iface];
+      if (data.ipv4 && data.mac && data.mac !== '00:00:00:00:00:00') {
+        console.log('Active MAC Address:', data.mac);
+        device_mac_address = data.mac;
+        break;
+      }
     }
+  } catch (error) {
+    console.error('Error fetching MAC address:', error);
+    device_mac_address = 'unknown';
   }
-});
+}
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -502,37 +508,51 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
+  // 1. Check if MAC address is available
+  if (!device_mac_address) {
+    return res.redirect("/?message=System initializing. Please try again in a moment.");
+  }
 
-
-  
-    const { data: trackinfo, error: trackError } = await supabase
+  // 2. Fetch track info with proper error handling
+  const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
     .eq("id", req.params.id)
     .single();
 
-    if (trackinfo.device_mac_address !== device_mac_address) {
+  // 3. Check for errors or missing data
+  if (trackError || !trackinfo) {
+    console.error("Error fetching track info:", trackError);
+    return res.redirect("/panelist/dashboard?message=Track not found or database error.");
+  }
+
+  // 4. Check MAC address (handle null/undefined cases)
+  if (trackinfo.device_mac_address && trackinfo.device_mac_address !== device_mac_address) {
     return res.redirect(
       "/?message=Your MAC Address (" +
         device_mac_address +
         ") is not same to the one in our records. If you think this is an error, please contact someone from the DEI Multimedia Team for assistance."
     );
   }
-  else{
-const { data: session, error } = await supabase
+
+  // 5. If MAC address is null in database, allow access (session not started yet)
+  if (!trackinfo.device_mac_address) {
+    return res.redirect("/panelist/dashboard?message=This session has not been started yet. Please enter the session code to begin.");
+  }
+
+  // 6. Fetch session data
+  const { data: session, error } = await supabase
     .from("final_camera_ready_submissions")
     .select("*")
     .eq("area", trackinfo.track_name);
-
-  
 
   if (error) {
     console.error("Error fetching session:", error);
     return res.status(500).send("Error fetching session details.");
   }
 
-  if (!session) {
-    return res.status(404).send("Session not found.");
+  if (!session || session.length === 0) {
+    return res.redirect("/panelist/dashboard?message=No submissions found for this track.");
   }
   
   res.render("panelist/active-session.ejs", {
@@ -540,11 +560,6 @@ const { data: session, error } = await supabase
     trackinfo: trackinfo,
     message: req.query.message || null,
   });
-  
-  }
-  // Fetch the session details
-  
-  
 });
 
 
