@@ -55,7 +55,7 @@
       </div>
     </header>
 <div class="alert alert-primary" id="homescroll" role="alert">
-  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! | <a href="#welcome-content">View Active Conferences</a> | In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
+  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! | In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
 </marquee>
 
 </div>
@@ -224,7 +224,10 @@
     %>
     <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && matchingPresentation && matchingPresentation.status == "Scheduled") { %>
         <span class="badge-reviewed">Your presentation is on <b><%= matchingPresentation.presentation_date %></b> between <b><%= matchingPresentation.presentation_start_time %></b> & <b><%= matchingPresentation.presentation_end_time %></b></span><br>
-    <% } else { %> 
+    <% } else if (submission.submission_status == "Presentation Completed" ) { %>
+    <span class="badge-reviewed">Your presentation is over.</span>
+    
+        <% } else { %> 
         <span class="badge-rejected"> Not Scheduled Yet</span>
     <% } %>
 </td>

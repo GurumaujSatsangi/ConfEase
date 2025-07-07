@@ -83,8 +83,6 @@
             <td>Paper Title</td>
             <td>Primary Author</td>
             <td>Co-Authors</td>
-            <td>Review Score</td>
-            <td>Review Remarks</td>
             <td>Panelist Score</td>
           </tr>
           <tr>
@@ -96,8 +94,6 @@
             <td><%= session.title %></td>
             <td><%= session.primary_author %></td>
             <td><%= session.co_authors %></td>
-            <td><%= session.reviewer_score %></td>
-            <td><%= session.reviewer_remarks %></td>
             
             <% if (session.status === 'Completed') { %>
             <td colspan="2"><span class="badge badge-reviewed">Presentation Completed</span></td>

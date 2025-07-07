@@ -16,7 +16,6 @@ import crypto from "crypto";
 import macaddress from "macaddress";
 
 const app = express();
-let fingerprint = null;
 
 
 
@@ -319,7 +318,7 @@ app.post("/publish/review-results", async (req, res) => {
   for (const data of reviewdata) {
     const { error: updateError } = await supabase
       .from("submissions")
-      .update({ submission_status: data.acceptance_status })
+      .update({ submission_status: data.acceptance_status , })
       .eq("id", data.paper_id);
 
     if (updateError) {
@@ -496,14 +495,7 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
-
-
-  const userFingerprint = req.session.fingerprint;
   
-  if (!userFingerprint) {
-    return res.redirect("/panelist/dashboard?message=Session expired. Please start a new session.");
-  }
-
   const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
@@ -514,12 +506,7 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     return res.redirect("/panelist/dashboard?message=Track not found.");
   }
 
-  // Check fingerprint instead of MAC address
-  if (trackinfo.fingerprint !== userFingerprint) {
-    return res.redirect(
-      "/?message=Browser fingerprint does not match our records. Please contact DEI Multimedia Team."
-    );
-  }
+  
 
   // Rest of your existing code...
   const { data: session, error } = await supabase
@@ -544,21 +531,14 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
 });
 
 
-
 app.post("/start-session", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/?message=Please login to access this feature.");
-  }
-
   const { session_code } = req.body;
-  const userFingerprint = req.session.fingerprint;
+  
 
-  // Check if fingerprint is available
-  if (!userFingerprint) {
-    return res.redirect("/panelist/dashboard?message=Please refresh the page and try again.");
-  }
+  
+  
 
-  // Fetch track with session code
+  // Rest of your existing code...
   const { data: track, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
@@ -569,7 +549,7 @@ app.post("/start-session", async (req, res) => {
     return res.redirect("/panelist/dashboard?message=Invalid session code.");
   }
 
-  // Your existing time validation...
+  // Continue with time validation...
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000;
   const istTime = new Date(now.getTime() + istOffset);
@@ -582,12 +562,11 @@ app.post("/start-session", async (req, res) => {
     } else if (currentTime > track.presentation_end_time) {
       return res.redirect("/panelist/dashboard?message=Session has ended.");
     } else {
-      // Update track with fingerprint instead of MAC address
       const { error: updateError } = await supabase
         .from("conference_tracks")
         .update({
           status: "In Progress",
-          fingerprint: userFingerprint, // Store fingerprint instead of MAC
+         
           session_code: null
         })
         .eq("id", track.id);
@@ -1452,7 +1431,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1504,7 +1483,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1550,7 +1529,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -1598,32 +1577,8 @@ passport.serializeUser((user, cb) => {
 passport.deserializeUser((user, cb) => {
   cb(null, user);
 });
-// passport.serializeUser((user, cb) => {
-//   cb(null, user);
-// });
 
-// passport.deserializeUser((user, cb) => {
-//   cb(null, user);
-// });
-// Add this route to handle fingerprint storage
-app.post('/api/fingerprint', (req, res) => {
-  const { fingerprint } = req.body;
-  
-  if (!fingerprint) {
-    return res.status(400).json({ error: 'Fingerprint is required' });
-  }
-  
-  // Store fingerprint in session for this user
-  req.session.fingerprint = fingerprint;
-  
-  console.log('Fingerprint stored:', fingerprint);
-  
-  res.json({ 
-    success: true, 
-    message: 'Fingerprint stored successfully',
-    fingerprint: fingerprint 
-  });
-});
+
 app.get("/logout", (req, res) => {
   req.logout(function (err) {
     if (err) {
