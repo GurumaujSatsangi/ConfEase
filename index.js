@@ -838,6 +838,8 @@ app.get("/submission/co-author/:id", async (req, res) => {
     .eq("id", req.params.id)
     .single();
 
+ 
+
   if (error) {
     console.error("Error fetching conference:", error);
     return res.status(500).send("Error fetching conference.");
@@ -1016,13 +1018,60 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
   }
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("*")
-    .eq("id", req.params.id)
-    .single();
 
-  res.render("submission3.ejs", { user: req.user, submission: data });
+  try {
+    // Fetch the submission first
+    const { data: submission, error: submissionError } = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("id", req.params.id)
+      .single();
+
+    if (submissionError || !submission) {
+      console.error("Error fetching submission:", submissionError);
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+
+    // Security check - ensure user can edit this submission
+    if (submission.primary_author !== req.user.email) {
+      const coAuthors = submission.co_authors || [];
+      if (!coAuthors.includes(req.user.email)) {
+        return res.redirect("/dashboard?message=You can only edit your own submissions.");
+      }
+    }
+
+    // Additional check - prevent editing if submission is under review or later stages
+    if (submission.submission_status === "Reviewed" || 
+        submission.submission_status === "Accepted" || 
+        submission.submission_status === "Rejected" ||
+        submission.submission_status === "Submitted Final Camera Ready Paper") {
+      return res.redirect("/dashboard?message=Cannot edit submission in current status: " + submission.submission_status);
+    }
+
+    // Fetch tracks using the conference_id from the submission
+    const { data: tracks, error: tracksError } = await supabase
+      .from("conference_tracks")
+      .select("track_name, id") // Only select needed fields
+      .eq("conference_id", submission.conference_id)
+      .order("track_name"); // Order alphabetically
+
+    if (tracksError) {
+      console.error("Error fetching tracks:", tracksError);
+      // Continue without tracks data rather than failing completely
+    }
+
+
+
+    res.render("submission3.ejs", { 
+      user: req.user, 
+      submission: submission, 
+      tracks: tracks || [] 
+    });
+
+  } catch (error) {
+    console.error("Error in edit submission route:", error);
+    res.redirect("/dashboard?message=An unexpected error occurred.");
+  }
 });
 
 app.get(
@@ -1037,13 +1086,16 @@ app.get(
       .eq("id", req.params.id)
       .single();
     if (data.submission_status == "Submitted for Review") {
-      return res.status(403).send("Review is still in Progress.");
+      return res.redirect(
+        "/dashboard?message=Your submission is under review."
+    );
     } else if (data.submission_status == "Rejected") {
-      return res.status(403).send("Submission has been Rejected.");
-    } else if (data.submission_status == "Submitted Final Camera Ready Paper") {
-      return res
-        .status(403)
-        .send("Final Camera Ready Paper has already been submitted.");
+return res.redirect(
+        "/dashboard?message=Your submission has been rejected."
+    );    } else if (data.submission_status == "Submitted Final Camera Ready Paper") {
+      return res.redirect(
+        "/dashboard?message=You have already submitted the final camera ready paper for this submission."
+    );
     } else {
       res.render("submission4.ejs", { user: req.user, submission: data });
     }
@@ -1309,52 +1361,79 @@ app.post("/edit-submission", upload.single("file"), async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
   }
+
   const { title, abstract, areas, id } = req.body;
-  const filePath = req.file.path;
-  const uploadResult = await cloudinary.uploader.upload(filePath, {
-    resource_type: "auto", // auto-detect type (pdf, docx, etc.)
-    folder: "submissions",
-    public_id: `${req.user.name}-${Date.now()}`,
-  });
 
-  const payload = {
-    file: uploadResult.secure_url,
-    language: "en",
-    country: "us",
-  };
-
-  const options = {
-    method: "POST",
-    headers: {
-      Authorization: process.env.WINSTON_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  };
-  var score = 0; // Initialize score variable
-  fetch("https://api.gowinston.ai/v2/plagiarism", options)
-    .then((response) => response.json())
-    .then((data) => {
-      score = data.result?.score;
-    })
-    .catch((err) => console.error("API Error:", err));
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .update({
+  try {
+    // Prepare the update data
+    const updateData = {
       title: title,
       abstract: abstract,
       area: areas,
-      file_url: uploadResult.secure_url,
-      score: score,
-    })
-    .eq("id", id);
+    };
 
-  if (error) {
-    console.error("Error inserting submission:", error);
-    return res.status(500).send("Error submitting your proposal.");
-  } else {
-    res.redirect("/dashboard");
+    // Only process file upload if a file was actually uploaded
+    if (req.file) {
+      const filePath = req.file.path;
+      const uploadResult = await cloudinary.uploader.upload(filePath, {
+        resource_type: "auto",
+        folder: "submissions",
+        public_id: `${req.user.name}-${Date.now()}`,
+      });
+
+      // Add plagiarism check for new file
+      const payload = {
+        file: uploadResult.secure_url,
+        language: "en",
+        country: "us",
+      };
+
+      const options = {
+        method: "POST",
+        headers: {
+          Authorization: process.env.WINSTON_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      };
+
+      let score = 0;
+      try {
+        const response = await fetch("https://api.gowinston.ai/v2/plagiarism", options);
+        const data = await response.json();
+        score = data.result?.score || 0;
+      } catch (err) {
+        console.error("API Error:", err);
+      }
+
+      // Update file-related fields only if new file was uploaded
+      updateData.file_url = uploadResult.secure_url;
+      updateData.score = score;
+
+      // Clean up uploaded file
+      try {
+        await fs.unlink(filePath);
+      } catch (cleanupError) {
+        console.error("Error cleaning up file:", cleanupError);
+      }
+    }
+
+    // Update the submission
+    const { data, error } = await supabase
+      .from("submissions")
+      .update(updateData)
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error updating submission:", error);
+      return res.redirect("/dashboard?message=Error updating submission.");
+    }
+
+    res.redirect("/dashboard?message=Submission updated successfully!");
+
+  } catch (error) {
+    console.error("Error in edit submission:", error);
+    res.redirect("/dashboard?message=Error updating submission.");
   }
 });
 

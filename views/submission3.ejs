@@ -85,18 +85,20 @@
     <textarea class="form-control" required name="abstract" id="exampleFormControlTextarea1"  rows="3"><%=submission.abstract %></textarea>
   </div><br>
    <div class="form-group">
-    <label for="exampleFormControlSelect1">Area</label>
-    <select class="form-control"  value="<%=submission.area %>" required name="areas" id="exampleFormControlSelect1">
-      <option>1</option>
-      <option>2</option>
-      <option>3</option>
-      <option>4</option>
-      <option>5</option>
-    </select>
-  </div><br>
+  <label for="exampleFormControlSelect1">Area</label>
+  <select class="form-control" required name="areas" id="exampleFormControlSelect1">
+    <% if (tracks && tracks.length > 0) { %>
+      <% tracks.forEach(function(track) { %>
+        <option value="<%= track.track_name %>"><%= track.track_name %></option>
+      <% }); %>
+    <% } else { %>
+      <option disabled>No tracks available</option>
+    <% } %>
+  </select>
+</div><br>
     <div class="form-group">
     <label for="exampleFormControlFile1">Re-Upload Paper </label>
-    <input type="file" required class="form-control-file" name="file" >
+    <input type="file"  class="form-control-file" name="file" >
 <a class="btn btn-outline-warning" href="<%= submission.file_url %>" target="_blank" role="button">
           <i class="bi bi-eye-fill"></i> &nbsp; View Uploaded Paper
         </a>

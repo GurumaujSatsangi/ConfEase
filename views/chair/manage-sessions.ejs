@@ -85,6 +85,13 @@
               <b><%= track.track_name %></b>
               <span class="badge bg-info text-dark" style="float: right">
                 Submissions: <%= trackCount %>
+              </span><br>
+               <span class="badge bg-info text-dark" style="float: right">
+                <% if (track.session_code) { %>
+                Session Code: <%= track.session_code %>
+                <% } else { %>
+                Session Code: Session code is generated once the session date & time have been set.  
+                <% } %>
               </span>
               <br />
               <i
