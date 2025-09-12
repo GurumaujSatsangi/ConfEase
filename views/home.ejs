@@ -12,6 +12,7 @@
   </head>
   <body>
     <%- include('partials/header') %>
+    
   <div class="container">
     <h2>Welcome to DEI Conference Management Toolkit!</h2><hr>
 
@@ -75,13 +76,16 @@
           <h4>There are No Active Conferences at the moment.</h4>
           <% } %>
         </div>
-      </div>
-    
 
 
-
-    <script src="/script.js"></script>
+    <div class="card">
+  <div class="card-body">
+   <b><i class="bi bi-envelope-arrow-up-fill"></i> &nbsp; In case of any technical assistance, please feel free to reach out to us at <a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a>.</b>
+  </div>
+</div>
+        <script src="/script.js"></script>
     </div>
+
     <%- include('partials/footer') %> 
   </body>
 </html>

@@ -34,7 +34,7 @@
                 <td >Conference Timeline</td>
                 <td>Start Date: <br><b><%= conference.conference_start_date %></b></td>
                 <td>End Date: <br><b><%= conference.conference_end_date %></b></td>
-             
+             </tr>
               <tr>
                 <td>Full Paper Submission: <br><b><%= conference.full_paper_submission %></b></td>
                 <td>Acceptance Notification: <br><b><%= conference.acceptance_notification %></b></td>
@@ -216,44 +216,9 @@
         <h4>No Submissions Found</h4>
         <% } %>
 
-<% if (message) { %>
-  <script>
-    Swal.fire({
-      title: 'Alert',
-      text: '<%= message %>',
-      icon: 'info',
-      confirmButtonText: 'OK'
-    });
-    if (window.location.search.includes('message=')) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  </script>
-  <% } %>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('.delete-btn').forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
-      e.preventDefault();
-      const href = this.getAttribute('href');
-      const title = this.getAttribute('data-title');
-      Swal.fire({
-        title: "Alert!",
-        text: "Are you sure you want to delete your submission titled '" + title + "'? This action cannot be undone.",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#3085d6",
-        cancelButtonColor: "#d33",
-        confirmButtonText: "Yes, Delete my submission."
-      }).then((result) => {
-        if (result.isConfirmed) {
-          window.location.href = href;
-        }
-      });
-    });
-  });
-});
-</script>
+
+
     <script src="/script.js"></script>
      </div>
    <%- include('partials/footer') %>
