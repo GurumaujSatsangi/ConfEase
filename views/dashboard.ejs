@@ -188,11 +188,11 @@
 
         <% } else { %>
             <!-- Active buttons when deadline hasn't passed -->
-            <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.id %>" role="button">
+            <a class="btn btn-outline-warning" href="/submission/edit/primary-author/<%= submission.submission_id %>" role="button">
                 <i class="bi bi-pencil-square"></i>
             </a><br><br>
             <a class="btn btn-outline-danger delete-btn" 
-               href="/submission/delete/primary-author/<%= submission.id %>" 
+               href="/submission/delete/primary-author/<%= submission.submission_id %>" 
                data-title="<%= submission.title %>"
                role="button">
                 <i class="bi bi-trash3-fill"></i>

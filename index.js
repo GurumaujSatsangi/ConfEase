@@ -1024,7 +1024,7 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
     const { data: submission, error: submissionError } = await supabase
       .from("submissions")
       .select("*")
-      .eq("id", req.params.id)
+      .eq("submission_id", req.params.id)
       .single();
 
     if (submissionError || !submission) {
@@ -1051,19 +1051,21 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
     // Fetch tracks using the conference_id from the submission
     const { data: tracks, error: tracksError } = await supabase
       .from("conference_tracks")
-      .select("track_name, id") // Only select needed fields
+      .select("track_name", "track_id") // Only select needed fields
       .eq("conference_id", submission.conference_id)
-      .order("track_name"); // Order alphabetically
+      .order("track_name"); // Order alphabetically 
 
     if (tracksError) {
       console.error("Error fetching tracks:", tracksError);
       // Continue without tracks data rather than failing completely
     }
 
+    
+
 
 
     res.render("submission3.ejs", { 
-      user: req.user, 
+        user: req.user, 
       submission: submission, 
       tracks: tracks || [] 
     });
@@ -1422,7 +1424,7 @@ app.post("/edit-submission", upload.single("file"), async (req, res) => {
     const { data, error } = await supabase
       .from("submissions")
       .update(updateData)
-      .eq("id", id);
+      .eq("submission_id", id);
 
     if (error) {
       console.error("Error updating submission:", error);
