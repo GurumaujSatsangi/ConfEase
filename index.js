@@ -13,7 +13,6 @@ import multer from "multer";
 import fs from "fs/promises";
 import { name } from "ejs";
 import crypto from "crypto";
-import macaddress from "macaddress";
 
 const app = express();
 
@@ -835,7 +834,7 @@ app.get("/submission/co-author/:id", async (req, res) => {
   const { data, error } = await supabase
     .from("conferences")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("conference_id", req.params.id)
     .single();
 
  
@@ -988,7 +987,7 @@ app.get("/submission/primary-author/:id", async (req, res) => {
   const { data: conference, error } = await supabase
     .from("conferences")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("conference_id", req.params.id)
     .single();
 
   if (error) {
@@ -1492,7 +1491,6 @@ app.post("/submit", upload.single("file"), async (req, res) => {
       area: areas,
       file_url: uploadResult.secure_url,
       paper_code: crypto.randomUUID(),
-      score: score,
     },
   ]);
 
