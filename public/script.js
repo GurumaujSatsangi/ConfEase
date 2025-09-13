@@ -20,3 +20,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 });
+
+
+document.querySelector("form").addEventListener("submit", function() {
+  var loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+  loadingModal.show();
+});
