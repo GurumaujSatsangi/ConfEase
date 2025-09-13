@@ -36,16 +36,16 @@
                 <td>End Date: <br><b><%= conference.conference_end_date %></b></td>
              </tr>
               <tr>
-                <td>Full Paper Submission: <br><b><%= conference.full_paper_submission %></b></td>
-                <td>Acceptance Notification: <br><b><%= conference.acceptance_notification %></b></td>
-                <td>Final Camera Ready Paper Submission: <br><b><%= conference.camera_ready_paper_submission %></b></td>
+                <td>Full Paper Submission: <br><b><%= conference.full_paper_submission %> (11:59 PM IST)</b></td>
+                <td>Acceptance Notification: <br><b><%= conference.acceptance_notification %> (11:59 PM IST)</b></td>
+                <td>Final Camera Ready Paper Submission: <br><b><%= conference.camera_ready_paper_submission %> (11:59 PM IST)</b></td>
               </tr>
              
               <tr>
                 <td>
                   <a
                         href="<%= conference.brochure %>"
-                        class="btn btn-outline-warning"
+                        class="btn btn-outline-primary"
                         tabindex="-1"
                         role="button"
                         style="width: 350px"
