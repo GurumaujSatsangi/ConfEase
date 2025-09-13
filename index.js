@@ -13,6 +13,7 @@ import multer from "multer";
 import fs from "fs/promises";
 import { name } from "ejs";
 import crypto from "crypto";
+import { sendMail } from "./mailer.js"
 
 const app = express();
 
@@ -1493,6 +1494,15 @@ app.post("/submit", upload.single("file"), async (req, res) => {
       paper_code: crypto.randomUUID(),
     },
   ]);
+
+  await sendMail(
+  req.user.email,   // ✅ no EJS tags here
+  "Your paper titled - " + title + " has been submitted successfully!",
+  "Hello " + req.user.name + ", your paper titled '" + title + "' has been submitted successfully!",
+  `<p>Hello <b>${req.user.name}</b>,<br>Your paper titled <i>${title}</i> has been submitted successfully!</p>`
+);
+
+  
 
   if (error) {
     console.error("Error inserting submission:", error);
