@@ -1082,6 +1082,8 @@ app.get(
     if (!req.isAuthenticated()) {
       return res.redirect("/");
     }
+
+    
     const { data, error } = await supabase
       .from("submissions")
       .select("*")
@@ -1111,7 +1113,7 @@ app.post(
     if (!req.isAuthenticated()) {
       return res.redirect("/");
     }
-    const { title, abstract, areas, id, co_authors } = req.body;
+    const { confid, title, abstract, areas, id, co_authors } = req.body;
     const filePath = req.file.path;
     const uploadResult = await cloudinary.uploader.upload(filePath, {
       resource_type: "auto", // auto-detect type (pdf, docx, etc.)
@@ -1144,6 +1146,7 @@ app.post(
     const { data, error } = await supabase
       .from("final_camera_ready_submissions")
       .insert({
+        conference_id, confid,
         submission_id: id,
         primary_author: req.user.name,
         title: title,
