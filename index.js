@@ -1085,7 +1085,7 @@ app.get(
     const { data, error } = await supabase
       .from("submissions")
       .select("*")
-      .eq("id", req.params.id)
+      .eq("submission_id", req.params.id)
       .single();
     if (data.submission_status == "Submitted for Review") {
       return res.redirect(
@@ -1144,7 +1144,7 @@ app.post(
     const { data, error } = await supabase
       .from("final_camera_ready_submissions")
       .insert({
-        paper_id: id,
+        submission_id: id,
         primary_author: req.user.name,
         title: title,
         abstract: abstract,
@@ -1153,18 +1153,19 @@ app.post(
         file_url: uploadResult.secure_url,
       });
 
-    await supabase
-      .from("submissions")
-      .update({
-        submission_status: "Submitted Final Camera Ready Paper",
-        file_url: uploadResult.secure_url,
-      })
-      .eq("id", id);
+   
 
     if (error) {
       console.error("Error inserting submission:", error);
       return res.status(500).send("Error submitting your proposal.");
     } else {
+       await supabase
+      .from("submissions")
+      .update({
+        submission_status: "Submitted Final Camera Ready Paper",
+        file_url: uploadResult.secure_url,
+      })
+      .eq("submission_id", id);
       res.redirect("/dashboard");
     }
   }

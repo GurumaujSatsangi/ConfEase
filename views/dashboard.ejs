@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
+<link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -140,7 +140,7 @@
                <td>
   <% if (submission.submission_status == "Accepted" ) { %>
     <% if (submission.primary_author === user.email) { %>
-            <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br><a href="/submission/final-camera-ready/primary-author/<%= submission.id %>">Submit</a>
+            <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br><a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit</a>
 
     <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
       <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please ask the Primary Author to submit the Final Camera Ready Paper.</span>
