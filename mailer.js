@@ -12,7 +12,7 @@ const transporter = nodemailer.createTransport({
 
 export async function sendMail(to, subject, text, html) {
   return transporter.sendMail({
-    from: `"My App" <gurumaujsatsangi@gmail.com>`,
+    from: `"DEI Conference Management Toolkit" <gurumaujsatsangi@gmail.com>`,
     to,
     subject,
     text,

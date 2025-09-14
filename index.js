@@ -1446,8 +1446,8 @@ app.get("/submission/delete/primary-author/:id", async (req, res) => {
   const { data, error } = await supabase
     .from("submissions")
     .delete()
-    .eq("id", req.params.id);
-  res.redirect("/dashboard");
+    .eq("submission_id", req.params.id);
+  res.redirect("/dashboard?message=Submission deleted Succesfully!");
 });
 
 app.post("/submit", upload.single("file"), async (req, res) => {

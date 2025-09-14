@@ -13,6 +13,12 @@
     <div class="container">
 
       <h4>Welcome <%= user.name %> (<%=user.email %>)!</h4><hr>
+      <% if (message) { %>
+  <div class="alert alert-primary alert-dismissible fade show" role="alert">
+    <%= message %>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
+<% } %>
 
         <h4>Active Conferences</h4>
         <% if (conferences && conferences.length > 0) { %> <%
@@ -199,7 +205,11 @@
             </a>
         <% } %>
     <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-        <span class="badge-rejected"><i class="bi bi-lock-fill"></i> <br> Only Primary Authors are allowed to modify or delete submissions.</span>
+      <span class="d-inline-block" tabindex="0" data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-content="Disabled popover">
+      <i class="bi bi-lock-fill"></i>
+</span>  
+      
+      
     <% } %>
 </td>
 
@@ -219,6 +229,7 @@
    <b><i class="bi bi-envelope-arrow-up-fill"></i> &nbsp; In case of any technical assistance, please feel free to reach out to us at <a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a>.</b>
   </div>
 </div>
+
 
 
 
