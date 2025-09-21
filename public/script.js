@@ -26,3 +26,8 @@ document.querySelector("form").addEventListener("submit", function() {
   var loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
   loadingModal.show();
 });
+
+
+ if (window.location.search.includes('message=')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }

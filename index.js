@@ -241,9 +241,9 @@ app.get("/dashboard", async (req, res) => {
 if (req.user.role !== "author") {
     return res.redirect("/?message=You are not authorized to access the author dashboard.");
   }
-  const { data, error } = await supabase.from("conferences").select("*");
+  const { data:conferencedata, error:conferenceerror } = await supabase.from("conferences").select("*");
 
-  if (error && error.code !== "PGRST116") {
+  if (conferenceerror && conferenceerror.code !== "PGRST116") {
     console.error(error);
     return res.redirect(
       "/?message=We are facing some issues in connecting to the database. Please try again later."
@@ -284,7 +284,7 @@ if (req.user.role !== "author") {
 
   res.render("dashboard.ejs", {
     user: req.user,
-    conferences: data || [],
+    conferences: conferencedata || [],
     userSubmissions: submissiondata || [],
     presentationdata: presentationdatainfo || [],
     currentDate: new Date().toISOString().split("T")[0],
@@ -1173,6 +1173,10 @@ app.post(
     }
   }
 );
+
+app.get("/login" , async (req,res)=>{
+  res.render("login.ejs");
+});
 
 app.get("/chair/dashboard", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
