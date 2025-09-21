@@ -31,3 +31,47 @@ document.querySelector("form").addEventListener("submit", function() {
  if (window.location.search.includes('message=')) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
+
+
+function renderTrackRows(n) {
+  const tbody = document.getElementById('tracksTableBody');
+  tbody.innerHTML = '';
+  for (let i = 1; i <= n; i++) {
+    tbody.innerHTML += `
+      <tr>
+        <td>
+          <div class="form-group">
+            <input
+              type="text"
+              class="form-control"
+              name="track_title_${i}"
+              placeholder="Track Title ${i}"
+              required
+            />
+          </div>
+        </td>
+        <td>
+          <div class="form-group">
+            <input
+              type="email"
+              class="form-control"
+              name="track_reviewer_${i}"
+              placeholder="Reviewer Email ${i}"
+              required
+            />
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+}
+
+// Initial render
+renderTrackRows(document.getElementById('numTracks').value);
+
+// Update rows on input change
+document.getElementById('numTracks').addEventListener('input', function() {
+  let n = parseInt(this.value, 10);
+  if (isNaN(n) || n < 1) n = 1;
+  renderTrackRows(n);
+});
