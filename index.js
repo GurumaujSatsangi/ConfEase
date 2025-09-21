@@ -1146,7 +1146,7 @@ app.post(
     const { data, error } = await supabase
       .from("final_camera_ready_submissions")
       .insert({
-        conference_id, confid,
+        conference_id: confid,
         submission_id: id,
         primary_author: req.user.name,
         title: title,
