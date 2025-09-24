@@ -393,7 +393,7 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   const { data: track, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("conference_id", req.params.id)
     .single();
 
   if (trackError) {
@@ -422,12 +422,12 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
   const { data: conference, error: conferenceError } = await supabase
     .from("conferences")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("conference_id", req.params.id)
     .single();
 
   const { data: submissions, error: submissionsError } = await supabase
     .from("submissions")
-    .select("area, id")
+    .select("area, submission_id")
     .eq("conference_id", req.params.id)
     .eq("submission_status", "Accepted"); // Fixed typo: submision -> submission
 
@@ -813,7 +813,7 @@ app.get("/chair/dashboard/delete-conference/:id", async (req, res) => {
   const { error } = await supabase
     .from("conferences")
     .delete()
-    .eq("id", req.params.id);
+    .eq("conference_id", req.params.id);
 
   await supabase
     .from("conference_tracks")
@@ -935,9 +935,7 @@ app.post("/create-new-conference", async (req, res) => {
         acceptance_notification,
         camera_ready_paper_submission,
       },
-    ])
-    .select()
-    .single();
+    ]);
 
   if (confError) {
     console.error("Error inserting conference:", confError);
@@ -1203,7 +1201,7 @@ app.get("/chair/dashboard/edit-conference/:id", async (req, res) => {
   const { data: conference, error } = await supabase
     .from("conferences")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("conference_id", req.params.id)
     .single();
 
   if (error) {
@@ -1252,7 +1250,7 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
       acceptance_notification,
       camera_ready_paper_submission,
     })
-    .eq("id", conferenceId);
+    .eq("conference_id", conferenceId);
 
   if (confError) {
     console.error("Error updating conference:", confError);
