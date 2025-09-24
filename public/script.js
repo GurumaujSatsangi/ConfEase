@@ -97,3 +97,46 @@ function updateNumTracks() {
   ).length;
 }
 
+// Add new track row
+document.getElementById("addTrackBtn").addEventListener("click", function () {
+  const tbody = document.getElementById("tracksTableBody");
+  const rowCount = tbody.querySelectorAll("tr").length + 1;
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>
+      <input type="text" class="form-control" name="track_title_${rowCount}" placeholder="Track Title ${rowCount}" required />
+    </td>
+    <td>
+      <input type="email" class="form-control" name="track_reviewer_${rowCount}" placeholder="Reviewer Email ${rowCount}" required />
+    </td>
+    <td>
+      <button type="button" class="btn btn-danger btn-sm delete-track">Delete</button>
+    </td>
+  `;
+  tbody.appendChild(row);
+  updateNumTracks();
+});
+
+// Delete track row
+document
+  .getElementById("tracksTableBody")
+  .addEventListener("click", function (e) {
+    if (e.target.classList.contains("delete-track")) {
+      e.target.closest("tr").remove();
+      // Re-number the remaining rows' input names and placeholders
+      const rows = document.querySelectorAll("#tracksTableBody tr");
+      rows.forEach((tr, idx) => {
+        tr.querySelector('input[type="text"]').name = `track_title_${idx + 1}`;
+        tr.querySelector('input[type="text"]').placeholder = `Track Title ${
+          idx + 1
+        }`;
+        tr.querySelector('input[type="email"]').name = `track_reviewer_${
+          idx + 1
+        }`;
+        tr.querySelector('input[type="email"]').placeholder = `Reviewer Email ${
+          idx + 1
+        }`;
+      });
+      updateNumTracks();
+    }
+  });

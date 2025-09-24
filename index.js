@@ -935,7 +935,7 @@ app.post("/create-new-conference", async (req, res) => {
         acceptance_notification,
         camera_ready_paper_submission,
       },
-    ]);
+    ]).select().single();
 
   if (confError) {
     console.error("Error inserting conference:", confError);
@@ -947,7 +947,7 @@ app.post("/create-new-conference", async (req, res) => {
   let i = 1;
   while (req.body[`track_title_${i}`] && req.body[`track_reviewer_${i}`]) {
     tracks.push({
-      conference_id: confData.id,
+      conference_id: confData.conference_id,
       track_name: req.body[`track_title_${i}`],
       track_reviewers: [req.body[`track_reviewer_${i}`]], // store as array
     });
