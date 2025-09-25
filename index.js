@@ -480,9 +480,8 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
         .map((e) => e.trim())
         .filter((e) => e), // Convert to array
       status: "Scheduled",
-      session_code: otp,
     })
-    .eq("id", trackId);
+    .eq("track_id", trackId);
 
   if (error) {
     console.error("Error inserting session:", error);
@@ -494,12 +493,12 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
   );
 });
 
-app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
+app.get("/panelist/active-session/:id", async (req, res) => {
   
   const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
-    .eq("id", req.params.id)
+    .eq("track_id", req.params.id)
     .single();
 
   if (trackError || !trackinfo) {
@@ -519,9 +518,9 @@ app.get("/panelist/dashboard/active-session/:id", async (req, res) => {
     return res.status(500).send("Error fetching session details.");
   }
 
-  if (!session || session.length === 0) {
-    return res.redirect("/panelist/dashboard?message=No submissions found for this track.");
-  }
+  // if (!session || session.length === 0) {
+  //   return res.redirect("/panelist/dashboard?message=No submissions found for this track.");
+  // }
   
   res.render("panelist/active-session.ejs", {
     session: session,

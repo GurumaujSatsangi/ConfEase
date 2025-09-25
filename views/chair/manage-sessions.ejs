@@ -12,6 +12,7 @@
 
       <div class="container">
         <h4>Manage Sessions</h4>
+        <h6>Conference: <%= conference.title %></h6>
         <hr />
         
           <% if (tracks && tracks.length > 0) { %> <%
@@ -25,6 +26,7 @@
               <span class="badge bg-info text-dark" style="float: right">
                 Submissions: <%= trackCount %>
               </span><br>
+              <h6><a href="/panelist/active-session/<%= track.track_id %>">Session Link</a></h6>
            
               <br />
               <i
@@ -108,6 +110,6 @@
   </div>
   <script src="/script.js"></script>
 
- <%-include('../partials/footer')%>
+ <%-include('../partials/footer') %>
   </body>
 </html>

@@ -12,7 +12,9 @@
     <%- include('../partials/dashboard/header') %>
 
       <div class="container">
-        <h4>Set Session</h4><hr>
+        <h4>Set Session</h4>
+        <h6>Track: <%= track.track_name %></h6>
+        <hr>
 
         <form
           action="/chair/dashboard/set-session/<%= trackid %>"

@@ -4,88 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT"
-      crossorigin="anonymous"
-    />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
-      integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.min.js"
-      integrity="sha384-RuyvpeZCxMJCqVUGFI0Do1mQrods/hhxYlcVfGPOfQtPJh0JCw12tUAZ/Mv10S7D"
-      crossorigin="anonymous"
-    ></script>
-    <link rel="stylesheet" href="/styles.css" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap"
-      rel="stylesheet"
-    />
-    <script
-      src="https://kit.fontawesome.com/a076d05399.js"
-      crossorigin="anonymous"
-    ></script>
+ <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <header>
-      <div class="header-left">
-        <button class="menu-btn">
-          <i class="fas fa-bars"></i>
-        </button>
-        <div class="logo">
-          <img src="/dei_logo.png" alt="DEI" />
-        </div>
-      </div>
-
-      <div class="header-right">
-        You are logged in as <%= user.name %> (<%= user.email %>) &nbsp;
-        <a href="/logout" class="btn btn-outline-dark" role="button"> Logout</a>
-      </div>
-    </header>
-    <nav style="--bs-breadcrumb-divider: '>';" aria-label="breadcrumb">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="/reviewer/dashboard">Home</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Paper Review</li>
-  </ol>
-</nav>
- <div class="alert alert-primary" id="homescroll" role="alert">
-  <marquee behavior="scroll" scrollamount="15" direction="left">Welcome to DEI Conference Management Toolkit! |  In case of any queries, please feel free to reach out to us at <b><a href="mailto:multimedia@dei.ac.in">multimedia@dei.ac.in</a></b>. | If this is your first time here, please go through the User Manual (Click Here).</marquee>
-</marquee>
-
-</div>
-    <main>
-      <div class="welcome-section">
-        <div class="welcome-content">
-   <div class="alert alert-primary" role="alert">
-
-    <ul>    <li>
-<b>Please note, after a paper has been reviewed it is mandatory to click on the "Save" button or else the progress will be lost.</b> 
-  </li>
-
-  <li><b>A submission can be reviewed only once. Once the "Save" button is clicked, the submission cannot be viewed again.</b></li>
-
-</ul>
-</div>
-        
-        </div>
-      </div>
-
-      <div class="quick-access">
-       
-
-        
-
-              <table class="table table-bordered">
+    <%- include('../partials/dashboard/header') %>
+<div class="container">
+<table class="table table-bordered">
               <tr>
                 <td>Title</td>
                 <td colspan="5"><%= userSubmissions.title %></td>
@@ -191,11 +115,8 @@ document.querySelector("form").addEventListener("submit", function() {
 </script>
         
       </div>
-    </main>
 
     <script src="/script.js"></script>
-    <footer class="footer bg-dark text-white text-center py-3" style="position:relative; left:0; bottom:0; width:100%; z-index:1030;">
-  Copyright Dayalbagh Educational Institute. All rights reserved. <br>Powered by DEI Multimedia Laboratory / Centre
-</footer>
+  <%- include('../partials/footer') %>
   </body>
 </html>
