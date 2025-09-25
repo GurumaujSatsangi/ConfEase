@@ -393,7 +393,7 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   const { data: track, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
-    .eq("conference_id", req.params.id)
+    .eq("track_id", req.params.id)
     .single();
 
   if (trackError) {
@@ -1293,10 +1293,10 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
         // Keep existing presentation data
         // presentation_date, presentation_start_time, presentation_end_time, panelists will remain unchanged
       })
-      .eq("id", existingTrack.id);
+      .eq("track_id", existingTrack.track_id);
 
     if (updateError) {
-      console.error(`Error updating track ${existingTrack.id}:`, updateError);
+      console.error(`Error updating track ${existingTrack.track_id}:`, updateError);
       return res.status(500).send(`Error updating track ${existingTrack.track_name}.`);
     }
   }
@@ -1323,12 +1323,12 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
   // 6. If there are fewer new tracks than existing ones, delete the extra ones
   if (newTracks.length < existingTracks.length) {
     const tracksToDelete = existingTracks.slice(newTracks.length);
-    const trackIdsToDelete = tracksToDelete.map(track => track.id);
+    const trackIdsToDelete = tracksToDelete.map(track => track.track_id);
 
     const { error: deleteError } = await supabase
       .from("conference_tracks")
       .delete()
-      .in("id", trackIdsToDelete);
+      .in("track_id", trackIdsToDelete);
 
     if (deleteError) {
       console.error("Error deleting extra tracks:", deleteError);
