@@ -368,7 +368,7 @@ app.get("/reviewer/dashboard", async (req, res) => {
     const { data: submissions, error: submissionerror } = await supabase
       .from("submissions")
       .select("*")
-      .in("area", trackNames);
+      .in("track_id", trackNames);
 
     if (submissionerror) {
       console.error(submissionerror);
@@ -586,35 +586,60 @@ app.get("/reviewer/dashboard/review/:id", async (req, res) => {
     return res.redirect("/");
   }
 
-  const { data, error } = await supabase
+  // 1. Fetch the submission data
+  const { data: submissionData, error: submissionError } = await supabase
     .from("submissions")
     .select("*")
     .eq("paper_code", req.params.id)
     .single();
 
-  if (data.submission_status == "Reviewed") {
+  // 2. IMMEDIATELY check for an error or if no data was found
+  if (submissionError) {
+    console.error("Error fetching submission:", submissionError);
     return res.render("error.ejs", {
-      message:
-        "This submission has been reviewed. A submission can be reviewed only once.",
+      message: "An error occurred while fetching the submission.",
     });
   }
 
-  if (error) {
-    console.error("Error fetching submission:", error);
-    return res.render("error.ejs", {
-      message: "We are facing some issues in fetching the submissions.",
-    });
-  }
-
-  if (!data) {
+  if (!submissionData) {
     return res.render("error.ejs", {
       message: "The submission you are trying to view does not exist.",
     });
   }
 
+  // 3. NOW it is safe to use submissionData
+  if (submissionData.submission_status === "Reviewed") {
+    return res.render("error.ejs", {
+      message: "This submission has already been reviewed.",
+    });
+  }
+
+  // 4. Fetch the related data
+  const { data: conferencedata, error: conferenceerror } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", submissionData.conference_id)
+    .single();
+
+  const { data: trackdata, error: trackerror } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("track_id", submissionData.track_id)
+    .single();
+  
+  // // 5. Check if the related data was found
+  // if (conferenceerror || trackerror || !conferencedata || !trackdata) {
+  //    return res.render("error.ejs", {
+  //     message: "Could not find the associated conference or track for this submission.",
+  //   });
+  // }
+
+  // 6. Only render the page if all data is valid and present
   res.render("reviewer/review", {
     user: req.user,
-    userSubmissions: data,
+    userSubmissions: submissionData,
+    conferencedata,
+    trackdata,
   });
 });
 app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {

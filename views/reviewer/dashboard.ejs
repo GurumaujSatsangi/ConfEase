@@ -10,13 +10,16 @@
   <body>
     <%- include('../partials/dashboard/header') %>
     <div class="container">
-      <h4>My Tracks</h4>
+        <h4>Welcome, <%= user.name %> (<%=user.email %>)</h4>
+
+      <h6>My Tracks</h6><hr>
       <% if (tracks && tracks.length > 0) { %> <%
       tracks.forEach(function(conference) { %>
       <table class="table">
         <tbody>
           <tr>
             <td><%= conference.track_name %></td>
+            <td><%= conference.title %></td>
           </tr>
         </tbody>
       </table>
@@ -24,7 +27,7 @@
       <h2>No Tracks have been assigned to you.</h2>
       <% } %>
 
-      <h4>Review Submissions</h4>
+      <h6>Review Submissions</h6>
       <% if (userSubmissions && userSubmissions.length > 0) { %> <%
       userSubmissions.forEach(function(submission) { %>
 
