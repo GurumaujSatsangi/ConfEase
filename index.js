@@ -425,6 +425,7 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
     user: req.user,
     trackid: req.params.id,
     track: track || {},
+    message: req.query.message || null,
   });
 });
 app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
@@ -477,6 +478,7 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     tracks: tracks || [],
     conference: conference || {},
     count: count || [],
+    message: req.query.message || null,
   });
 });
 
@@ -654,6 +656,7 @@ app.get("/reviewer/dashboard/review/:id", async (req, res) => {
     userSubmissions: submissionData,
     conferencedata,
     trackdata,
+    message: req.query.message || null,
   });
 });
 app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
@@ -924,6 +927,7 @@ app.get("/submission/co-author/:id", async (req, res) => {
     user: req.user,
     conferences: data,
     submission: null,
+    message: req.query.message || null,
   });
 });
 
@@ -1081,6 +1085,7 @@ app.get("/submission/primary-author/:id", async (req, res) => {
     user: req.user,
     conferences: conference,
     tracks: tracks || [],
+    message: req.query.message || null,
   });
 });
 
@@ -1137,7 +1142,8 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
     res.render("submission3.ejs", { 
         user: req.user, 
       submission: submission, 
-      tracks: tracks || [] 
+      tracks: tracks || [],
+      message: req.query.message || null,
     });
 
   } catch (error) {
@@ -1192,7 +1198,8 @@ app.get(
     } else {
       res.render("submission4.ejs", { 
         user: req.user, 
-        submission: { ...data, track_name: trackName } 
+        submission: { ...data, track_name: trackName },
+        message: req.query.message || null,
       });
     }
   }
@@ -1267,10 +1274,13 @@ app.post(
 );
 
 app.get("/login" , async (req,res)=>{
-  res.render("login.ejs");
+  res.render("login.ejs", {
+    message: req.query.message || null
+  });
 });
 
 app.get("/chair/dashboard", async (req, res) => {
+
   if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
   }
@@ -1281,9 +1291,13 @@ app.get("/chair/dashboard", async (req, res) => {
     return res.send("Database error!");
   }
 
+    const message = req.query.message || null;
+
+
   res.render("chair/dashboard.ejs", {
     user: req.user,
     conferences: data || [],
+    message: message,
   });
 });
 
@@ -1318,6 +1332,7 @@ app.get("/chair/dashboard/edit-conference/:id", async (req, res) => {
     user: req.user,
     conference,
     tracks: tracks || [],
+    message: req.query.message || null,
   });
 });
 app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
@@ -1477,6 +1492,7 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     submissions: submissionsWithTracks,
     conferencedata: req.params.id,
     confdata: confdata || {},
+    message: req.query.message || null,
   });
 });
 
