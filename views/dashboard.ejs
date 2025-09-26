@@ -168,8 +168,8 @@
 </td>
 <td>
     <% 
-        // Find the presentation data for this submission's area
-        const matchingPresentation = presentationdata.find(p => p.track_name === submission.area);
+        // Find the presentation data for this submission's track_id
+        const matchingPresentation = presentationdata.find(p => p.track_id === submission.track_id);
     %>
     <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && matchingPresentation && matchingPresentation.status == "Scheduled") { %>
         <span class="badge-reviewed">Your presentation is on <b><%= matchingPresentation.presentation_date %></b> between <b><%= matchingPresentation.presentation_start_time %></b> & <b><%= matchingPresentation.presentation_end_time %></b></span><br>

@@ -18,7 +18,7 @@
           <% if (tracks && tracks.length > 0) { %> <%
           tracks.forEach(function(track, idx) { // Find the count for this track
           var trackCount = 0; if (count && count.length > 0) { var found =
-          count.find(function(tc) { return tc.area === track.track_name; }); if
+          count.find(function(tc) { return tc.track_id === track.track_id; }); if
           (found) trackCount = found.count; } %>
           <div class="card">
             <div class="card-body">

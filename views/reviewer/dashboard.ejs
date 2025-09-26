@@ -14,12 +14,12 @@
 
       <h6>My Tracks</h6><hr>
       <% if (tracks && tracks.length > 0) { %> <%
-      tracks.forEach(function(conference) { %>
+      tracks.forEach(function(track) { %>
       <table class="table">
         <tbody>
           <tr>
-            <td><%= conference.track_name %></td>
-            <td><%= conference.title %></td>
+            <td><%= track.track_name %></td>
+            <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
           </tr>
         </tbody>
       </table>

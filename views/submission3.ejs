@@ -74,7 +74,7 @@
           >
             <% if (tracks && tracks.length > 0) { %> <%
             tracks.forEach(function(track) { %>
-            <option value="<%= track.track_name %>">
+            <option value="<%= track.track_id %>" <%= submission.track_id == track.track_id ? 'selected' : '' %>>
               <%= track.track_name %>
             </option>
             <% }); %> <% } else { %>

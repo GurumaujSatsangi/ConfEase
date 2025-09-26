@@ -130,13 +130,13 @@ app.get(
     }
 
     // Fetch all submissions for these tracks
-    const trackNames = reviewerTracks.map((track) => track.track_name);
+    const trackIds = reviewerTracks.map((track) => track.track_id);
     let submissiondata = [];
-    if (trackNames.length > 0) {
+    if (trackIds.length > 0) {
       const { data: submissions, error: submissionerror } = await supabase
         .from("submissions")
         .select("*")
-        .in("area", trackNames);
+        .in("track_id", trackIds);
 
       if (submissionerror) {
         console.error(submissionerror);
@@ -176,15 +176,15 @@ app.get(
     );
 
     if (reviewerTracks.length > 0) {
-      const trackNames = reviewerTracks.map((track) => track.track_name);
+      const trackIds = reviewerTracks.map((track) => track.track_id);
 
       // Fetch all submissions for these tracks
       let submissiondata = [];
-      if (trackNames.length > 0) {
+      if (trackIds.length > 0) {
         const { data: submissions, error: submissionerror } = await supabase
           .from("submissions")
           .select("*")
-          .in("area", trackNames);
+          .in("track_id", trackIds);
 
         if (submissionerror) {
           console.error(submissionerror);
@@ -253,21 +253,21 @@ if (req.user.role !== "author") {
   // Get all user's submissions (remove .single())
   const { data: trackinfodata, error: trackinfoError } = await supabase
     .from("submissions")
-    .select("area")
+    .select("track_id")
     .or(
       `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
     );
 
-  // Get unique areas from all submissions
-  const areas = [...new Set((trackinfodata || []).map((t) => t.area))];
+  // Get unique track_ids from all submissions
+  const trackIds = [...new Set((trackinfodata || []).map((t) => t.track_id).filter(Boolean))];
 
-  // Get presentation data for all areas (use .in() instead of .eq())
+  // Get presentation data for all tracks (use .in() instead of .eq())
   let presentationdatainfo = [];
-  if (areas.length > 0) {
+  if (trackIds.length > 0) {
     const { data: presentationData, error: presentationError } = await supabase
       .from("conference_tracks")
       .select("*")
-      .in("track_name", areas);
+      .in("track_id", trackIds);
 
     if (!presentationError) {
       presentationdatainfo = presentationData || [];
@@ -337,51 +337,66 @@ app.get("/reviewer/dashboard", async (req, res) => {
     return res.redirect("/");
   }
 
-  const { data: tracks, error } = await supabase
+  // Fetch tracks assigned to this reviewer first
+  const { data: tracks, error: tracksError } = await supabase
     .from("conference_tracks")
-    .select("*");
-  if (error && error.code !== "PGRST116") {
-    console.error(error);
-    res.redirect(
-      "/reviewer/dashboard?message=We are facing some issues in connecting to the database. Please try again later."
-    );
-  }
-  // Find all tracks where the user is a reviewer
-  const reviewerTracks = (tracks || []).filter(
-    (track) =>
-      Array.isArray(track.track_reviewers) &&
-      track.track_reviewers.includes(req.user.email)
-  );
+    .select("*")
+    .contains("track_reviewers", [req.user.email]);
 
-  if (reviewerTracks.length === 0) {
-    res.redirect(
-      "/?message=You are not assigned to any tracks. Please contact the conference organizers for more information."
-    );
+  if (tracksError) {
+    console.error("Error fetching tracks:", tracksError);
+    return res.status(500).send("Error fetching tracks.");
   }
 
-  // Collect all track names
-  const trackNames = reviewerTracks.map((track) => track.track_name);
+  // Get conference information for tracks
+  const conferenceIds = [...new Set((tracks || []).map(track => track.conference_id))];
+  let conferences = [];
+  if (conferenceIds.length > 0) {
+    const { data: conferenceData, error: conferenceError } = await supabase
+      .from("conferences")
+      .select("*")
+      .in("conference_id", conferenceIds);
 
-  // Fetch all submissions for these tracks
-  let submissiondata = [];
-  if (trackNames.length > 0) {
-    const { data: submissions, error: submissionerror } = await supabase
+    if (!conferenceError) {
+      conferences = conferenceData || [];
+    }
+  }
+
+  // Create conference map for easy lookup
+  const conferenceMap = {};
+  conferences.forEach(conf => {
+    conferenceMap[conf.conference_id] = conf;
+  });
+
+  // Add conference info to tracks
+  const tracksWithConferences = (tracks || []).map(track => ({
+    ...track,
+    conference: conferenceMap[track.conference_id] || {}
+  }));
+
+  // Get track IDs for this reviewer
+  const trackIds = (tracks || []).map(track => track.track_id);
+
+  // Fetch submissions for these tracks using track_id
+  let userSubmissions = [];
+  if (trackIds.length > 0) {
+    const { data: submissions, error: submissionsError } = await supabase
       .from("submissions")
       .select("*")
-      .in("track_id", trackNames);
+      .in("track_id", trackIds);
 
-    if (submissionerror) {
-      console.error(submissionerror);
-      return res.send("Error fetching submissions.");
+    if (submissionsError) {
+      console.error("Error fetching submissions:", submissionsError);
+      return res.status(500).send("Error fetching submissions.");
     }
-    submissiondata = submissions || [];
+
+    userSubmissions = submissions || [];
   }
 
-  res.render("reviewer/dashboard", {
+  res.render("reviewer/dashboard.ejs", {
     user: req.user,
-    tracks: reviewerTracks,
-    userSubmissions: submissiondata,
-    message: "Welcome",
+    userSubmissions: userSubmissions,
+    tracks: tracksWithConferences || [],
   });
 });
 app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
@@ -425,22 +440,23 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     .eq("conference_id", req.params.id)
     .single();
 
+  // Count submissions by track_id instead of area
   const { data: submissions, error: submissionsError } = await supabase
     .from("submissions")
-    .select("area, submission_id")
-    .eq("conference_id", req.params.id)
-    .eq("submission_status", "Accepted"); // Fixed typo: submision -> submission
+    .select("track_id, submission_id")
+    .eq("conference_id", req.params.id);
 
-  // Count submissions per track (area)
+  // Count submissions per track (track_id)
   const trackCounts = {};
   (submissions || []).forEach((sub) => {
-    trackCounts[sub.area] = (trackCounts[sub.area] || 0) + 1;
+    trackCounts[sub.track_id] = (trackCounts[sub.track_id] || 0) + 1;
   });
 
-  // Convert to array for EJS
-  const count = Object.entries(trackCounts).map(([area, count]) => ({
-    area,
-    count,
+  // Convert to array for EJS - include track names for display
+  const count = tracks.map(track => ({
+    track_id: track.track_id,
+    track_name: track.track_name,
+    count: trackCounts[track.track_id] || 0,
   }));
 
   if (tracksError || conferenceError || submissionsError) {
@@ -494,7 +510,6 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 app.get("/panelist/active-session/:id", async (req, res) => {
-  
   const { data: trackinfo, error: trackError } = await supabase
     .from("conference_tracks")
     .select("*")
@@ -505,23 +520,17 @@ app.get("/panelist/active-session/:id", async (req, res) => {
     return res.redirect("/panelist/dashboard?message=Track not found.");
   }
 
-  
-
-  // Rest of your existing code...
+  // Fetch submissions by track_id instead of area
   const { data: session, error } = await supabase
-    .from("final_camera_ready_submissions")
+    .from("submissions")
     .select("*")
-    .eq("area", trackinfo.track_name);
+    .eq("track_id", trackinfo.track_id); // Use track_id instead of area
 
   if (error) {
     console.error("Error fetching session:", error);
     return res.status(500).send("Error fetching session details.");
   }
 
-  // if (!session || session.length === 0) {
-  //   return res.redirect("/panelist/dashboard?message=No submissions found for this track.");
-  // }
-  
   res.render("panelist/active-session.ejs", {
     session: session,
     trackinfo: trackinfo,
@@ -568,14 +577,14 @@ app.post("/start-session", async (req, res) => {
          
           session_code: null
         })
-        .eq("id", track.id);
+        .eq("track_id", track.track_id);
 
       if (updateError) {
         console.error("Error updating track:", updateError);
         return res.redirect("/panelist/dashboard?message=Error starting session.");
       }
 
-      return res.redirect(`/panelist/dashboard/active-session/${track.id}`);
+      return res.redirect(`/panelist/dashboard/active-session/${track.track_id}`);
     }
   } else {
     return res.redirect("/panelist/dashboard?message=Session date mismatch.");
@@ -677,7 +686,7 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
       presentation_end_time: session_end_time,
       panelists: session_panelists,
       status: "Scheduled",
-    }).eq("id", track.id);
+    }).eq("track_id", track.track_id);
 
     if (updateError) {
       console.error(`Error updating track ${track.track_name}:`, updateError);
@@ -752,14 +761,14 @@ app.post("/mark-as-reviewed", async (req, res) => {
       track.track_reviewers.includes(req.user.email)
   );
 
-  const trackNames = reviewerTracks.map((track) => track.track_name);
+  const trackIds = reviewerTracks.map((track) => track.track_id);
 
   let submissiondata = [];
-  if (trackNames.length > 0) {
+  if (trackIds.length > 0) {
     const { data: submissions, error: submissionerror } = await supabase
       .from("submissions")
       .select("*")
-      .in("area", trackNames);
+      .in("track_id", trackIds);
 
     if (submissionerror) {
       console.error(submissionerror);
@@ -1105,25 +1114,47 @@ app.get(
       return res.redirect("/");
     }
 
-    
     const { data, error } = await supabase
       .from("submissions")
       .select("*")
       .eq("submission_id", req.params.id)
       .single();
+
+    if (error || !data) {
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+
+    // Fetch track information
+    let trackName = 'Unknown Track';
+    if (data.track_id) {
+      const { data: trackData, error: trackError } = await supabase
+        .from("conference_tracks")
+        .select("track_name")
+        .eq("id", data.track_id)
+        .single();
+
+      if (!trackError && trackData) {
+        trackName = trackData.track_name;
+      }
+    }
+
     if (data.submission_status == "Submitted for Review") {
       return res.redirect(
         "/dashboard?message=Your submission is under review."
-    );
+      );
     } else if (data.submission_status == "Rejected") {
-return res.redirect(
+      return res.redirect(
         "/dashboard?message=Your submission has been rejected."
-    );    } else if (data.submission_status == "Submitted Final Camera Ready Paper") {
+      );
+    } else if (data.submission_status == "Submitted Final Camera Ready Paper") {
       return res.redirect(
         "/dashboard?message=You have already submitted the final camera ready paper for this submission."
-    );
+      );
     } else {
-      res.render("submission4.ejs", { user: req.user, submission: data });
+      res.render("submission4.ejs", { 
+        user: req.user, 
+        submission: { ...data, track_name: trackName } 
+      });
     }
   }
 );
@@ -1173,7 +1204,7 @@ app.post(
         primary_author: req.user.name,
         title: title,
         abstract: abstract,
-        area: areas,
+        track_id: areas, // Use track_id instead of area
         co_authors: co_authors,
         file_url: uploadResult.secure_url,
       });
@@ -1367,28 +1398,49 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     return res.redirect("/");
   }
 
-  const { data, error } = await supabase
+  // Fetch submissions separately
+  const { data: submissions, error } = await supabase
     .from("submissions")
     .select("*")
     .eq("conference_id", req.params.id);
 
-    const {data:confdata, error: conferror} = await supabase
+  // Fetch tracks for this conference
+  const { data: tracks, error: tracksError } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("conference_id", req.params.id);
+
+  const { data: confdata, error: conferror } = await supabase
     .from("conferences")
     .select("*")
-    .eq("id", req.params.id).single();
+    .eq("conference_id", req.params.id)
+    .single();
 
-  if (error) {
-    console.error("Error fetching submissions:", error);
-    return res.status(500).send("Error fetching submissions.");
+  if (error || conferror || tracksError) {
+    console.error("Error fetching data:", error || conferror || tracksError);
+    return res.status(500).send("Error fetching data.");
   }
+
+  // Create a map of track_id to track_name for easy lookup
+  const trackMap = {};
+  (tracks || []).forEach(track => {
+    trackMap[track.track_id] = track.track_name;
+  });
+
+  // Add track names to submissions
+  const submissionsWithTracks = (submissions || []).map(sub => ({
+    ...sub,
+    track_name: trackMap[sub.track_id] || 'Unknown Track'
+  }));
 
   res.render("chair/view-submissions.ejs", {
     user: req.user,
-    submissions: data || [],
+    submissions: submissionsWithTracks,
     conferencedata: req.params.id,
     confdata: confdata || {},
   });
 });
+
 app.post("/edit-submission", upload.single("file"), async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
@@ -1401,7 +1453,7 @@ app.post("/edit-submission", upload.single("file"), async (req, res) => {
     const updateData = {
       title: title,
       abstract: abstract,
-      area: areas,
+      track_id: areas, // Use track_id instead of area
     };
 
     // Only process file upload if a file was actually uploaded
@@ -1521,7 +1573,7 @@ app.post("/submit", upload.single("file"), async (req, res) => {
       primary_author: req.user.email,
       title: title,
       abstract: abstract,
-      area: areas,
+      track_id: areas, // Use track_id instead of area
       file_url: uploadResult.secure_url,
       paper_code: crypto.randomUUID(),
     },
