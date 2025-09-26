@@ -704,7 +704,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
   }
 
   const {
-    paper_id,
+    submission_id, // This is actually paper_code (UUID string)
     conference_id,
     status,
     originality_score,
@@ -715,27 +715,61 @@ app.post("/mark-as-reviewed", async (req, res) => {
     remarks,
   } = req.body;
 
+  // // First, get the submission to retrieve the UUID submission_id
+  // const { data: submissionData, error: submissionError } = await supabase
+  //   .from("submissions")
+  //   .select("*") // Get the UUID primary key
+  //   .eq("submission_id", submission_id)
+  //   .single();
+
+  // if (submissionError) {
+  //   console.error("Error fetching submission:", submissionError);
+  //   console.error("Paper code searched:", paper_id);
+    
+  //   // If no rows found, it means paper_code doesn't exist
+  //   if (submissionError.code === 'PGRST116') {
+  //     return res.render("error.ejs", {
+  //       message: "Submission not found with the provided paper code. Please verify the paper code is correct.",
+  //     });
+  //   }
+    
+  //   return res.render("error.ejs", {
+  //     message: "Database error while fetching submission.",
+  //   });
+  // }
+
+  // if (!submissionData) {
+  //   return res.render("error.ejs", {
+  //     message: "Submission data is empty.",
+  //   });
+  // }
+
+  // // Use the submission_id (UUID) for peer_review table's paper_id field
+  // const uuidPaperId = submissionData.submission_id;
+  
   const { data, error } = await supabase.from("peer_review").insert({
     conference_id: conference_id,
-    paper_id: paper_id,
+    submission_id: submission_id, // Use the correct UUID
     review_status: "Reviewed",
     remarks: remarks,
-    originality_score: originality_score,
-    relevance_score: relevance_score,
-    technical_quality_score: technical_quality_score,
-    clarity_score: clarity_score,
-    impact_score: impact_score,
-    mean_score: (originality_score+relevance_score+technical_quality_score+clarity_score+impact_score)/5,
+    originality_score: parseFloat(originality_score),
+    relevance_score: parseFloat(relevance_score),
+    technical_quality_score: parseFloat(technical_quality_score),
+    clarity_score: parseFloat(clarity_score),
+    impact_score: parseFloat(impact_score),
+    mean_score: (parseFloat(originality_score) + parseFloat(relevance_score) + parseFloat(technical_quality_score) + parseFloat(clarity_score) + parseFloat(impact_score)) / 5,
     reviewer: req.user.email,
     acceptance_status: status,
   });
-  await supabase
+
+  // Update the submission using paper_code
+  const { error: updateError } = await supabase
     .from("submissions")
     .update({ submission_status: "Reviewed", remarks: remarks })
-    .eq("id", paper_id);
+    .eq("submission_id", submission_id);
 
-  if (error) {
-    console.error("Error updating submission:", error);
+  if (error || updateError) {
+    console.error("Error updating submission:", error || updateError);
     return res.render("error.ejs", {
       message:
         "We are facing some issues in marking this submission as reviewed.",
@@ -1130,7 +1164,7 @@ app.get(
       const { data: trackData, error: trackError } = await supabase
         .from("conference_tracks")
         .select("track_name")
-        .eq("id", data.track_id)
+        .eq("track_id", data.track_id)
         .single();
 
       if (!trackError && trackData) {
