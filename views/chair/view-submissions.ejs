@@ -20,7 +20,7 @@
           action="/publish/review-results"
           method="POST"
         >
-               <input type="hidden" id="conferenceId" name="conference_id" value="<%= conferencedata %>" />
+               <input type="hidden" name="conference_id" value="<%= confdata.conference_id %>" />
              <% 
   // Get current date in IST
   const now = new Date();
@@ -43,7 +43,7 @@
  
   <button type="button" class="btn btn-outline-secondary" disabled 
           title="Available from <%= confdata.acceptance_notification %>">
-    <i class="bi bi-lock"></i> Publish Review Results
+    <i class="bi bi-lock"></i> Publish Review Results (Available from <%= confdata.acceptance_notification %>)
   </button>
 <% } %>
 </form>

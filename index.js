@@ -298,12 +298,17 @@ app.post("/publish/review-results", async (req, res) => {
   }
 
   const { conference_id } = req.body;
+  
+  console.log("Received conference_id:", conference_id);
+  console.log("Type of conference_id:", typeof conference_id);
+  console.log("Full req.body:", req.body);
 
-  if (!conference_id || isNaN(Number(conference_id))) {
+  if (!conference_id) {
     return res.status(400).send("Invalid or missing conference_id.");
   }
 
-  const confId = Number(conference_id);
+  // Use the conference_id as is (it's a UUID string, not a number)
+  const confId = conference_id;
 
   const { data: reviewdata, error: reviewdataError } = await supabase
     .from("peer_review")
@@ -319,11 +324,11 @@ app.post("/publish/review-results", async (req, res) => {
     const { error: updateError } = await supabase
       .from("submissions")
       .update({ submission_status: data.acceptance_status , })
-      .eq("id", data.paper_id);
+      .eq("submission_id", data.submission_id);
 
     if (updateError) {
-      console.error(`Error updating track ${data.id}:`, updateError);
-      return res.status(500).send(`Error updating track ${data.id}.`);
+      console.error(`Error updating track ${data.submission_id}:`, updateError);
+      return res.status(500).send(`Error updating track ${data.submission_id}.`);
     }
   }
 
