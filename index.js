@@ -751,7 +751,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
 
   // // Use the submission_id (UUID) for peer_review table's paper_id field
   // const uuidPaperId = submissionData.submission_id;
-  
+  const mean_score = (parseFloat(originality_score) + parseFloat(relevance_score) + parseFloat(technical_quality_score) + parseFloat(clarity_score) + parseFloat(impact_score)) / 5;
   const { data, error } = await supabase.from("peer_review").insert({
     conference_id: conference_id,
     submission_id: submission_id, // Use the correct UUID
@@ -762,7 +762,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
     technical_quality_score: parseFloat(technical_quality_score),
     clarity_score: parseFloat(clarity_score),
     impact_score: parseFloat(impact_score),
-    mean_score: (parseFloat(originality_score) + parseFloat(relevance_score) + parseFloat(technical_quality_score) + parseFloat(clarity_score) + parseFloat(impact_score)) / 5,
+    mean_score: mean_score,
     reviewer: req.user.email,
     acceptance_status: status,
   });
@@ -770,7 +770,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
   // Update the submission using paper_code
   const { error: updateError } = await supabase
     .from("submissions")
-    .update({ submission_status: "Reviewed", remarks: remarks })
+    .update({ submission_status: "Reviewed", remarks: remarks,score:mean_score })
     .eq("submission_id", submission_id);
 
   if (error || updateError) {
