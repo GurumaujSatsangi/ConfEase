@@ -24,119 +24,27 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-document.querySelector("form").addEventListener("submit", function () {
-  var loadingModal = new bootstrap.Modal(
-    document.getElementById("loadingModal")
-  );
-  loadingModal.show();
-});
-
-if (window.location.search.includes("message=")) {
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-function renderTrackRows(n) {
-  const tbody = document.getElementById("tracksTableBody");
-  tbody.innerHTML = "";
-  for (let i = 1; i <= n; i++) {
-    tbody.innerHTML += `
-      <tr>
-        <td>
-          <div class="form-group">
-            <input
-              type="text"
-              class="form-control"
-              name="track_title_${i}"
-              placeholder="Track Title ${i}"
-              required
-            />
-          </div>
-        </td>
-        <td>
-          <div class="form-group">
-            <input
-              type="email"
-              class="form-control"
-              name="track_reviewer_${i}"
-              placeholder="Reviewer Email ${i}"
-              required
-            />
-          </div>
-        </td>
-      </tr>
-    `;
+// Remove message query parameter after page loads and alert is displayed
+document.addEventListener("DOMContentLoaded", function () {
+  if (window.location.search.includes("message=")) {
+    // Small delay to ensure the alert is displayed first
+    setTimeout(() => {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }, 100);
   }
-}
-
-// Initial render
-renderTrackRows(document.getElementById("numTracks").value);
-
-// Update rows on input change
-document.getElementById("numTracks").addEventListener("input", function () {
-  let n = parseInt(this.value, 10);
-  if (isNaN(n) || n < 1) n = 1;
-  renderTrackRows(n);
 });
 
-document.querySelector("form").addEventListener("submit", function () {
-  var loadingModal = new bootstrap.Modal(
-    document.getElementById("loadingModal")
-  );
-  loadingModal.show();
-});
-
-document.querySelector("form").addEventListener("submit", function () {
-  var loadingModal = new bootstrap.Modal(
-    document.getElementById("loadingModal")
-  );
-  loadingModal.show();
-});
-function updateNumTracks() {
-  document.getElementById("numTracks").value = document.querySelectorAll(
-    "#tracksTableBody tr"
-  ).length;
-}
-
-// Add new track row
-document.getElementById("addTrackBtn").addEventListener("click", function () {
-  const tbody = document.getElementById("tracksTableBody");
-  const rowCount = tbody.querySelectorAll("tr").length + 1;
-  const row = document.createElement("tr");
-  row.innerHTML = `
-    <td>
-      <input type="text" class="form-control" name="track_title_${rowCount}" placeholder="Track Title ${rowCount}" required />
-    </td>
-    <td>
-      <input type="email" class="form-control" name="track_reviewer_${rowCount}" placeholder="Reviewer Email ${rowCount}" required />
-    </td>
-    <td>
-      <button type="button" class="btn btn-danger btn-sm delete-track">Delete</button>
-    </td>
-  `;
-  tbody.appendChild(row);
-  updateNumTracks();
-});
-
-// Delete track row
-document
-  .getElementById("tracksTableBody")
-  .addEventListener("click", function (e) {
-    if (e.target.classList.contains("delete-track")) {
-      e.target.closest("tr").remove();
-      // Re-number the remaining rows' input names and placeholders
-      const rows = document.querySelectorAll("#tracksTableBody tr");
-      rows.forEach((tr, idx) => {
-        tr.querySelector('input[type="text"]').name = `track_title_${idx + 1}`;
-        tr.querySelector('input[type="text"]').placeholder = `Track Title ${
-          idx + 1
-        }`;
-        tr.querySelector('input[type="email"]').name = `track_reviewer_${
-          idx + 1
-        }`;
-        tr.querySelector('input[type="email"]').placeholder = `Reviewer Email ${
-          idx + 1
-        }`;
+// Show loading modal on form submission (only add if loadingModal exists)
+document.addEventListener("DOMContentLoaded", function () {
+  const forms = document.querySelectorAll("form");
+  const loadingModal = document.getElementById("loadingModal");
+  
+  if (loadingModal && forms.length > 0) {
+    forms.forEach(form => {
+      form.addEventListener("submit", function () {
+        var modal = new bootstrap.Modal(loadingModal);
+        modal.show();
       });
-      updateNumTracks();
-    }
-  });
+    });
+  }
+});

@@ -78,15 +78,22 @@
             name="areas"
             id="exampleFormControlSelect1"
           >
-            <% if (tracks && tracks.length > 0) { %> <%
-            tracks.forEach(function(track) { %>
-            <option value="<%= track.track_id %>" <%= submission.track_id == track.track_id ? 'selected' : '' %>>
-              <%= track.track_name %>
-            </option>
-            <% }); %> <% } else { %>
-            <option disabled>No tracks available</option>
+            <option value="" disabled>Select Track</option>
+            <% if (tracks && tracks.length > 0) { %> 
+              <% tracks.forEach(function(track) { %>
+                <option 
+                  value="<%= track.track_id %>" 
+                  <%= (submission.track_id && String(submission.track_id) === String(track.track_id)) ? 'selected' : '' %>
+                >
+                  <%= track.track_name %>
+                </option>
+              <% }); %> 
+            <% } else { %>
+              <option disabled>No tracks available</option>
             <% } %>
           </select>
+          <!-- Debug info (remove in production) -->
+      
         </div>
         <br />
         <div class="form-group">

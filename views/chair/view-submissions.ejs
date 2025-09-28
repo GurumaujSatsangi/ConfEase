@@ -48,39 +48,212 @@
 <% } %>
 </form>
         <hr>
-        
-        <% if (submissions && submissions.length > 0) { %> <%
-        submissions.forEach(function(submission) { %>
-        <table class="table" border="1">
-          <tbody>
-            <tr>
-              <td ><b>Title</b></td>
-              <td ><b>Track</b></td>
-              <td ><b>Primary Author</b></td>
 
-              <td ><b>Co-Authors</b></td>
-              <td ><b>Submission Status</b></td>
-              <td ><b>View Paper</b></td>
-            </tr>
-            
-            <tr>
-              <td><%= submission.title %></td>
-              <td><%= submission.track_name %></td>
-              <td><%= submission.primary_author %></td>
-              <td><%= submission.co_authors %></td>
-              <td><%= submission.submission_status %></td>
-              <td><a href="<%= submission.file_url %>" target="_blank"><i class="bi bi-eye-fill"></i></a></td>
-              
-            </tr>
-          </tbody>
-        </table>
-        <% }); %> <% } else { %>
-        <h6>No Submissions found.</h6>
-        <% } %>
+        <!-- Search and Filter Section -->
+        <div class="row mb-4">
+          <div class="col-md-4">
+            <div class="form-group">
+              <label for="searchInput">Search Submissions</label>
+              <input 
+                type="text" 
+                id="searchInput" 
+                class="form-control" 
+                placeholder="Search by title, author, or paper code..."
+              >
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-group">
+              <label for="trackFilter">Filter by Track</label>
+              <select id="trackFilter" class="form-control">
+                <option value="">All Tracks</option>
+                <% if (tracks && tracks.length > 0) { %>
+                  <% tracks.forEach(function(track) { %>
+                    <option value="<%= track.track_name %>"><%= track.track_name %></option>
+                  <% }); %>
+                <% } %>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-group">
+              <label for="statusFilter">Filter by Status</label>
+              <select id="statusFilter" class="form-control">
+                <option value="">All Statuses</option>
+                <% if (uniqueStatuses && uniqueStatuses.length > 0) { %>
+                  <% uniqueStatuses.forEach(function(status) { %>
+                    <option value="<%= status %>"><%= status %></option>
+                  <% }); %>
+                <% } %>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results Count -->
+        <div class="row mb-3">
+          <div class="col-12">
+            <span id="resultsCount" class="badge badge-info">
+              Showing <span id="visibleCount"><%= submissions ? submissions.length : 0 %></span> 
+              of <span id="totalCount"><%= submissions ? submissions.length : 0 %></span> submissions
+            </span>
+            <button id="clearFilters" class="btn btn-sm btn-outline-secondary ms-2" style="display: none;">
+              Clear Filters
+            </button>
+          </div>
+        </div>
+
+        <hr>
+        
+        <div id="submissionsContainer">
+          <% if (submissions && submissions.length > 0) { %> 
+            <% submissions.forEach(function(submission, index) { %>
+            <div class="submission-item mb-3" 
+                 data-title="<%= submission.title.toLowerCase() %>"
+                 data-track="<%= submission.track_name %>"
+                 data-status="<%= submission.submission_status %>"
+                 data-author="<%= submission.primary_author_formatted.toLowerCase() %>"
+                 data-coauthors="<%= submission.co_authors_formatted.toLowerCase() %>"
+                 data-papercode="<%= submission.paper_code.toLowerCase() %>">
+              <table class="table table-bordered">
+                <thead class="table-light">
+                  <tr>
+                    <th>Title</th>
+                    <th>Track</th>
+                    <th>Primary Author</th>
+                    <th>Co-Authors</th>
+                    <th>Status</th>
+                    <th>View Paper</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><%= submission.title %></td>
+                    <td><%= submission.track_name %></td>
+                    <td><%= submission.primary_author_formatted %></td>
+                    <td><%= submission.co_authors_formatted %></td>
+                    <td>
+                      <span class="badge <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
+                                              submission.submission_status === 'Rejected' ? 'bg-danger' : 
+                                              submission.submission_status === 'Reviewed' ? 'bg-warning' : 
+                                              'bg-secondary' %>">
+                        <%= submission.submission_status %>
+                      </span>
+                    </td>
+                    <td>
+                      <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-eye-fill"></i> View
+                      </a>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <% }); %> 
+          <% } else { %>
+            <div id="noSubmissionsMessage">
+              <h6 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Submissions found.</h6>
+            </div>
+          <% } %>
+        </div>
+
+        <div id="noResultsMessage" style="display: none;">
+          <h6 class="text-muted"><i class="bi bi-search"></i> No submissions match your search criteria.</h6>
+        </div>
       </div>
     
 
     <script src="/script.js"></script>
+    
+    <!-- Search and Filter JavaScript -->
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const trackFilter = document.getElementById('trackFilter');
+        const statusFilter = document.getElementById('statusFilter');
+        const clearFiltersBtn = document.getElementById('clearFilters');
+        const submissionsContainer = document.getElementById('submissionsContainer');
+        const noResultsMessage = document.getElementById('noResultsMessage');
+        const visibleCountSpan = document.getElementById('visibleCount');
+        const totalCountSpan = document.getElementById('totalCount');
+        const noSubmissionsMessage = document.getElementById('noSubmissionsMessage');
+
+        const submissionItems = document.querySelectorAll('.submission-item');
+        const totalSubmissions = submissionItems.length;
+
+        function filterSubmissions() {
+          const searchTerm = searchInput.value.toLowerCase().trim();
+          const selectedTrack = trackFilter.value;
+          const selectedStatus = statusFilter.value;
+          
+          let visibleCount = 0;
+          let hasActiveFilters = searchTerm || selectedTrack || selectedStatus;
+
+          submissionItems.forEach(item => {
+            const title = item.getAttribute('data-title');
+            const track = item.getAttribute('data-track');
+            const status = item.getAttribute('data-status');
+            const author = item.getAttribute('data-author');
+            const coauthors = item.getAttribute('data-coauthors');
+            const papercode = item.getAttribute('data-papercode');
+
+            // Check search term
+            const matchesSearch = !searchTerm || 
+              title.includes(searchTerm) || 
+              author.includes(searchTerm) || 
+              coauthors.includes(searchTerm) || 
+              papercode.includes(searchTerm);
+
+            // Check track filter
+            const matchesTrack = !selectedTrack || track === selectedTrack;
+
+            // Check status filter
+            const matchesStatus = !selectedStatus || status === selectedStatus;
+
+            // Show/hide item based on all criteria
+            const isVisible = matchesSearch && matchesTrack && matchesStatus;
+            item.style.display = isVisible ? 'block' : 'none';
+
+            if (isVisible) visibleCount++;
+          });
+
+          // Update results count
+          visibleCountSpan.textContent = visibleCount;
+          totalCountSpan.textContent = totalSubmissions;
+
+          // Show/hide no results message
+          if (visibleCount === 0 && totalSubmissions > 0) {
+            noResultsMessage.style.display = 'block';
+            if (noSubmissionsMessage) noSubmissionsMessage.style.display = 'none';
+          } else {
+            noResultsMessage.style.display = 'none';
+            if (noSubmissionsMessage && totalSubmissions === 0) {
+              noSubmissionsMessage.style.display = 'block';
+            }
+          }
+
+          // Show/hide clear filters button
+          clearFiltersBtn.style.display = hasActiveFilters ? 'inline-block' : 'none';
+        }
+
+        function clearAllFilters() {
+          searchInput.value = '';
+          trackFilter.value = '';
+          statusFilter.value = '';
+          filterSubmissions();
+        }
+
+        // Event listeners
+        searchInput.addEventListener('input', filterSubmissions);
+        trackFilter.addEventListener('change', filterSubmissions);
+        statusFilter.addEventListener('change', filterSubmissions);
+        clearFiltersBtn.addEventListener('click', clearAllFilters);
+
+        // Initialize
+        filterSubmissions();
+      });
+    </script>
+
   <%- include('../partials/footer') %>
   </body>
 </html>

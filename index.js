@@ -96,7 +96,7 @@ app.get(
   "/auth2/google/dashboard2",
   passport.authenticate("google2", {
     failureRedirect:
-      "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information.s",
+      "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information. ",
     successRedirect: "/reviewer/dashboard", // REMOVED
   }),
   async (req, res) => {
@@ -282,13 +282,59 @@ if (req.user.role !== "author") {
       `primary_author.eq.${req.user.email},co_authors.cs.{${req.user.email}}`
     );
 
+  // Create a map of track_id to track_name for easy lookup
+  const trackMap = {};
+  if (presentationdatainfo && presentationdatainfo.length > 0) {
+    presentationdatainfo.forEach(track => {
+      trackMap[track.track_id] = track.track_name;
+    });
+  }
+
+  // Get all unique email addresses from submissions to fetch user names
+  const allEmails = new Set();
+  (submissiondata || []).forEach(sub => {
+    allEmails.add(sub.primary_author);
+    if (Array.isArray(sub.co_authors)) {
+      sub.co_authors.forEach(email => allEmails.add(email));
+    }
+  });
+
+  // Fetch user names for all emails
+  const { data: userData, error: userError } = await supabase
+    .from("users")
+    .select("email, name")
+    .in("email", Array.from(allEmails));
+
+  // Create email to name mapping
+  const emailToNameMap = {};
+  (userData || []).forEach(user => {
+    emailToNameMap[user.email] = user.name;
+  });
+
+  // Helper function to format name and email
+  const formatNameEmail = (email) => {
+    const name = emailToNameMap[email];
+    return name ? `${name} (${email})` : email;
+  };
+
+  // Add track_name and formatted author names to each submission
+  const submissionsWithTrackNames = (submissiondata || []).map(sub => ({
+    ...sub,
+    track_name: trackMap[sub.track_id] || 'There was error fetching the track name for this submission.',
+    primary_author_formatted: formatNameEmail(sub.primary_author),
+    co_authors_formatted: Array.isArray(sub.co_authors) 
+      ? sub.co_authors.map(email => formatNameEmail(email)).join(', ')
+      : (sub.co_authors ? formatNameEmail(sub.co_authors) : '')
+  }));
+
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: conferencedata || [],
-    userSubmissions: submissiondata || [],
+    userSubmissions: submissionsWithTrackNames,
     presentationdata: presentationdatainfo || [],
     currentDate: new Date().toISOString().split("T")[0],
     message: req.query.message || null,
+    trackinfodata,
   });
 });
 
@@ -1126,7 +1172,7 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
     // Fetch tracks using the conference_id from the submission
     const { data: tracks, error: tracksError } = await supabase
       .from("conference_tracks")
-      .select("track_name", "track_id") // Only select needed fields
+      .select("*") // Only select needed fields
       .eq("conference_id", submission.conference_id)
       .order("track_name"); // Order alphabetically 
 
@@ -1135,9 +1181,17 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
       // Continue without tracks data rather than failing completely
     }
 
-    
-
-
+    // Debug logging
+    console.log("Submission data:", {
+      submission_id: submission.submission_id,
+      track_id: submission.track_id,
+      track_id_type: typeof submission.track_id
+    });
+    console.log("Tracks data:", tracks?.map(t => ({
+      track_id: t.track_id,
+      track_name: t.track_name,
+      track_id_type: typeof t.track_id
+    })));
 
     res.render("submission3.ejs", { 
         user: req.user, 
@@ -1481,15 +1535,51 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     trackMap[track.track_id] = track.track_name;
   });
 
-  // Add track names to submissions
+  // Get all unique email addresses from submissions to fetch user names
+  const allEmails = new Set();
+  (submissions || []).forEach(sub => {
+    allEmails.add(sub.primary_author);
+    if (Array.isArray(sub.co_authors)) {
+      sub.co_authors.forEach(email => allEmails.add(email));
+    }
+  });
+
+  // Fetch user names for all emails
+  const { data: userData, error: userError } = await supabase
+    .from("users")
+    .select("email, name")
+    .in("email", Array.from(allEmails));
+
+  // Create email to name mapping
+  const emailToNameMap = {};
+  (userData || []).forEach(user => {
+    emailToNameMap[user.email] = user.name;
+  });
+
+  // Helper function to format name and email
+  const formatNameEmail = (email) => {
+    const name = emailToNameMap[email];
+    return name ? `${name} (${email})` : email;
+  };
+
+  // Add track names and formatted author names to submissions
   const submissionsWithTracks = (submissions || []).map(sub => ({
     ...sub,
-    track_name: trackMap[sub.track_id] || 'Unknown Track'
+    track_name: trackMap[sub.track_id] || 'Unknown Track',
+    primary_author_formatted: formatNameEmail(sub.primary_author),
+    co_authors_formatted: Array.isArray(sub.co_authors) 
+      ? sub.co_authors.map(email => formatNameEmail(email)).join(', ')
+      : (sub.co_authors ? formatNameEmail(sub.co_authors) : 'None')
   }));
+
+  // Get unique statuses for filter dropdown
+  const uniqueStatuses = [...new Set((submissions || []).map(sub => sub.submission_status))];
 
   res.render("chair/view-submissions.ejs", {
     user: req.user,
     submissions: submissionsWithTracks,
+    tracks: tracks || [],
+    uniqueStatuses: uniqueStatuses,
     conferencedata: req.params.id,
     confdata: confdata || {},
     message: req.query.message || null,
@@ -1501,17 +1591,33 @@ app.post("/edit-submission", upload.single("file"), async (req, res) => {
     return res.redirect("/");
   }
 
-  const { title, abstract, areas, id } = req.body;
+  let { title, abstract, areas, id } = req.body;
+  
+  // Debug logging
+  console.log("Form data received:", {
+    title,
+    abstract,
+    areas,
+    areas_type: typeof areas,
+    id
+  });
+  
+  // Ensure areas is a string and not empty
+  if (typeof areas !== 'string') areas = String(areas);
 
   try {
     // Prepare the update data
     const updateData = {
       title: title,
-      abstract: abstract,
-      track_id: areas, // Use track_id instead of area
+      abstract: abstract
     };
+    if (areas && areas.trim() !== "" && areas !== "undefined") {
+      updateData.track_id = areas;
+      console.log("Setting track_id to:", areas);
+    } else {
+      console.log("Areas is empty, undefined, or invalid:", areas);
+    }
 
-    // Only process file upload if a file was actually uploaded
     if (req.file) {
       const filePath = req.file.path;
       const uploadResult = await cloudinary.uploader.upload(filePath, {
