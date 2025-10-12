@@ -11,14 +11,15 @@
   <body>
     <%- include('../partials/dashboard/header') %>
 
-    <% if (message) { %>
+    
+
+    <div class="container">
+      <% if (message) { %>
   <div class="alert alert-primary alert-dismissible fade show" role="alert">
     <%= message %>
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
   </div>
 <% } %>
-
-    <div class="container">
       <h4>Welcome <%= user.name %> (<%= user.email_id %>)!</h4>
       <hr />
       <h4>Manage Conferences</h4>

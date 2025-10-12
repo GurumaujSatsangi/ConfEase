@@ -819,15 +819,12 @@ app.post("/mark-as-reviewed", async (req, res) => {
   // Update the submission using paper_code
   const { error: updateError } = await supabase
     .from("submissions")
-    .update({ submission_status: "Reviewed", remarks: remarks,score:mean_score })
+    .update({ submission_status: "Reviewed" })
     .eq("submission_id", submission_id);
 
-  if (error || updateError) {
+  if (error || updateError){
     console.error("Error updating submission:", error || updateError);
-    return res.render("error.ejs", {
-      message:
-        "We are facing some issues in marking this submission as reviewed.",
-    });
+    return res.redirect("/reviewer/dashboard?message=We are facing some issues in marking this submission as reviewed.");
   }
 
   // Fetch tracks for the reviewer
@@ -1237,6 +1234,16 @@ app.get(
       }
     }
 
+    // Fetch reviewer remarks from peer_review table
+    const { data: reviewerRemarks, error: reviewError } = await supabase
+      .from("peer_review")
+      .select("*")
+      .eq("submission_id", req.params.id);
+
+    if (reviewError) {
+      console.error("Error fetching reviewer remarks:", reviewError);
+    }
+
     if (data.submission_status == "Submitted for Review") {
       return res.redirect(
         "/dashboard?message=Your submission is under review."
@@ -1253,6 +1260,7 @@ app.get(
       res.render("submission4.ejs", { 
         user: req.user, 
         submission: { ...data, track_name: trackName },
+        reviewerRemarks: reviewerRemarks || [],
         message: req.query.message || null,
       });
     }

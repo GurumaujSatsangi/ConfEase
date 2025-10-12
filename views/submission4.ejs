@@ -103,25 +103,55 @@
           />
         </div>
 
-        <table class="table">
+        <table class="table table-bordered">
           <tbody>
             <tr>
               <th>Title</th>
-              <th>Abstract</th>
-              <th>Area</th>
-              <th>Co-Authors</th>
-              <th>Review Remarks</th>
+              <td><%= submission.title %></td>
             </tr>
             <tr>
-              <td><%= submission.title %></td>
+              <th>Abstract</th>
               <td><%= submission.abstract %></td>
+            </tr>
+            <tr>
+              <th>Track/Area</th>
               <td><%= submission.track_name %></td>
-              <td><%= submission.co_authors %></td>
-
-              <td><%= submission.remarks %></td>
+            </tr>
+            <tr>
+              <th>Co-Authors</th>
+              <td><%= submission.co_authors || 'None' %></td>
             </tr>
           </tbody>
         </table>
+
+        <!-- Reviewer Remarks Section -->
+        <div class="mt-4">
+          <h5>Reviewer Feedback</h5>
+          <% if (reviewerRemarks && reviewerRemarks.length > 0) { %>
+            <% reviewerRemarks.forEach(function(review, index) { %>
+              <div class="card mb-3">
+                <div class="card-header">
+                  <strong>Reviewer <%= index + 1 %></strong>
+                  <% if (review.mean_score) { %>
+                    <span class="badge bg-primary float-end">Score: <%= review.mean_score %> / 5</span>
+                  <% } %>
+                </div>
+                <div class="card-body">
+                  <% if (review.remarks) { %>
+                    <p class="card-text"><%= review.remarks %></p>
+                  <% } else { %>
+                    <p class="card-text text-muted">No specific remarks provided.</p>
+                  <% } %>
+                  
+                </div>
+              </div>
+            <% }); %>
+          <% } else { %>
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle"></i> No reviewer feedback available for this submission.
+            </div>
+          <% } %>
+        </div>
 
         <div class="form-group">
           <label for="exampleFormControlFile1"

@@ -48,3 +48,57 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+
+// Track management functionality for create-new-conference page only
+document.addEventListener("DOMContentLoaded", function () {
+  const numTracksInput = document.getElementById("numTracks");
+  const tracksTableBody = document.getElementById("tracksTableBody");
+  
+  // Only initialize if we're on create-new-conference page and elements exist
+  if (numTracksInput && tracksTableBody && window.location.pathname.includes('create-new-conference')) {
+    
+    function renderTrackRows(n) {
+      tracksTableBody.innerHTML = "";
+      for (let i = 1; i <= n; i++) {
+        tracksTableBody.innerHTML += `
+          <tr>
+            <td>
+              <div class="form-group">
+                <input
+                  type="text"
+                  class="form-control"
+                  name="track_title_${i}"
+                  placeholder="Track Title ${i}"
+                  required
+                />
+              </div>
+            </td>
+            <td>
+              <div class="form-group">
+                <input
+                  type="email"
+                  class="form-control"
+                  name="track_reviewer_${i}"
+                  placeholder="Reviewer Email ${i}"
+                  required
+                />
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+    }
+    
+    // Initial render
+    renderTrackRows(parseInt(numTracksInput.value) || 1);
+    
+    // Update rows when number of tracks changes
+    numTracksInput.addEventListener("input", function () {
+      let n = parseInt(this.value, 10);
+      if (isNaN(n) || n < 1) n = 1;
+      if (n > 20) n = 20;
+      this.value = n; // Update the input value to the corrected value
+      renderTrackRows(n);
+    });
+  }
+});
