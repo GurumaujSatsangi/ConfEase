@@ -13,18 +13,25 @@
         <h4>Welcome, <%= user.name %> (<%=user.email %>)</h4>
 
       <h6>My Tracks</h6><hr>
-      <% if (tracks && tracks.length > 0) { %> <%
-      tracks.forEach(function(track) { %>
-      <table class="table">
-        <tbody>
-          <tr>
-            <td><%= track.track_name %></td>
-            <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
-          </tr>
-        </tbody>
-      </table>
-      <% }); %> <% } else { %>
-      <h2>No Tracks have been assigned to you.</h2>
+      <% if (tracks && tracks.length > 0) { %>
+        <table class="table table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>Track Name</th>
+              <th>Conference Title</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% tracks.forEach(function(track) { %>
+            <tr>
+              <td><%= track.track_name %></td>
+              <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
+            </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <h6 class="text-muted">No Tracks have been assigned to you.</h6>
       <% } %>
 
       <h6>Review Submissions</h6>

@@ -827,10 +827,11 @@ app.post("/mark-as-reviewed", async (req, res) => {
     return res.redirect("/reviewer/dashboard?message=We are facing some issues in marking this submission as reviewed.");
   }
 
-  // Fetch tracks for the reviewer
+  // Fetch tracks assigned to this reviewer first
   const { data: tracks, error: tracksError } = await supabase
     .from("conference_tracks")
-    .select("*");
+    .select("*")
+    .contains("track_reviewers", [req.user.email]);
 
   if (tracksError) {
     console.error("Error fetching tracks:", tracksError);
@@ -839,35 +840,57 @@ app.post("/mark-as-reviewed", async (req, res) => {
     });
   }
 
-  // Fetch submissions for the reviewer (if needed)
-  const reviewerTracks = (tracks || []).filter(
-    (track) =>
-      Array.isArray(track.track_reviewers) &&
-      track.track_reviewers.includes(req.user.email)
-  );
+  // Get conference information for tracks
+  const conferenceIds = [...new Set((tracks || []).map(track => track.conference_id))];
+  let conferences = [];
+  if (conferenceIds.length > 0) {
+    const { data: conferenceData, error: conferenceError } = await supabase
+      .from("conferences")
+      .select("*")
+      .in("conference_id", conferenceIds);
 
-  const trackIds = reviewerTracks.map((track) => track.track_id);
+    if (!conferenceError) {
+      conferences = conferenceData || [];
+    }
+  }
 
-  let submissiondata = [];
+  // Create conference map for easy lookup
+  const conferenceMap = {};
+  conferences.forEach(conf => {
+    conferenceMap[conf.conference_id] = conf;
+  });
+
+  // Add conference info to tracks
+  const tracksWithConferences = (tracks || []).map(track => ({
+    ...track,
+    conference: conferenceMap[track.conference_id] || {}
+  }));
+
+  // Get track IDs for this reviewer
+  const trackIds = (tracks || []).map(track => track.track_id);
+
+  // Fetch submissions for these tracks using track_id
+  let userSubmissions = [];
   if (trackIds.length > 0) {
-    const { data: submissions, error: submissionerror } = await supabase
+    const { data: submissions, error: submissionsError } = await supabase
       .from("submissions")
       .select("*")
       .in("track_id", trackIds);
 
-    if (submissionerror) {
-      console.error(submissionerror);
+    if (submissionsError) {
+      console.error("Error fetching submissions:", submissionsError);
       return res.render("error.ejs", {
         message: "We are facing some issues in fetching the submissions.",
       });
     }
-    submissiondata = submissions || [];
+
+    userSubmissions = submissions || [];
   }
 
   res.render("reviewer/dashboard.ejs", {
     user: req.user,
-    tracks: reviewerTracks,
-    userSubmissions: submissiondata,
+    userSubmissions: userSubmissions,
+    tracks: tracksWithConferences || [],
     message: "Submission has been successfully marked as reviewed.",
   });
 });
@@ -997,6 +1020,13 @@ app.post("/join", async (req, res) => {
   if (!data) {
     return res.redirect(
       "/dashboard?message=Submission not found. Please try again."
+    );
+  }
+
+  // Check if submission status allows joining as co-author
+  if (data.submission_status !== "Submitted") {
+    return res.redirect(
+      `/dashboard?message=Cannot join this paper as co-author. Current status: ${data.submission_status}. Co-authors can only join papers with 'Submitted' status.`
     );
   }
 
