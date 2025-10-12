@@ -47,7 +47,7 @@
           <td><%= submission.title %></td>
           <td>
             <% if (submission.submission_status=="Reviewed" ||
-            submission.submission_status=="Submitted Final Camera Ready Paper" )
+            submission.submission_status=="Submitted Final Camera Ready Paper" || submission.submission_status=="Presentation Completed" )
             { %>
             <b><i class="bi bi-check-circle-fill"></i> Reviewed</b>
             <% } else { %>

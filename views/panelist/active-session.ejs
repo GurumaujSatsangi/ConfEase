@@ -38,17 +38,30 @@
 
 
             <td><%= session.title %></td>
-            <td><%= session.score %></td>
+            <td>
+              <% if (session.mean_score !== null && session.mean_score !== undefined) { %>
+                <span class="badge bg-primary"><%= session.mean_score %></span>
+              <% } else { %>
+                <span class="badge bg-secondary">Not Reviewed</span>
+              <% } %>
+            </td>
             <td><a href="<%= session.file_url%>" target="_blank"><i class="bi bi-cloud-arrow-down-fill"></i></a></td>
             
-            <% if (session.status === 'Completed') { %>
-            <td colspan="2"><span class="badge badge-reviewed">Presentation Completed</span></td>
+            <% if (session.presentation_status === 'Completed' || session.submission_status === 'Presentation Completed') { %>
+            <td>
+              <span class="badge bg-success">
+                <% if (session.panelist_score !== null && session.panelist_score !== undefined) { %>
+                  <%= session.panelist_score %> <i class="bi bi-check-circle-fill"></i>
+                <% } else { %>
+                  Completed <i class="bi bi-check-circle-fill"></i>
+                <% } %>
+              </span>
+            </td>
+            <td></td>
             <% } else { %>
             <td><input type="number" class="form-control" max="5" step="0.1" id="panelist_score" name="panelist_score" required></td>
-
-            <td><input type="submit" class="btn btn-outline-primary" value="Save">
+            <td><input type="submit" class="btn btn-outline-primary" value="Save"></td>
             <% } %>
-</td>
           </form> 
 
           </tr>

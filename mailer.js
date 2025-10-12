@@ -10,12 +10,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export async function sendMail(to, subject, text, html) {
-  return transporter.sendMail({
+export async function sendMail(to, subject, text, html, cc = null) {
+  const mailOptions = {
     from: `"DEI Conference Management Toolkit" <gurumaujsatsangi@gmail.com>`,
     to,
     subject,
     text,
     html,
-  });
+  };
+  
+  if (cc) {
+    mailOptions.cc = cc;
+  }
+  
+  return transporter.sendMail(mailOptions);
 }

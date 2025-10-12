@@ -366,6 +366,15 @@ app.post("/publish/review-results", async (req, res) => {
     return res.status(500).send("Error.");
   }
 
+  // Get conference title for email
+  const { data: conferenceData, error: conferenceError } = await supabase
+    .from("conferences")
+    .select("title")
+    .eq("conference_id", confId)
+    .single();
+
+  const conferenceTitle = conferenceData?.title || "Conference";
+
   for (const data of reviewdata) {
     const { error: updateError } = await supabase
       .from("submissions")
@@ -375,6 +384,45 @@ app.post("/publish/review-results", async (req, res) => {
     if (updateError) {
       console.error(`Error updating track ${data.submission_id}:`, updateError);
       return res.status(500).send(`Error updating track ${data.submission_id}.`);
+    }
+
+    // Get submission details for email notification
+    const { data: submissionData, error: submissionError } = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("submission_id", data.submission_id)
+      .single();
+
+    if (submissionData) {
+      // Send email to primary author with co-authors in CC
+      try {
+        const coAuthorEmails = Array.isArray(submissionData.co_authors) ? submissionData.co_authors : [];
+        const ccEmails = coAuthorEmails.length > 0 ? coAuthorEmails.join(',') : null;
+        
+        const statusMessage = data.acceptance_status === "Accepted" ? 
+          "We are pleased to inform you that your paper has been accepted!" :
+          "We regret to inform you that your paper has not been accepted.";
+        
+        await sendMail(
+          submissionData.primary_author,
+          `${data.acceptance_status} - ${submissionData.title}`,
+          `Your paper "${submissionData.title}" submitted to ${conferenceTitle} has been ${data.acceptance_status.toLowerCase()}.`,
+          `<p>Dear Author,</p>
+           <p>${statusMessage}</p>
+           <p><strong>Paper Title:</strong> ${submissionData.title}</p>
+           <p><strong>Conference:</strong> ${conferenceTitle}</p>
+           <p><strong>Decision:</strong> ${data.acceptance_status}</p>
+           <p><strong>Review Score:</strong> ${data.mean_score.toFixed(2)}/5</p>
+           ${data.acceptance_status === "Accepted" ? 
+             "<p>Please prepare your final camera-ready paper for publication.</p>" : 
+             "<p>Thank you for your submission. We encourage you to consider submitting to future conferences.</p>"
+           }
+           <p>Best regards,<br>Conference Management Team</p>`,
+          ccEmails
+        );
+      } catch (emailError) {
+        console.error(`Error sending result notification email for ${data.submission_id}:`, emailError);
+      }
     }
   }
 
@@ -584,6 +632,47 @@ app.get("/panelist/active-session/:id", async (req, res) => {
     return res.status(500).send("Error fetching session details.");
   }
 
+  // Fetch mean_score for each submission from peer_review table and panelist scores
+  if (session && session.length > 0) {
+    for (let i = 0; i < session.length; i++) {
+      // Fetch reviewer mean_score
+      const { data: reviewData, error: reviewError } = await supabase
+        .from("peer_review")
+        .select("mean_score")
+        .eq("submission_id", session[i].submission_id);
+
+      if (reviewError) {
+        console.error("Error fetching review data:", reviewError);
+        session[i].mean_score = null;
+      } else if (reviewData && reviewData.length > 0) {
+        // Calculate average if multiple reviews exist
+        const avgScore = reviewData.reduce((sum, review) => sum + (review.mean_score || 0), 0) / reviewData.length;
+        session[i].mean_score = avgScore.toFixed(2);
+      } else {
+        session[i].mean_score = null;
+      }
+
+      // Fetch panelist score from final_camera_ready_submissions table
+      const { data: panelistData, error: panelistError } = await supabase
+        .from("final_camera_ready_submissions")
+        .select("panelist_score, status")
+        .eq("submission_id", session[i].submission_id)
+        .single();
+
+      if (panelistError) {
+        console.error("Error fetching panelist data:", panelistError);
+        session[i].panelist_score = null;
+        session[i].presentation_status = null;
+      } else if (panelistData) {
+        session[i].panelist_score = panelistData.panelist_score;
+        session[i].presentation_status = panelistData.status;
+      } else {
+        session[i].panelist_score = null;
+        session[i].presentation_status = null;
+      }
+    }
+  }
+
   res.render("panelist/active-session.ejs", {
     session: session,
     trackinfo: trackinfo,
@@ -748,6 +837,26 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
         .status(500)
         .send(`Error updating session for track ${track.track_name}.`);
     }
+
+    // Send email notifications to panelists
+    for (const panelistEmail of session_panelists) {
+      try {
+        await sendMail(
+          panelistEmail,
+          `Panelist Assignment - ${track.track_name}`,
+          `You have been assigned as a panelist for the track "${track.track_name}".`,
+          `<p>Dear Panelist,</p>
+           <p>You have been assigned as a panelist for the following:</p>
+           <p><strong>Track:</strong> ${track.track_name}</p>
+           <p><strong>Presentation Date:</strong> ${session_date}</p>
+           <p><strong>Time:</strong> ${session_start_time} to ${session_end_time}</p>
+           <p>Please be available during the scheduled time to evaluate the presentations.</p>
+           <p>Best regards,<br>Conference Management Team</p>`
+        );
+      } catch (emailError) {
+        console.error(`Error sending panelist notification email to ${panelistEmail}:`, emailError);
+      }
+    }
   }
 
   res.redirect(`/chair/dashboard`);
@@ -798,8 +907,35 @@ app.post("/mark-as-reviewed", async (req, res) => {
   //   });
   // }
 
-  // // Use the submission_id (UUID) for peer_review table's paper_id field
-  // const uuidPaperId = submissionData.submission_id;
+  // Check if this reviewer has already reviewed this submission
+  const { data: existingReview, error: checkError } = await supabase
+    .from("peer_review")
+    .select("*")
+    .eq("submission_id", submission_id)
+    .eq("reviewer", req.user.email)
+    .single();
+
+  if (checkError && checkError.code !== 'PGRST116') {
+    console.error("Error checking existing review:", checkError);
+    return res.redirect("/reviewer/dashboard?message=Error checking review status.");
+  }
+
+  if (existingReview) {
+    return res.redirect("/reviewer/dashboard?message=You have already reviewed this submission.");
+  }
+
+  // Get submission details for email notification
+  const { data: submissionData, error: submissionError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("submission_id", submission_id)
+    .single();
+
+  if (submissionError || !submissionData) {
+    console.error("Error fetching submission:", submissionError);
+    return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
+  }
+
   const mean_score = (parseFloat(originality_score) + parseFloat(relevance_score) + parseFloat(technical_quality_score) + parseFloat(clarity_score) + parseFloat(impact_score)) / 5;
   const { data, error } = await supabase.from("peer_review").insert({
     conference_id: conference_id,
@@ -825,6 +961,44 @@ app.post("/mark-as-reviewed", async (req, res) => {
   if (error || updateError){
     console.error("Error updating submission:", error || updateError);
     return res.redirect("/reviewer/dashboard?message=We are facing some issues in marking this submission as reviewed.");
+  }
+
+  // Send email notification to primary author and co-authors about review completion
+  try {
+    // Fetch conference details to get acceptance notification date
+    const { data: conferenceData, error: confError } = await supabase
+      .from("conferences")
+      .select("acceptance_notification, title")
+      .eq("conference_id", conference_id)
+      .single();
+
+    const acceptanceDate = conferenceData?.acceptance_notification 
+      ? new Date(conferenceData.acceptance_notification).toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'the scheduled acceptance notification date';
+
+    const conferenceTitle = conferenceData?.title || 'the conference';
+
+    const coAuthorEmails = Array.isArray(submissionData.co_authors) ? submissionData.co_authors : [];
+    const ccEmails = coAuthorEmails.length > 0 ? coAuthorEmails.join(',') : null;
+    
+    await sendMail(
+      submissionData.primary_author,
+      `Review Completed - ${submissionData.title}`,
+      `Dear Author, your paper "${submissionData.title}" has been reviewed. Results will be published on ${acceptanceDate}.`,
+      `<p>Dear Author,</p>
+       <p>Your paper titled <strong>"${submissionData.title}"</strong> has been reviewed by one of our reviewers.</p>
+       <p>The review process is now complete. The final results and acceptance decisions will be published on <strong>${acceptanceDate}</strong>.</p>
+       <p>Please stay tuned for the official announcement from ${conferenceTitle}.</p>
+       <p>Best regards,<br>Conference Management Team</p>`,
+      ccEmails
+    );
+  } catch (emailError) {
+    console.error("Error sending review notification email:", emailError);
+    // Don't fail the review process if email fails
   }
 
   // Fetch tracks assigned to this reviewer first
@@ -913,9 +1087,8 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
     });
   }
 
-  // Convert paper_id to number (for bigint column)
-  const paperIdValue = Number(paper_id);
-  if (isNaN(paperIdValue)) {
+  // Validate paper_id (UUID format)
+  if (!paper_id || typeof paper_id !== 'string' || paper_id.trim() === '') {
     return res.render("error.ejs", {
       message: "Invalid paper ID provided",  
     });
@@ -925,13 +1098,13 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
   const { data, error } = await supabase
     .from("submissions")
     .update({ submission_status: "Presentation Completed" })
-    .eq("id", paperIdValue);
+    .eq("submission_id", paper_id);
 
   // Update final_camera_ready_submissions table
   const { data: finalpresentation, error: finalpresentationerror } = await supabase
     .from("final_camera_ready_submissions")
     .update({ panelist_score: scoreValue,status:"Completed" }) // Remove quotes around column name
-    .eq("paper_id", paperIdValue);
+    .eq("submission_id", paper_id);
     
   if (error || finalpresentationerror) {
     console.error("Error updating submission:", error || finalpresentationerror);
@@ -941,7 +1114,7 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
   }
 
   // Redirect to active session with success message
-  res.redirect(`/panelist/dashboard/active-session/${track_id}?message=Submission has been successfully marked as completed.`);
+  res.redirect(`/panelist/active-session/${track_id}?message=Submission has been successfully marked as completed.`);
 });
 
 
@@ -1024,7 +1197,7 @@ app.post("/join", async (req, res) => {
   }
 
   // Check if submission status allows joining as co-author
-  if (data.submission_status !== "Submitted") {
+  if (data.submission_status !== "Submitted for Review") {
     return res.redirect(
       `/dashboard?message=Cannot join this paper as co-author. Current status: ${data.submission_status}. Co-authors can only join papers with 'Submitted' status.`
     );
@@ -1052,8 +1225,25 @@ app.post("/join", async (req, res) => {
     .eq("conference_id", id);
 
   if (updateError) {
-    console.error("Error inserting co-author:", insertError);
+    console.error("Error inserting co-author:", updateError);
     return res.status(500).send("Error joining submission.");
+  }
+
+  // Send email notification to primary author about co-author joining
+  try {
+    await sendMail(
+      data.primary_author,
+      `New Co-Author Added - ${data.title}`,
+      `A new co-author (${req.user.email}) has joined your paper "${data.title}".`,
+      `<p>Dear Author,</p>
+       <p>A new co-author has joined your paper titled <strong>"${data.title}"</strong>.</p>
+       <p><strong>New Co-Author:</strong> ${req.user.name} (${req.user.email})</p>
+       <p>You can view the updated submission details in your dashboard.</p>
+       <p>Best regards,<br>Conference Management Team</p>`
+    );
+  } catch (emailError) {
+    console.error("Error sending co-author notification email:", emailError);
+    // Don't fail the join process if email fails
   }
 
   res.redirect("/dashboard");
@@ -1111,6 +1301,28 @@ app.post("/create-new-conference", async (req, res) => {
     if (tracksError) {
       console.error("Error inserting tracks:", tracksError);
       return res.status(500).send("Error creating tracks.");
+    }
+
+    // Send email notifications to reviewers
+    for (const track of tracks) {
+      for (const reviewerEmail of track.track_reviewers) {
+        try {
+          await sendMail(
+            reviewerEmail,
+            `Reviewer Assignment - ${title}`,
+            `You have been assigned as a reviewer for the track "${track.track_name}" in the conference "${title}".`,
+            `<p>Dear Reviewer,</p>
+             <p>You have been assigned as a reviewer for the following:</p>
+             <p><strong>Conference:</strong> ${title}</p>
+             <p><strong>Track:</strong> ${track.track_name}</p>
+             <p><strong>Conference Dates:</strong> ${conference_start_date} to ${conference_end_date}</p>
+             <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+             <p>Best regards,<br>Conference Management Team</p>`
+          );
+        } catch (emailError) {
+          console.error(`Error sending reviewer notification email to ${reviewerEmail}:`, emailError);
+        }
+      }
     }
   }
 
@@ -1188,12 +1400,9 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
       }
     }
 
-    // Additional check - prevent editing if submission is under review or later stages
-    if (submission.submission_status === "Reviewed" || 
-        submission.submission_status === "Accepted" || 
-        submission.submission_status === "Rejected" ||
-        submission.submission_status === "Submitted Final Camera Ready Paper") {
-      return res.redirect("/dashboard?message=Cannot edit submission in current status: " + submission.submission_status);
+    // Only allow editing when submission status is "Submitted for Review"
+    if (submission.submission_status !== "Submitted for Review") {
+      return res.redirect("/dashboard?message=Papers can only be edited when status is 'Submitted for Review'. Current status: " + submission.submission_status);
     }
 
     // Fetch tracks using the conference_id from the submission
@@ -1500,6 +1709,30 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
       console.error(`Error updating track ${existingTrack.track_id}:`, updateError);
       return res.status(500).send(`Error updating track ${existingTrack.track_name}.`);
     }
+
+    // Check if reviewer has changed and send notification
+    const oldReviewers = existingTrack.track_reviewers || [];
+    const newReviewers = newTrack.track_reviewers || [];
+    
+    // Find newly added reviewers
+    const addedReviewers = newReviewers.filter(reviewer => !oldReviewers.includes(reviewer));
+    
+    // Send emails to newly added reviewers
+    for (const reviewerEmail of addedReviewers) {
+      try {
+        await sendMail(
+          reviewerEmail,
+          `Reviewer Assignment - ${newTrack.track_name}`,
+          `You have been assigned as a reviewer for the track "${newTrack.track_name}".`,
+          `<p>Dear Reviewer,</p>
+           <p>You have been assigned as a reviewer for the track <strong>"${newTrack.track_name}"</strong>.</p>
+           <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+           <p>Best regards,<br>Conference Management Team</p>`
+        );
+      } catch (emailError) {
+        console.error(`Error sending reviewer notification email to ${reviewerEmail}:`, emailError);
+      }
+    }
   }
 
   // 5. If there are more new tracks than existing ones, insert the additional ones
@@ -1518,6 +1751,25 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
     if (insertError) {
       console.error("Error inserting new tracks:", insertError);
       return res.status(500).send("Error inserting new tracks.");
+    }
+
+    // Send email notifications to reviewers of new tracks
+    for (const track of tracksToInsert) {
+      for (const reviewerEmail of track.track_reviewers) {
+        try {
+          await sendMail(
+            reviewerEmail,
+            `New Reviewer Assignment - ${track.track_name}`,
+            `You have been assigned as a reviewer for the new track "${track.track_name}".`,
+            `<p>Dear Reviewer,</p>
+             <p>You have been assigned as a reviewer for the new track <strong>"${track.track_name}"</strong>.</p>
+             <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+             <p>Best regards,<br>Conference Management Team</p>`
+          );
+        } catch (emailError) {
+          console.error(`Error sending new reviewer notification email to ${reviewerEmail}:`, emailError);
+        }
+      }
     }
   }
 
