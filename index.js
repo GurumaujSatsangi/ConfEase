@@ -540,10 +540,10 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     .eq("conference_id", req.params.id)
     .single();
 
-  // Count submissions by track_id instead of area
+  // Fetch all submissions for this conference with details
   const { data: submissions, error: submissionsError } = await supabase
     .from("submissions")
-    .select("track_id, submission_id")
+    .select("*")
     .eq("conference_id", req.params.id);
 
   // Count submissions per track (track_id)
@@ -559,6 +559,86 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     count: trackCounts[track.track_id] || 0,
   }));
 
+  // Fetch reviewer scores and panelist scores for all submissions
+  const tracksWithLeaderboard = await Promise.all((tracks || []).map(async (track) => {
+    const trackSubmissions = (submissions || []).filter(sub => sub.track_id === track.track_id);
+    
+    const leaderboard = await Promise.all(trackSubmissions.map(async (submission) => {
+      // Get reviewer score from peer_review table
+      const { data: reviewData, error: reviewError } = await supabase
+        .from("peer_review")
+        .select("mean_score")
+        .eq("submission_id", submission.submission_id);
+
+      let reviewerScore = null;
+      if (reviewData && reviewData.length > 0) {
+        reviewerScore = reviewData.reduce((sum, review) => sum + (review.mean_score || 0), 0) / reviewData.length;
+      }
+
+      // Get panelist score from final_camera_ready_submissions table
+      const { data: panelistData, error: panelistError } = await supabase
+        .from("final_camera_ready_submissions")
+        .select("panelist_score")
+        .eq("submission_id", submission.submission_id)
+        .single();
+
+      const panelistScore = panelistData?.panelist_score || null;
+
+      // Calculate average score
+      let averageScore = null;
+      if (reviewerScore !== null && panelistScore !== null) {
+        averageScore = (reviewerScore + panelistScore) / 2;
+      } else if (reviewerScore !== null) {
+        averageScore = reviewerScore;
+      } else if (panelistScore !== null) {
+        averageScore = panelistScore;
+      }
+
+      // Get author names
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("email, name")
+        .in("email", [submission.primary_author, ...(submission.co_authors || [])]);
+
+      const emailToNameMap = {};
+      (userData || []).forEach(user => {
+        emailToNameMap[user.email] = user.name;
+      });
+
+      const formatNameEmail = (email) => {
+        const name = emailToNameMap[email];
+        return name ? `${name} (${email})` : email;
+      };
+
+      return {
+        ...submission,
+        reviewerScore: reviewerScore ? parseFloat(reviewerScore.toFixed(2)) : null,
+        panelistScore: panelistScore ? parseFloat(panelistScore.toFixed(2)) : null,
+        averageScore: averageScore ? parseFloat(averageScore.toFixed(2)) : null,
+        primary_author_formatted: formatNameEmail(submission.primary_author),
+        co_authors_formatted: Array.isArray(submission.co_authors) 
+          ? submission.co_authors.map(email => formatNameEmail(email)).join(', ')
+          : (submission.co_authors ? formatNameEmail(submission.co_authors) : 'None')
+      };
+    }));
+
+    // Sort by average score (highest first) and assign ranks
+    const sortedLeaderboard = leaderboard
+      .filter(item => item.averageScore !== null)
+      .sort((a, b) => b.averageScore - a.averageScore)
+      .map((item, index) => ({ ...item, rank: index + 1 }));
+
+    // Add unranked submissions (those without scores)
+    const unrankedSubmissions = leaderboard
+      .filter(item => item.averageScore === null)
+      .map(item => ({ ...item, rank: null }));
+
+    return {
+      ...track,
+      leaderboard: [...sortedLeaderboard, ...unrankedSubmissions]
+    };
+  }));
+
   if (tracksError || conferenceError || submissionsError) {
     console.error(
       "Error fetching data:",
@@ -569,7 +649,7 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 
   res.render("chair/manage-sessions.ejs", {
     user: req.user,
-    tracks: tracks || [],
+    tracks: tracksWithLeaderboard || [],
     conference: conference || {},
     count: count || [],
     message: req.query.message || null,
@@ -1310,13 +1390,14 @@ app.post("/create-new-conference", async (req, res) => {
           await sendMail(
             reviewerEmail,
             `Reviewer Assignment - ${title}`,
-            `You have been assigned as a reviewer for the track "${track.track_name}" in the conference "${title}".`,
+            `You have been assigned as a reviewer for the track "${track.track_name}" in the conference "${title}". Please log in using this email address (${reviewerEmail}).`,
             `<p>Dear Reviewer,</p>
              <p>You have been assigned as a reviewer for the following:</p>
              <p><strong>Conference:</strong> ${title}</p>
              <p><strong>Track:</strong> ${track.track_name}</p>
              <p><strong>Conference Dates:</strong> ${conference_start_date} to ${conference_end_date}</p>
-             <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+             <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
+             <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
              <p>Best regards,<br>Conference Management Team</p>`
           );
         } catch (emailError) {
@@ -1720,13 +1801,25 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
     // Send emails to newly added reviewers
     for (const reviewerEmail of addedReviewers) {
       try {
+        // Get conference details for the email
+        const { data: conferenceInfo, error: confInfoError } = await supabase
+          .from("conferences")
+          .select("title")
+          .eq("conference_id", conferenceId)
+          .single();
+
+        const conferenceName = conferenceInfo?.title || 'Conference';
+
         await sendMail(
           reviewerEmail,
-          `Reviewer Assignment - ${newTrack.track_name}`,
-          `You have been assigned as a reviewer for the track "${newTrack.track_name}".`,
+          `Reviewer Assignment - ${conferenceName}`,
+          `You have been assigned as a reviewer for the track "${newTrack.track_name}" in "${conferenceName}". Please log in using this email address (${reviewerEmail}).`,
           `<p>Dear Reviewer,</p>
-           <p>You have been assigned as a reviewer for the track <strong>"${newTrack.track_name}"</strong>.</p>
-           <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+           <p>You have been assigned as a reviewer for the following:</p>
+           <p><strong>Conference:</strong> ${conferenceName}</p>
+           <p><strong>Track:</strong> ${newTrack.track_name}</p>
+           <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
+           <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
            <p>Best regards,<br>Conference Management Team</p>`
         );
       } catch (emailError) {
@@ -1757,13 +1850,25 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
     for (const track of tracksToInsert) {
       for (const reviewerEmail of track.track_reviewers) {
         try {
+          // Get conference details for the email
+          const { data: conferenceInfo, error: confInfoError } = await supabase
+            .from("conferences")
+            .select("title")
+            .eq("conference_id", conferenceId)
+            .single();
+
+          const conferenceName = conferenceInfo?.title || 'Conference';
+
           await sendMail(
             reviewerEmail,
-            `New Reviewer Assignment - ${track.track_name}`,
-            `You have been assigned as a reviewer for the new track "${track.track_name}".`,
+            `New Reviewer Assignment - ${conferenceName}`,
+            `You have been assigned as a reviewer for the new track "${track.track_name}" in "${conferenceName}". Please log in using this email address (${reviewerEmail}).`,
             `<p>Dear Reviewer,</p>
-             <p>You have been assigned as a reviewer for the new track <strong>"${track.track_name}"</strong>.</p>
-             <p>Please log in to the reviewer dashboard to view submissions and begin your reviews.</p>
+             <p>You have been assigned as a reviewer for the following new track:</p>
+             <p><strong>Conference:</strong> ${conferenceName}</p>
+             <p><strong>Track:</strong> ${track.track_name}</p>
+             <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
+             <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
              <p>Best regards,<br>Conference Management Team</p>`
           );
         } catch (emailError) {
