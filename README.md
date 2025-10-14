@@ -665,40 +665,7 @@ Found a bug? Please open an issue with:
 
 ---
 
-## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Development Team
-
-**Dayalbagh Educational Institute**
-- Multimedia Laboratory
-- Distance Education Initiative
-
----
-
-## 📞 Contact
-
-For questions, support, or collaboration:
-
-- **Email**: contact@dei.ac.in
-- **Website**: [Dayalbagh Educational Institute](https://www.dei.ac.in)
-- **Issues**: [GitHub Issues](https://github.com/GurumaujSatsangi/ConfEase/issues)
-
----
-
-## 🙏 Acknowledgments
-
-- Bootstrap team for the amazing CSS framework
-- Supabase for the database infrastructure
-- Google for OAuth 2.0 services
-- Cloudinary for file storage
-- Winston AI for plagiarism detection
-- All contributors and testers
-
----
 
 ## 📊 Project Statistics
 
@@ -711,7 +678,7 @@ For questions, support, or collaboration:
 
 <div align="center">
 
-**Made with ❤️ by DEI Multimedia Laboratory**
+**Made with ❤️ by Gurumauj Satsangi**
 
 [⬆ Back to Top](#dei-conference-management-toolkit-confease)
 
