@@ -34,47 +34,39 @@
               <!-- or whatever fields you have -->
             </div>
             <div class="card-body">
-              <table
-                class="table table-bordered"
-                border="1"
-                style="width: 100%"
-              >
-                <tr>
-                  <td colspan="3">
-                    <p align="justify"><%= conference.description %></p>
-                  </td>
-                </tr>
+              <div class="table-responsive">
+                <table class="table table-bordered" border="1">
+                  <tbody>
+                    <tr>
+                      <td colspan="3">
+                        <p align="justify"><%= conference.description %></p>
+                      </td>
+                    </tr>
 
-                <tr>
-                  <td>Conference Timeline</td>
-                  <td>
-                    Start Date: <br /><b
-                      ><%= conference.conference_start_date %></b
-                    >
-                  </td>
-                  <td>
-                    End Date: <br /><b><%= conference.conference_end_date %></b>
-                  </td>
-                </tr>
+                    <tr>
+                      <td><strong>Conference Timeline</strong></td>
+                      <td>
+                        <strong>Start Date:</strong><br /><%= conference.conference_start_date %>
+                      </td>
+                      <td>
+                        <strong>End Date:</strong><br /><%= conference.conference_end_date %>
+                      </td>
+                    </tr>
 
-                <tr>
-                  <td>
-                    Full Paper Submission: <br /><b
-                      ><%= conference.full_paper_submission %></b
-                    >
-                  </td>
-                  <td>
-                    Acceptance Notification: <br /><b
-                      ><%= conference.acceptance_notification %></b
-                    >
-                  </td>
-                  <td>
-                    Final Camera Ready Paper Submission: <br /><b
-                      ><%= conference.camera_ready_paper_submission %></b
-                    >
-                  </td>
-                </tr>
-              </table>
+                    <tr>
+                      <td>
+                        <strong>Full Paper Submission:</strong><br /><%= conference.full_paper_submission %>
+                      </td>
+                      <td>
+                        <strong>Acceptance Notification:</strong><br /><%= conference.acceptance_notification %>
+                      </td>
+                      <td>
+                        <strong>Camera Ready Submission:</strong><br /><%= conference.camera_ready_paper_submission %>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
           <% }); %> <% } else { %>
@@ -134,7 +126,8 @@ The toolkit is built around a role-based access system that caters to the specif
     </h2>
     <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#accordionExample">
       <div class="accordion-body">
-Our state-of-the-art Multimedia Laboratory serves as the dynamic hub of the Institute's global digital education initiatives. Equipped with professional-grade cameras, advanced projection systems, and high-performance video editing stations, this central facility is dedicated to producing engaging e-content for our distance education programmes. Furthermore, the laboratory is regularly utilized to broadcast live lectures and host real-time interactive sessions, seamlessly connecting our faculty with students in remote classrooms across India and internationally. A skilled team of technical staff oversees all operations, ensuring a flawless and professional execution of our commitment to accessible, technology-driven learning.      </div>
+Our state-of-the-art Multimedia Laboratory serves as the dynamic hub of the Institute's global digital education initiatives. Equipped with professional-grade cameras, advanced projection systems, and high-performance video editing stations, this central facility is dedicated to producing engaging e-content for our distance education programmes. Furthermore, the laboratory is regularly utilized to broadcast live lectures and host real-time interactive sessions, seamlessly connecting our faculty with students in remote classrooms across India and internationally. A skilled team of technical staff oversees all operations, ensuring a flawless and professional execution of our commitment to accessible, technology-driven learning.    <br>
+</div>
     </div>
   </div>
   <div class="accordion-item">

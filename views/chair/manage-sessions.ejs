@@ -41,32 +41,26 @@
                 track.track_reviewers.join(", ") %> <% } else { %> <%=
                 track.track_reviewers %> <% } %> </i
               ><br /><br>
-              <table class="table" border="1">
-  <thead>
-    <tr>
-      <th scope="col">Session Date</th>
-      <th scope="col">Start Time</th>
-      <th scope="col">End Time</th>
-      <th scope="col">Panelists</th>
-    </tr>
-  </thead>
-  <tbody>
-  
-      <td>
-        <%= track.presentation_date %>
-      </td>
-      <td>
-        <%= track.presentation_start_time %>
-      </td>
-      <td>
-       <%= track.presentation_end_time %>
-      </td>
-      <td>
-        <%= track.panelists %>
-      </td>
-    </tr>
-  </tbody>
-</table>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm">
+                  <thead>
+                    <tr>
+                      <th scope="col">Session Date</th>
+                      <th scope="col">Start Time</th>
+                      <th scope="col">End Time</th>
+                      <th scope="col">Panelists</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><%= track.presentation_date %></td>
+                      <td><%= track.presentation_start_time %></td>
+                      <td><%= track.presentation_end_time %></td>
+                      <td><%= track.panelists %></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
               <!-- Leaderboard Accordion -->
               <div class="accordion mt-3" id="accordion-<%= idx %>">
@@ -80,22 +74,22 @@
                     <div class="accordion-body">
                       <% if (track.leaderboard && track.leaderboard.length > 0) { %>
                         <div class="table-responsive">
-                          <table class="table table-striped table-sm">
+                          <table class="table table-striped table-sm leaderboard-table">
                             <thead class="table-dark">
                               <tr>
-                                <th>Rank</th>
-                                <th>Paper Title</th>
-                                <th>Primary Author</th>
-                                <th>Co-Authors</th>
-                                <th>Reviewer Score</th>
-                                <th>Panelist Score</th>
-                                <th>Average Score</th>
+                                <th style="min-width: 60px;">Rank</th>
+                                <th style="min-width: 150px;">Paper Title</th>
+                                <th style="min-width: 120px;">Primary Author</th>
+                                <th style="min-width: 120px;">Co-Authors</th>
+                                <th style="min-width: 90px;">Reviewer</th>
+                                <th style="min-width: 90px;">Panelist</th>
+                                <th style="min-width: 90px;">Average</th>
                               </tr>
                             </thead>
                             <tbody>
                               <% track.leaderboard.forEach(function(submission) { %>
                                 <tr class="<%= submission.rank ? (submission.rank <= 3 ? 'table-warning' : '') : 'table-light' %>">
-                                  <td>
+                                  <td style="white-space: nowrap;">
                                     <% if (submission.rank) { %>
                                       <% if (submission.rank === 1) { %>
                                         <i class="bi bi-trophy-fill text-warning"></i> #<%= submission.rank %>
@@ -110,27 +104,27 @@
                                       <span class="text-muted">N/A</span>
                                     <% } %>
                                   </td>
-                                  <td>
-                                    <strong><%= submission.title %></strong>
-                                    <br><small class="text-muted">Status: <%= submission.submission_status %></small>
+                                  <td style="max-width: 200px; word-wrap: break-word;">
+                                    <strong class="d-block"><%= submission.title %></strong>
+                                    <small class="text-muted d-block mt-1">Status: <%= submission.submission_status %></small>
                                   </td>
-                                  <td><%= submission.primary_author_formatted %></td>
-                                  <td><%= submission.co_authors_formatted %></td>
-                                  <td>
+                                  <td style="word-wrap: break-word;"><%= submission.primary_author_formatted %></td>
+                                  <td style="word-wrap: break-word;"><%= submission.co_authors_formatted %></td>
+                                  <td style="text-align: center; white-space: nowrap;">
                                     <% if (submission.reviewerScore !== null) { %>
                                       <span class="badge bg-primary"><%= submission.reviewerScore %>/5</span>
                                     <% } else { %>
                                       <span class="badge bg-secondary">N/A</span>
                                     <% } %>
                                   </td>
-                                  <td>
+                                  <td style="text-align: center; white-space: nowrap;">
                                     <% if (submission.panelistScore !== null) { %>
                                       <span class="badge bg-success"><%= submission.panelistScore %>/5</span>
                                     <% } else { %>
                                       <span class="badge bg-secondary">N/A</span>
                                     <% } %>
                                   </td>
-                                  <td>
+                                  <td style="text-align: center; white-space: nowrap;">
                                     <% if (submission.averageScore !== null) { %>
                                       <span class="badge bg-<%= submission.averageScore >= 4 ? 'success' : submission.averageScore >= 3 ? 'warning' : 'danger' %> fs-6">
                                         <%= submission.averageScore %>/5
