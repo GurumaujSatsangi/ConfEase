@@ -1602,28 +1602,6 @@ app.post(
       public_id: `${req.user.name}-${Date.now()}-Final`,
     });
 
-    const payload = {
-      file: uploadResult.secure_url,
-      language: "en",
-      country: "us",
-    };
-
-    const options = {
-      method: "POST",
-      headers: {
-        Authorization: process.env.WINSTON_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    };
-    var score = 0; // Initialize score variable
-    fetch("https://api.gowinston.ai/v2/plagiarism", options)
-      .then((response) => response.json())
-      .then((data) => {
-        score = data.result?.score;
-      })
-      .catch((err) => console.error("API Error:", err));
-
     const { data, error } = await supabase
       .from("final_camera_ready_submissions")
       .insert({
@@ -2021,34 +1999,8 @@ app.post("/edit-submission", upload.single("file"), async (req, res) => {
         public_id: `${req.user.name}-${Date.now()}`,
       });
 
-      // Add plagiarism check for new file
-      const payload = {
-        file: uploadResult.secure_url,
-        language: "en",
-        country: "us",
-      };
-
-      const options = {
-        method: "POST",
-        headers: {
-          Authorization: process.env.WINSTON_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      };
-
-      let score = 0;
-      try {
-        const response = await fetch("https://api.gowinston.ai/v2/plagiarism", options);
-        const data = await response.json();
-        score = data.result?.score || 0;
-      } catch (err) {
-        console.error("API Error:", err);
-      }
-
       // Update file-related fields only if new file was uploaded
       updateData.file_url = uploadResult.secure_url;
-      updateData.score = score;
 
       // Clean up uploaded file
       try {
@@ -2100,28 +2052,6 @@ app.post("/submit", upload.single("file"), async (req, res) => {
     folder: "submissions",
     public_id: `${req.user.uid}-${Date.now()}`,
   });
-
-  const payload = {
-    file: uploadResult.secure_url,
-    language: "en",
-    country: "us",
-  };
-
-  const options = {
-    method: "POST",
-    headers: {
-      Authorization: process.env.WINSTON_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  };
-  var score = 0; // Initialize score variable
-  fetch("https://api.gowinston.ai/v2/plagiarism", options)
-    .then((response) => response.json())
-    .then((data) => {
-      score = data.result?.score;
-    })
-    .catch((err) => console.error("API Error:", err));
 
   const { data, error } = await supabase.from("submissions").insert([
     {

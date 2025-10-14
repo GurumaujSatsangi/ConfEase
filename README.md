@@ -44,7 +44,7 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 - ✅ **Complete Lifecycle Management**: From paper submission to final results
 - ✅ **Role-Based Access Control**: Tailored experiences for chairs, authors, reviewers, and panelists
 - ✅ **Real-Time Collaboration**: Co-authors can join and contribute seamlessly
-- ✅ **Automated Workflows**: Email notifications, plagiarism checks, and result generation
+- ✅ **Automated Workflows**: Email notifications and automated result generation
 - ✅ **Live Evaluation**: Real-time scoring during conference presentations
 - ✅ **Responsive Design**: Works flawlessly on desktop, tablet, and mobile devices
 
@@ -60,7 +60,7 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 - **Leaderboard System**: Automatic ranking based on reviewer and panelist scores
 
 ### 📝 Submission and Collaboration
-- **Secure Paper Submission**: Upload papers with automatic plagiarism detection (Winston AI integration)
+
 - **Unique Paper Codes**: Generate shareable codes for co-author access
 - **Edit Capabilities**: Primary authors can edit submissions before review deadline
 - **Track Selection**: Choose appropriate tracks for paper categorization
@@ -137,7 +137,6 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
   - `chair` - Conference chair credentials
 
 ### External Services
-- **Plagiarism Detection**: Winston AI API
 - **Cloud Storage**: Cloudinary for document management
 - **Authentication**: Google OAuth 2.0
 
@@ -173,14 +172,12 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 │  │  │ Passport.js│  │Google OAuth│  │Session Store │   │   │
 │  │  └────────────┘  └────────────┘  └──────────────┘   │   │
 │  └──────────────────────────────────────────────────────┘   │
-└────────────────────────┬────────────────────────────────────┘
-                         │
 ┌────────────────────────┴────────────────────────────────────┐
 │                    External Services                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Supabase   │  │  Cloudinary  │  │  Winston AI  │      │
-│  │  (Database)  │  │ (File Store) │  │(Plagiarism)  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │   Supabase   │  │  Cloudinary  │                         │
+│  │  (Database)  │  │ (File Store) │                         │
+│  └──────────────┘  └──────────────┘                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -195,7 +192,6 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 - Supabase account
 - Google Cloud Console account (for OAuth)
 - Cloudinary account
-- Winston AI API key (optional)
 
 ### Step 1: Clone the Repository
 
@@ -403,10 +399,7 @@ The application will be available at `http://localhost:3000`
 2. Generate an [App Password](https://myaccount.google.com/apppasswords)
 3. Use the app password in `EMAIL_PASSWORD` env variable
 
-### Winston AI (Optional)
-1. Sign up at [Winston AI](https://gowinston.ai/)
-2. Get your API key
-3. Add to `.env` file
+
 
 ---
 
