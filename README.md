@@ -29,7 +29,6 @@
 - [User Roles](#user-roles)
 - [Database Schema](#database-schema)
 - [API Documentation](#api-documentation)
-- [Screenshots](#screenshots)
 - [Contributing](#contributing)
 - [License](#license)
 - [Contact](#contact)
@@ -623,22 +622,7 @@ POST /mark-presentation-as-complete      - Submit panelist score
 
 ---
 
-## 📸 Screenshots
 
-### Home Page
-Display of active conferences with submission deadlines and important dates.
-
-### Author Dashboard
-View all submissions, their status, co-authors, and presentation schedules.
-
-### Reviewer Dashboard
-See assigned papers by track, review status, and conference details.
-
-### Chair Dashboard
-Comprehensive administrative view with conference management tools.
-
-### Leaderboard
-Ranked display of submissions by track with reviewer and panelist scores.
 
 ---
 
