@@ -18,6 +18,11 @@
       <div class="container">
         <h4>Panelist's Dashboard</h4>
         <h6><%= trackinfo.track_name %></h6>
+        <% if (session_end_iso) { %>
+          <div class="alert alert-info" id="sessionTimerContainer">
+            Session ends in: <span id="sessionTimer">--:--:--</span>
+          </div>
+        <% } %>
         
         <hr>
     
@@ -59,8 +64,12 @@
             </td>
             <td></td>
             <% } else { %>
-            <td><input type="number" class="form-control" max="5" step="0.1" id="panelist_score" name="panelist_score" required></td>
-            <td><input type="submit" class="btn btn-outline-primary" value="Save"></td>
+            <td>
+              <input type="number" class="form-control" max="5" step="0.1" id="panelist_score" name="panelist_score" required>
+            </td>
+            <td>
+              <input type="submit" class="btn btn-outline-primary" id="savePanelistBtn" value="Save">
+            </td>
             <% } %>
           </form> 
 
@@ -87,6 +96,58 @@
 
       </div>
     <script src="/script.js"></script>
+    <% if (session_end_iso) { %>
+    <script>
+      (function(){
+        const endIso = '<%= session_end_iso %>';
+        const endTime = new Date(endIso).getTime();
+        const timerEl = document.getElementById('sessionTimer');
+        const saveBtn = document.getElementById('savePanelistBtn');
+        const scoreInputs = document.querySelectorAll('input[name="panelist_score"]');
+
+        function formatRemaining(ms) {
+          if (ms < 0) return '00:00:00';
+          const s = Math.floor(ms / 1000);
+          const hh = String(Math.floor(s / 3600)).padStart(2,'0');
+          const mm = String(Math.floor((s % 3600) / 60)).padStart(2,'0');
+          const ss = String(s % 60).padStart(2,'0');
+          return `${hh}:${mm}:${ss}`;
+        }
+
+        let warned1 = false; // 1 minute
+        let warned30 = false; // 30 seconds
+
+        function tick(){
+          const now = Date.now();
+          const remaining = endTime - now;
+          if (timerEl) timerEl.textContent = formatRemaining(remaining);
+
+          if (!warned1 && remaining <= 60*1000 && remaining > 30*1000) {
+            warned1 = true;
+            alert('Session will end in 1 minute. Please wrap up your scoring.');
+          }
+          if (!warned30 && remaining <= 30*1000 && remaining > 0) {
+            warned30 = true;
+            alert('Session will end in 30 seconds. Please finalize your input.');
+          }
+
+          if (remaining <= 0) {
+            // Disable score inputs and save button
+            scoreInputs.forEach(i => i.disabled = true);
+            if (saveBtn) saveBtn.disabled = true;
+            if (timerEl) timerEl.textContent = '00:00:00';
+            // Optional: show an info message
+            const container = document.getElementById('sessionTimerContainer');
+            if (container) container.className = 'alert alert-danger';
+            clearInterval(intervalId);
+          }
+        }
+
+        tick();
+        const intervalId = setInterval(tick, 1000);
+      })();
+    </script>
+    <% } %>
     <%- include('../partials/footer')%>
   </body>
 </html>

@@ -701,6 +701,36 @@ app.get("/panelist/active-session/:id", async (req, res) => {
     return res.redirect("/panelist/dashboard?message=Track not found.");
   }
 
+  // Enforce session access window: allow page only from (presentation_start_time - 5 minutes) to presentation_end_time
+  let session_end_iso = null;
+  try {
+    if (trackinfo.presentation_date && trackinfo.presentation_start_time && trackinfo.presentation_end_time) {
+      const istOffset = 5.5 * 60 * 60 * 1000; // ms
+      const [y, mo, d] = ('' + trackinfo.presentation_date).split('-').map(Number);
+      const [sh, sm] = ('' + trackinfo.presentation_start_time).split(':').map(Number);
+      const [eh, em] = ('' + trackinfo.presentation_end_time).split(':').map(Number);
+
+      const startUtcMs = Date.UTC(y, mo - 1, d, sh, sm) - istOffset;
+      const endUtcMs = Date.UTC(y, mo - 1, d, eh, em) - istOffset;
+      const nowUtcMs = Date.now();
+      const bufferMs = 5 * 60 * 1000; // 5 minutes
+
+      if (nowUtcMs < (startUtcMs - bufferMs)) {
+        return res.redirect('/?message=Session not started yet.');
+      }
+
+      if (nowUtcMs > endUtcMs) {
+        return res.redirect('/?message=Session has ended.');
+      }
+
+      session_end_iso = new Date(endUtcMs).toISOString();
+    }
+  } catch (timeErr) {
+    console.error('Error checking session window:', timeErr);
+    // If an error occurs, allow access (fail-open) but don't provide a timer
+    session_end_iso = null;
+  }
+
   // Fetch submissions by track_id instead of area
   const { data: session, error } = await supabase
     .from("submissions")
@@ -757,6 +787,7 @@ app.get("/panelist/active-session/:id", async (req, res) => {
     session: session,
     trackinfo: trackinfo,
     message: req.query.message || null,
+    session_end_iso: session_end_iso,
   });
 });
 
@@ -1564,6 +1595,28 @@ app.get(
       console.error("Error fetching reviewer remarks:", reviewError);
     }
 
+    // Fetch conference to check camera-ready deadline
+    const { data: conferenceInfo, error: confInfoError } = await supabase
+      .from('conferences')
+      .select('camera_ready_paper_submission')
+      .eq('conference_id', data.conference_id)
+      .single();
+
+    if (confInfoError) console.error('Error fetching conference info:', confInfoError);
+
+    // Check camera ready deadline (IST date comparison)
+    if (conferenceInfo && conferenceInfo.camera_ready_paper_submission) {
+      const now = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000;
+      const istTime = new Date(now.getTime() + istOffset);
+      const currentDate = istTime.toISOString().split('T')[0];
+      const deadline = (new Date(conferenceInfo.camera_ready_paper_submission)).toISOString().split('T')[0];
+
+      if (currentDate > deadline) {
+        return res.redirect('/dashboard?message=The camera-ready submission deadline has passed.');
+      }
+    }
+
     if (data.submission_status == "Submitted for Review") {
       return res.redirect(
         "/dashboard?message=Your submission is under review."
@@ -1595,6 +1648,30 @@ app.post(
       return res.redirect("/");
     }
     const { confid, title, abstract, areas, id, co_authors } = req.body;
+
+    // Verify camera-ready deadline for the conference
+    try {
+      const { data: confRow, error: confErr } = await supabase
+        .from('conferences')
+        .select('camera_ready_paper_submission')
+        .eq('conference_id', confid)
+        .single();
+
+      if (!confErr && confRow && confRow.camera_ready_paper_submission) {
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istTime = new Date(now.getTime() + istOffset);
+        const currentDate = istTime.toISOString().split('T')[0];
+        const deadline = (new Date(confRow.camera_ready_paper_submission)).toISOString().split('T')[0];
+
+        if (currentDate > deadline) {
+          return res.redirect('/dashboard?message=The camera-ready submission deadline has passed.');
+        }
+      }
+    } catch (err) {
+      console.error('Error checking camera-ready deadline:', err);
+      // proceed cautiously (allow submission) or you may choose to block; we'll allow fallback
+    }
     const filePath = req.file.path;
     const uploadResult = await cloudinary.uploader.upload(filePath, {
       resource_type: "auto", // auto-detect type (pdf, docx, etc.)
@@ -1945,6 +2022,46 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
       : (sub.co_authors ? formatNameEmail(sub.co_authors) : 'None')
   }));
 
+  // For each submission, fetch the latest peer_review (if any) and add reviewer details
+  for (let i = 0; i < submissionsWithTracks.length; i++) {
+    const s = submissionsWithTracks[i];
+    try {
+      const { data: reviewRows, error: reviewError } = await supabase
+        .from('peer_review')
+        .select('reviewer, mean_score, remarks')
+        .eq('submission_id', s.submission_id)
+        .limit(1);
+
+      if (!reviewError && reviewRows && reviewRows.length > 0) {
+        const r = reviewRows[0];
+        s.reviewer = r.reviewer || null;
+        s.mean_score = (r.mean_score !== undefined && r.mean_score !== null) ? parseFloat(r.mean_score).toFixed(2) : null;
+        s.remarks = r.remarks || null;
+
+        // Try to fetch reviewer's display name from users table
+        if (s.reviewer) {
+          const { data: reviewerUser, error: userErr } = await supabase
+            .from('users')
+            .select('name')
+            .eq('email', s.reviewer)
+            .single();
+          if (!userErr && reviewerUser) {
+            s.reviewer_name = reviewerUser.name;
+          }
+        }
+      } else {
+        s.reviewer = null;
+        s.mean_score = null;
+        s.remarks = null;
+      }
+    } catch (err) {
+      console.error('Error fetching reviewer data for submission', s.submission_id, err);
+      s.reviewer = null;
+      s.mean_score = null;
+      s.remarks = null;
+    }
+  }
+
   // Get unique statuses for filter dropdown
   const uniqueStatuses = [...new Set((submissions || []).map(sub => sub.submission_status))];
 
@@ -1957,6 +2074,36 @@ app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
     confdata: confdata || {},
     message: req.query.message || null,
   });
+});
+
+// Route to delete a specific submission (accessible by chair)
+app.post('/chair/dashboard/delete-submission/:id', async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== 'chair') {
+    return res.redirect('/');
+  }
+
+  const submissionId = req.params.id;
+  const conferenceId = req.query.conference_id || req.body.conference_id;
+
+  try {
+    // Delete related peer reviews
+    await supabase.from('peer_review').delete().eq('submission_id', submissionId);
+
+    // Delete any final camera ready submissions if present
+    await supabase.from('final_camera_ready_submissions').delete().eq('submission_id', submissionId);
+
+    // Finally delete the submission itself
+    const { error } = await supabase.from('submissions').delete().eq('submission_id', submissionId);
+    if (error) {
+      console.error('Error deleting submission:', error);
+      return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Error deleting submission.`);
+    }
+
+    return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Submission deleted successfully.`);
+  } catch (err) {
+    console.error('Unexpected error deleting submission:', err);
+    return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Error deleting submission.`);
+  }
 });
 
 app.post("/edit-submission", upload.single("file"), async (req, res) => {
@@ -2088,7 +2235,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -2140,7 +2287,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -2186,7 +2333,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {

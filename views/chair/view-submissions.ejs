@@ -106,50 +106,109 @@
         <hr>
         
         <div id="submissionsContainer">
-          <% if (submissions && submissions.length > 0) { %> 
-            <% submissions.forEach(function(submission, index) { %>
-            <div class="submission-item mb-3" 
-                 data-title="<%= submission.title.toLowerCase() %>"
-                 data-track="<%= submission.track_name %>"
-                 data-status="<%= submission.submission_status %>"
-                 data-author="<%= submission.primary_author_formatted.toLowerCase() %>"
-                 data-coauthors="<%= submission.co_authors_formatted.toLowerCase() %>"
-                 data-papercode="<%= submission.paper_code.toLowerCase() %>">
-              <table class="table table-bordered">
-                <thead class="table-light">
-                  <tr>
-                    <th>Title</th>
-                    <th>Track</th>
-                    <th>Primary Author</th>
-                    <th>Co-Authors</th>
-                    <th>Status</th>
-                    <th>View Paper</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><%= submission.title %></td>
-                    <td><%= submission.track_name %></td>
-                    <td><%= submission.primary_author_formatted %></td>
-                    <td><%= submission.co_authors_formatted %></td>
-                    <td>
-                      <span class="badge <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
-                                              submission.submission_status === 'Rejected' ? 'bg-danger' : 
-                                              submission.submission_status === 'Reviewed' ? 'bg-warning' : 
-                                              'bg-secondary' %>">
-                        <%= submission.submission_status %>
-                      </span>
-                    </td>
-                    <td>
-                      <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-eye-fill"></i> View
-                      </a>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+          <% if (submissions && submissions.length > 0) { %>
+            <div class="table-responsive">
+              <style>
+                /* Constrain columns and force wrapping so content stays in the right column */
+                .cs-table td { vertical-align: top; padding: 12px; }
+                .cs-title { max-width: 220px; white-space: normal; word-wrap: break-word; word-break: break-word; }
+                .cs-track { max-width: 160px; white-space: normal; word-wrap: break-word; }
+                .cs-primary { max-width: 220px; white-space: normal; word-wrap: break-word; }
+                .cs-coauthors { max-width: 240px; white-space: normal; word-wrap: break-word; }
+                .cs-status { max-width: 100px; white-space: normal; }
+                .cs-reviewer { max-width: 180px; white-space: normal; word-wrap: break-word; }
+                .cs-score { max-width: 160px; white-space: normal; }
+                .cs-actions { white-space: nowrap; }
+              </style>
+           <div class="table-responsive">
+  <table class="table table-bordered align-middle text-wrap" style="width:100%;">
+    <thead class="table-light text-center">
+      <tr>
+        <th style="min-width:200px;">Title</th>
+        <th style="min-width:180px;">Track</th>
+        <th style="min-width:200px;">Primary Author</th>
+        <th style="min-width:200px;">Co-Authors</th>
+        <th style="min-width:120px;">Status</th>
+        <th style="min-width:200px;">Reviewer</th>
+        <th style="min-width:180px;">Score / Remarks</th>
+        <th style="min-width:150px;">View / Actions</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <% submissions.forEach(function(submission) { %>
+        <tr>
+          <!-- Title -->
+          <td><%= submission.title %></td>
+
+          <!-- Track -->
+          <td><%= submission.track_name || '—' %></td>
+
+          <!-- Primary Author -->
+          <td><%= submission.primary_author_formatted %></td>
+
+          <!-- Co-Authors -->
+          <td><%= submission.co_authors_formatted || '—' %></td>
+
+          <!-- Status -->
+          <td class="text-center">
+            <span class="badge 
+              <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
+                  submission.submission_status === 'Rejected' ? 'bg-danger' : 
+                  submission.submission_status === 'Reviewed' ? 'bg-warning text-dark' : 
+                  'bg-secondary' %>">
+              <%= submission.submission_status %>
+            </span>
+          </td>
+
+          <!-- Reviewer -->
+          <td>
+            <% if (submission.reviewer_name || submission.reviewer) { %>
+              <%= submission.reviewer_name ? submission.reviewer_name + ' (' + (submission.reviewer || '') + ')' : (submission.reviewer || '') %>
+            <% } else { %>
+              <em class="text-muted">—</em>
+            <% } %>
+          </td>
+
+          <!-- Score / Remarks -->
+          <td>
+              <% if (['Accepted', 'Rejected', 'Submitted Final Camera Ready Paper'].includes(submission.submission_status)) { %>
+              <% if (submission.mean_score) { %>
+                <div><strong>Score:</strong> <%= submission.mean_score %></div>
+              <% } %>
+              <% if (submission.remarks) { %>
+                <div><strong>Remarks:</strong> <%= submission.remarks %></div>
+              <% } %>
+              <% if (!submission.mean_score && !submission.remarks) { %>
+                <em class="text-muted">No reviewer details</em>
+              <% } %>
+            <% } else { %>
+              <em class="text-muted"><center><i class="bi bi-eye-slash-fill"></i></center></em>
+            <% } %>
+          </td>
+
+          <!-- View / Actions -->
+          <td class="text-center">
+            <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm mb-1">
+              <i class="bi bi-eye-fill"></i> View
+            </a>
+            <form 
+              action="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
+              method="POST" 
+              style="display:inline-block;" 
+              onsubmit="return confirm('Delete this submission? This action cannot be undone.');">
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i> Delete
+              </button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
             </div>
-            <% }); %> 
           <% } else { %>
             <div id="noSubmissionsMessage">
               <h6 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Submissions found.</h6>
