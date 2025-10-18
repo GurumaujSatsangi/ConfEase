@@ -35,35 +35,42 @@
       <% } %>
 
       <h6>Review Submissions</h6>
-      <% if (userSubmissions && userSubmissions.length > 0) { %> <%
-      userSubmissions.forEach(function(submission) { %>
-
-      <table class="table table-bordered">
-        <tr>
-          <td>Paper Title</td>
-          <td>Action</td>
-        </tr>
-        <tr>
-          <td><%= submission.title %></td>
-          <td>
-            <% if (submission.submission_status=="Reviewed" ||
-            submission.submission_status=="Submitted Final Camera Ready Paper" || submission.submission_status=="Presentation Completed" )
-            { %>
-            <b><i class="bi bi-check-circle-fill"></i> Reviewed</b>
-            <% } else { %>
-            <a
-              type="button" 
-              class="btn btn-success"
-              href="/reviewer/dashboard/review/<%= submission.paper_code %>"
-              ><i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review</a
-            >
-          </td>
-          <% } %>
-        </tr>
-      </table>
-
-      <% }); %> <% } else { %>
-      <h6>No Submissions Found</h6>
+      <% if (userSubmissions && userSubmissions.length > 0) { %>
+        <% // helper to find track name by id %>
+        <% const getTrackName = (id) => {
+             const t = (tracks || []).find(tr => tr.track_id === id);
+             return t ? t.track_name : 'Unknown Track';
+           } %>
+        <div class="table-responsive">
+          <table class="table table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Paper Title</th>
+                <th>Track</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% userSubmissions.forEach(function(submission) { %>
+                <tr>
+                  <td><%= submission.title %></td>
+                  <td><%= getTrackName(submission.track_id) %></td>
+                  <td>
+                    <% if (submission.submission_status === 'Submitted for Review') { %>
+                      <a type="button" class="btn btn-success" href="/reviewer/dashboard/review/<%= submission.paper_code %>">
+                        <i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review
+                      </a>
+                    <% } else { %>
+                      <b><i class="bi bi-check-circle-fill"></i> <%= submission.submission_status %></b>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <h6>No Submissions Found</h6>
       <% } %>
     </div>
     <script src="/script.js"></script>

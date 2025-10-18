@@ -540,11 +540,12 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     .eq("conference_id", req.params.id)
     .single();
 
-  // Fetch all submissions for this conference with details
+  // Fetch only final-camera-ready submissions for this conference
   const { data: submissions, error: submissionsError } = await supabase
     .from("submissions")
     .select("*")
-    .eq("conference_id", req.params.id);
+    .eq("conference_id", req.params.id)
+    .in("submission_status", ["Submitted Final Camera Ready Paper", "Presentation Completed"]);
 
   // Count submissions per track (track_id)
   const trackCounts = {};
@@ -732,10 +733,11 @@ app.get("/panelist/active-session/:id", async (req, res) => {
   }
 
   // Fetch submissions by track_id instead of area
+  // Use final camera ready submissions for panelist session view
   const { data: session, error } = await supabase
-    .from("submissions")
+    .from("final_camera_ready_submissions")
     .select("*")
-    .eq("track_id", trackinfo.track_id); // Use track_id instead of area
+    .eq("track_id", trackinfo.track_id);
 
   if (error) {
     console.error("Error fetching session:", error);
@@ -762,23 +764,13 @@ app.get("/panelist/active-session/:id", async (req, res) => {
         session[i].mean_score = null;
       }
 
-      // Fetch panelist score from final_camera_ready_submissions table
-      const { data: panelistData, error: panelistError } = await supabase
-        .from("final_camera_ready_submissions")
-        .select("panelist_score, status")
-        .eq("submission_id", session[i].submission_id)
-        .single();
-
-      if (panelistError) {
-        console.error("Error fetching panelist data:", panelistError);
-        session[i].panelist_score = null;
-        session[i].presentation_status = null;
-      } else if (panelistData) {
-        session[i].panelist_score = panelistData.panelist_score;
-        session[i].presentation_status = panelistData.status;
+      // For final camera ready submissions the panelist score and status are on the same row
+      if (session[i].panelist_score !== undefined) {
+        // value already present from final_camera_ready_submissions
+        session[i].presentation_status = session[i].status || null;
       } else {
         session[i].panelist_score = null;
-        session[i].presentation_status = null;
+        session[i].presentation_status = session[i].status || null;
       }
     }
   }
