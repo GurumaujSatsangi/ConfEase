@@ -15,6 +15,9 @@ body {
 .accordion-body{
   text-align: justify;
 }
+.card-body2{
+  background-color:grey;
+}
 
 .container {
   flex-grow: 1;
