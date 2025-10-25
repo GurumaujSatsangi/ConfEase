@@ -3,14 +3,154 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <title>DEI CMT</title>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon" />
+    <style>
+      .invitee-list {
+        margin-top: 30px;
+      }
+      .invitee-item {
+        padding: 12px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        margin-bottom: 10px;
+        background-color: #f8f9fa;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .invitee-info {
+        flex: 1;
+      }
+      .invitee-name {
+        font-weight: 500;
+        color: #333;
+      }
+      .invitee-email {
+        font-size: 0.9em;
+        color: #666;
+        margin-top: 4px;
+      }
+      .login-status {
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-size: 0.85em;
+        font-weight: 500;
+        white-space: nowrap;
+        margin-left: 15px;
+      }
+      .status-logged-in {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      .status-not-logged-in {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .submissions-section {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #dee2e6;
+      }
+      .submissions-title {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 10px;
+      }
+      .submission-row {
+        padding: 10px;
+        background-color: white;
+        border: 1px solid #e9ecef;
+        border-radius: 3px;
+        margin-bottom: 8px;
+        font-size: 0.9em;
+      }
+      .submission-title {
+        font-weight: 500;
+        color: #212529;
+        margin-bottom: 4px;
+      }
+      .submission-details {
+        color: #666;
+        font-size: 0.85em;
+      }
+      .no-submissions {
+        color: #999;
+        font-size: 0.9em;
+        font-style: italic;
+      }
+    </style>
   </head>
   <body>
     <%- include('../partials/dashboard/header') %>
-    <div class="container"></div>
+    <div class="container">
+      <h4>Manage Invited Talks</h4>
+      <hr />
+      <form action="/add-invitee" method="POST">
+        <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
+        <input
+          type="email"
+          id="invited_talk_email"
+          class="form-control"
+          name="email"
+          aria-describedby="passwordHelpInline"
+          placeholder="Enter Email ID of the Invitee"
+        />
+        <input
+          type="submit"
+          value="Add Invitee"
+          class="btn btn-outline-primary"
+        />
+      </form>
 
+      <%# Display invitees list %>
+      <% if (invitees && invitees.length > 0) { %>
+        <div class="invitee-list">
+          <h5>Invited Speakers</h5>
+          <% invitees.forEach(invitee => { %>
+            <div class="invitee-item">
+              <div class="invitee-info">
+                <div class="invitee-name"><%= invitee.display_name %></div>
+                <div class="invitee-email"><%= invitee.display_email %></div>
+                
+                <%# Display submissions for this invitee %>
+                <% if (invitee.submissions && invitee.submissions.length > 0) { %>
+                  <div class="submissions-section">
+                    <div class="submissions-title">Submitted Talks (<%= invitee.submissions.length %>)</div>
+                    <% invitee.submissions.forEach(submission => { %>
+                      <div class="submission-row">
+                        <div class="submission-title"><%= submission.title %></div>
+                        <div class="submission-details">
+                          <strong>Track:</strong> <%= submission.track || 'N/A' %><br>
+                          <strong>Description:</strong> <%= submission.description ? submission.description.substring(0, 100) + (submission.description.length > 100 ? '...' : '') : 'N/A' %>
+                        </div>
+                      </div>
+                    <% }); %>
+                  </div>
+                <% } else { %>
+                  <div class="submissions-section">
+                    <div class="no-submissions">No submissions yet</div>
+                  </div>
+                <% } %>
+              </div>
+              <div>
+                <% if (invitee.hasLoggedIn) { %>
+                  <span class="login-status status-logged-in">Logged In</span>
+                <% } else { %>
+                  <span class="login-status status-not-logged-in">Never Logged In</span>
+                <% } %>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } else { %>
+        <div class="alert alert-info" role="alert" style="margin-top: 20px;">
+          No invitees added yet.
+        </div>
+      <% } %>
+    </div>
     <script src="/script.js"></script>
     <%- include('../partials/footer') %>
   </body>

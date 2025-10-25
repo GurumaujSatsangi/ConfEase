@@ -966,7 +966,97 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 });
 
 app.get("/chair/dashboard/invited-talks/:id",async(req,res)=>{
-  res.render("chair/invited-talks");
+  
+   if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  // Fetch conference details
+  const { data: conferenceData, error: conferenceError } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", req.params.id)
+    .single();
+
+  if (conferenceError || !conferenceData) {
+    console.error("Error fetching conference:", conferenceError);
+    return res.status(500).send("Error fetching conference details.");
+  }
+
+  // Fetch invitees for this conference
+  const { data: inviteesData, error: inviteesError } = await supabase
+    .from("invitees")
+    .select("*")
+    .eq("conference_id", req.params.id);
+
+  if (inviteesError) {
+    console.error("Error fetching invitees:", inviteesError);
+    return res.status(500).send("Error fetching invitees.");
+  }
+
+  // Process invitees: check if name column is populated to determine login status
+  const inviteesWithStatus = (inviteesData || []).map((invitee) => {
+    const hasLoggedIn = invitee.name && invitee.name.trim() !== '';
+    
+    return {
+      ...invitee,
+      display_name: hasLoggedIn ? invitee.name : invitee.email,
+      display_email: invitee.email,
+      hasLoggedIn: hasLoggedIn
+    };
+  });
+
+  // Fetch submissions for each invitee from invited_talk_submissions table
+  const inviteesWithSubmissions = await Promise.all(inviteesWithStatus.map(async (invitee) => {
+    const { data: submissions, error: submissionsError } = await supabase
+      .from("invited_talk_submissions")
+      .select("*")
+      .eq("conference_id", req.params.id)
+      .eq("invitee_email", invitee.email);
+
+    if (submissionsError) {
+      console.error(`Error fetching submissions for ${invitee.email}:`, submissionsError);
+    }
+
+    return {
+      ...invitee,
+      submissions: submissions || []
+    };
+  }));
+
+  res.render("chair/invited-talks", {
+    user: req.user,
+    conference: conferenceData,
+    invitees: inviteesWithSubmissions || [],
+    message: req.query.message || null,
+  });
+})
+
+app.get("/privacy-policy",async(req,res)=>{
+  res.render("privacy-policy");
+})
+app.post("/add-invitee", async(req,res)=>{
+   if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+  const email = req.body.email;
+  const conferenceId = req.body.conference_id;
+
+  if (!email || !conferenceId) {
+    return res.status(400).send("Email and conference ID are required.");
+  }
+
+  const {data, error} = await supabase.from("invitees").insert({
+    conference_id: conferenceId,
+    email: email
+  });
+
+  if (error) {
+    console.error("Error adding invitee:", error);
+    return res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Error adding invitee.`);
+  }
+
+  res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Invitee added successfully.`);
 })
 app.post("/mark-as-reviewed", async (req, res) => {
   if (!req.isAuthenticated()) {
