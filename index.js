@@ -964,6 +964,10 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 
   res.redirect(`/chair/dashboard`);
 });
+
+app.get("/chair/dashboard/invited-talks/:id",async(req,res)=>{
+  res.render("chair/invited-talks");
+})
 app.post("/mark-as-reviewed", async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");

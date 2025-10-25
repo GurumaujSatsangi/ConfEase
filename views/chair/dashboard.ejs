@@ -53,27 +53,32 @@
             <td>
               <a
                 href="/chair/dashboard/view-submissions/<%= conference.conference_id %>"
-                class="btn btn-primary"
-                ><i class="bi bi-eye-fill"></i
+                class="btn btn-outline-primary"
+                >View Submissions <i class="bi bi-eye-fill"></i
               ></a>
               <br /><br />
               <a
                 href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>"
-                class="btn btn-info"
-                ><i class="bi bi-person-fill-gear"></i
+                class="btn btn-outline-primary"
+                >Manage Sessions <i class="bi bi-person-fill-gear"></i
               ></a>
+              <br /><br />
+                <a
+                href="/chair/dashboard/invited-talks/<%= conference.conference_id %>"
+                class="btn btn-outline-primary"
+                >Invited Talks <i class="bi bi-envelope-plus-fill"></i></a>
               <br /><br />
               <a
                 href="/chair/dashboard/edit-conference/<%= conference.conference_id %>"
-                class="btn btn-warning"
-                ><i class="bi bi-pencil-square"></i
+                class="btn btn-outline-primary"
+                >Edit Conference <i class="bi bi-pencil-square"></i
               ></a>
 
               <br /><br />
               <a
                 href="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
-                class="btn btn-danger"
-                ><i class="bi bi-trash3-fill"></i
+                class="btn btn-outline-primary"
+                >Delete Conference <i class="bi bi-trash3-fill"></i
               ></a>
             </td>
           </tr>
