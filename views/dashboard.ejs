@@ -136,7 +136,42 @@
                 </td>
 <% if (submission.primary_author === user.email) { %>
                 <td style="max-width: 150px; word-wrap: break-word;">
-                  <small><%= submission.co_authors_formatted || 'None' %></small>
+                  <div style="font-size: 0.9rem;">
+                    <% 
+                      // Get pending requests for this submission
+                      const pendingRequests = coAuthorRequests.filter(req => req.submission_id === submission.submission_id && req.status === "Submitted For Review");
+                      const acceptedCoAuthors = submission.co_authors_formatted || 'None';
+                    %>
+                    <% if (pendingRequests.length > 0) { %>
+                      <div style="margin-bottom: 8px;">
+                        <strong style="color: #ff6b6b;">Pending Requests:</strong>
+                        <% pendingRequests.forEach(req => { %>
+                          <div style="margin-top: 5px; padding: 5px; border: 1px solid #ffc107; border-radius: 3px; background-color: #fff3cd;">
+                            <small><%= req.co_author %></small><br>
+                            <div style="margin-top: 5px; display: flex; gap: 5px;">
+                              <form method="POST" action="/co-author-request/accept/<%= req.request_id %>" style="display: inline;">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="Accept">
+                                  <i class="bi bi-check-circle-fill"></i>
+                                </button>
+                                <br>
+                              </form>
+                              <form method="POST" action="/co-author-request/reject/<%= req.request_id %>" style="display: inline;">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Reject">
+                                  <i class="bi bi-x-circle-fill"></i>
+                                </button>
+                              </form>
+                            </div>
+                          </div>
+                        <% }); %>
+                      </div>
+                    <% } %>
+                    <% if (acceptedCoAuthors !== 'None') { %>
+                      <strong>Accepted:</strong>
+                      <small><%= acceptedCoAuthors %></small>
+                    <% } else { %>
+                      <small><%= acceptedCoAuthors %></small>
+                    <% } %>
+                  </div>
                 </td>
                 <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
                 <td style="max-width: 150px; word-wrap: break-word;">

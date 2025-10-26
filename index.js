@@ -405,6 +405,23 @@ if (req.user.role !== "author") {
       : (sub.co_authors ? formatNameEmail(sub.co_authors) : '')
   }));
 
+  // Fetch pending co-author requests for all submissions owned by the current user
+  const userSubmissionIds = (submissiondata || [])
+    .filter(sub => sub.primary_author === req.user.email)
+    .map(sub => sub.submission_id);
+
+  let coAuthorRequests = [];
+  if (userSubmissionIds.length > 0) {
+    const { data: requests, error: requestsError } = await supabase
+      .from("co_author_requests")
+      .select("*")
+      .in("submission_id", userSubmissionIds);
+
+    if (!requestsError) {
+      coAuthorRequests = requests || [];
+    }
+  }
+
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: conferencedata || [],
@@ -413,6 +430,7 @@ if (req.user.role !== "author") {
     currentDate: new Date().toISOString().split("T")[0],
     message: req.query.message || null,
     trackinfodata,
+    coAuthorRequests: coAuthorRequests || [],
   });
 });
 
@@ -1504,7 +1522,7 @@ app.post("/join", async (req, res) => {
   }
 
   let coAuthors = data.co_authors || [];
-  // In /join route - add return statements:
+  
   if (data.primary_author === req.user.email) {
     return res.redirect(
       "/dashboard?message=You are the primary author of this paper. You cannot join as a co-author."
@@ -1513,40 +1531,277 @@ app.post("/join", async (req, res) => {
     return res.redirect(
       "/dashboard?message=You are already a co-author of this paper"
     );
-  } else if (!coAuthors.includes(req.user.email)) {
-    coAuthors.push(req.user.email);
   }
 
-  // Update the row with the new array
-  const { error: updateError } = await supabase
-    .from("submissions")
-    .update({ co_authors: coAuthors })
-    .eq("paper_code", paper_code)
-    .eq("conference_id", id);
+  // Check if a request already exists for this user and submission
+  const { data: existingRequest, error: checkError } = await supabase
+    .from("co_author_requests")
+    .select("*")
+    .eq("submission_id", data.submission_id)
+    .eq("co_author", req.user.email)
+    .single();
 
-  if (updateError) {
-    console.error("Error inserting co-author:", updateError);
-    return res.status(500).send("Error joining submission.");
+  if (existingRequest) {
+    return res.redirect(
+      "/dashboard?message=You have already sent a request to join this paper."
+    );
   }
 
-  // Send email notification to primary author about co-author joining
+  // Insert into co_author_requests table
+  const { error: insertError } = await supabase
+    .from("co_author_requests")
+    .insert({
+      conference_id: id,
+      submission_id: data.submission_id,
+      co_author: req.user.email,
+      status: "Submitted For Review"
+    });
+
+  if (insertError) {
+    console.error("Error creating co-author request:", insertError);
+    return res.status(500).send("Error sending co-author request.");
+  }
+
+  // Send email notification to primary author about co-author request
   try {
     await sendMail(
       data.primary_author,
-      `New Co-Author Added - ${data.title}`,
-      `A new co-author (${req.user.email}) has joined your paper "${data.title}".`,
+      `Co-Author Request - ${data.title}`,
+      `A co-author request for your paper "${data.title}" has been submitted.`,
       `<p>Dear Author,</p>
-       <p>A new co-author has joined your paper titled <strong>"${data.title}"</strong>.</p>
-       <p><strong>New Co-Author:</strong> ${req.user.name} (${req.user.email})</p>
-       <p>You can view the updated submission details in your dashboard.</p>
+       <p>A co-author has requested to join your paper titled <strong>"${data.title}"</strong>.</p>
+       <p><strong>Co-Author Email:</strong> ${req.user.email}</p>
+       <p>Please review and accept or reject this request from your dashboard.</p>
        <p>Best regards,<br>Conference Management Team</p>`
     );
   } catch (emailError) {
-    console.error("Error sending co-author notification email:", emailError);
-    // Don't fail the join process if email fails
+    console.error("Error sending co-author request notification email:", emailError);
+    // Don't fail the request process if email fails
   }
 
-  res.redirect("/dashboard");
+  res.redirect("/dashboard?message=Co-author request submitted successfully.");
+});
+
+app.post("/co-author-request/accept/:request_id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const requestId = req.params.request_id;
+
+  // Fetch the co-author request
+  const { data: coAuthorRequest, error: fetchError } = await supabase
+    .from("co_author_requests")
+    .select("*")
+    .eq("request_id", requestId)
+    .single();
+
+  if (fetchError || !coAuthorRequest) {
+    console.error("Error fetching co-author request:", fetchError);
+    return res.redirect("/dashboard?message=Co-author request not found.");
+  }
+
+  // Verify the current user is the primary author of the submission
+  const { data: submission, error: subError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("submission_id", coAuthorRequest.submission_id)
+    .single();
+
+  if (subError || !submission) {
+    console.error("Error fetching submission:", subError);
+    return res.redirect("/dashboard?message=Submission not found.");
+  }
+
+  if (submission.primary_author !== req.user.email) {
+    return res.redirect("/dashboard?message=You are not authorized to accept this request.");
+  }
+
+  // Add co-author email to submissions table
+  let coAuthors = submission.co_authors || [];
+  
+  // Ensure coAuthors is an array
+  if (!Array.isArray(coAuthors)) {
+    coAuthors = [];
+  }
+  
+  // Add the co-author email if not already present
+  if (!coAuthors.includes(coAuthorRequest.co_author)) {
+    coAuthors.push(coAuthorRequest.co_author);
+  }
+
+  console.log("Updated co-authors array:", coAuthors);
+
+  // Update submission with new co-author
+  const { error: updateError } = await supabase
+    .from("submissions")
+    .update({ co_authors: coAuthors })
+    .eq("submission_id", coAuthorRequest.submission_id);
+
+  if (updateError) {
+    console.error("Error updating submission:", updateError);
+    return res.redirect("/dashboard?message=Error accepting co-author request.");
+  }
+
+  console.log("Successfully updated submission with co-author");
+
+  // Update co_author_requests status to Accepted
+  const { error: requestUpdateError } = await supabase
+    .from("co_author_requests")
+    .update({ status: "Accepted" })
+    .eq("request_id", requestId);
+
+  if (requestUpdateError) {
+    console.error("Error updating co-author request:", requestUpdateError);
+    return res.redirect("/dashboard?message=Error updating request status.");
+  }
+
+  console.log("Successfully updated co-author request status to Accepted");
+
+  // Send email notification to co-author about acceptance
+  try {
+    await sendMail(
+      coAuthorRequest.co_author_email,
+      `Co-Author Request Accepted - ${submission.title}`,
+      `Your co-author request for "${submission.title}" has been accepted.`,
+      `<p>Dear Co-Author,</p>
+       <p>Your request to join the paper titled <strong>"${submission.title}"</strong> has been <strong>accepted</strong>.</p>
+       <p>You are now listed as a co-author on this submission. You can view the paper details in your dashboard.</p>
+       <p>Best regards,<br>Conference Management Team</p>`
+    );
+  } catch (emailError) {
+    console.error("Error sending acceptance email:", emailError);
+  }
+
+  res.redirect("/dashboard?message=Co-author request accepted successfully.");
+});
+
+// app.post("/sync-co-author-requests", async (req, res) => {
+//   if (!req.isAuthenticated() || req.user.role !== "author") {
+//     return res.redirect("/");
+//   }
+
+//   try {
+//     // Fetch all accepted co-author requests for submissions owned by this user
+//     const { data: acceptedRequests, error: requestsError } = await supabase
+//       .from("co_author_requests")
+//       .select("*")
+//       .eq("status", "Accepted");
+
+//     if (requestsError) {
+//       console.error("Error fetching accepted requests:", requestsError);
+//       return res.redirect("/dashboard?message=Error syncing co-author requests.");
+//     }
+
+//     let syncedCount = 0;
+
+//     // For each accepted request, ensure the co-author is in the submissions table
+//     for (const request of acceptedRequests || []) {
+//       // Fetch the submission
+//       const { data: submission, error: subError } = await supabase
+//         .from("submissions")
+//         .select("*")
+//         .eq("submission_id", request.submission_id)
+//         .single();
+
+//       if (subError || !submission) {
+//         console.error(`Error fetching submission ${request.submission_id}:`, subError);
+//         continue;
+//       }
+
+//       // Check if co-author is already in the array
+//       let coAuthors = submission.co_authors || [];
+//       if (!Array.isArray(coAuthors)) {
+//         coAuthors = [];
+//       }
+
+//       if (!coAuthors.includes(request.co_author)) {
+//         coAuthors.push(request.co_author);
+
+//         // Update submission
+//         const { error: updateError } = await supabase
+//           .from("submissions")
+//           .update({ co_authors: coAuthors })
+//           .eq("submission_id", request.submission_id);
+
+//         if (updateError) {
+//           console.error(`Error updating submission ${request.submission_id}:`, updateError);
+//         } else {
+//           syncedCount++;
+//           console.log(`Synced co-author ${request.co_author_email} to submission ${request.submission_id}`);
+//         }
+//       }
+//     }
+
+//     res.redirect(`/dashboard?message=Sync complete. Updated ${syncedCount} co-author(s).`);
+//   } catch (error) {
+//     console.error("Error in sync-co-author-requests:", error);
+//     res.redirect("/dashboard?message=Error syncing co-author requests.");
+//   }
+// });
+
+app.post("/co-author-request/reject/:request_id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const requestId = req.params.request_id;
+
+  // Fetch the co-author request
+  const { data: coAuthorRequest, error: fetchError } = await supabase
+    .from("co_author_requests")
+    .select("*")
+    .eq("request_id", requestId)
+    .single();
+
+  if (fetchError || !coAuthorRequest) {
+    console.error("Error fetching co-author request:", fetchError);
+    return res.redirect("/dashboard?message=Co-author request not found.");
+  }
+
+  // Verify the current user is the primary author of the submission
+  const { data: submission, error: subError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("submission_id", coAuthorRequest.submission_id)
+    .single();
+
+  if (subError || !submission) {
+    console.error("Error fetching submission:", subError);
+    return res.redirect("/dashboard?message=Submission not found.");
+  }
+
+  if (submission.primary_author !== req.user.email) {
+    return res.redirect("/dashboard?message=You are not authorized to reject this request.");
+  }
+
+  // Update co_author_requests status to Rejected
+  const { error: requestUpdateError } = await supabase
+    .from("co_author_requests")
+    .update({ status: "Rejected" })
+    .eq("request_id", requestId);
+
+  if (requestUpdateError) {
+    console.error("Error updating co-author request:", requestUpdateError);
+    return res.redirect("/dashboard?message=Error rejecting co-author request.");
+  }
+
+  // Send email notification to co-author about rejection
+  try {
+    await sendMail(
+      coAuthorRequest.co_author_email,
+      `Co-Author Request Rejected - ${submission.title}`,
+      `Your co-author request for "${submission.title}" has been rejected.`,
+      `<p>Dear Co-Author,</p>
+       <p>Your request to join the paper titled <strong>"${submission.title}"</strong> has been <strong>rejected</strong>.</p>
+       <p>If you believe this was a mistake, please contact the paper's primary author.</p>
+       <p>Best regards,<br>Conference Management Team</p>`
+    );
+  } catch (emailError) {
+    console.error("Error sending rejection email:", emailError);
+  }
+
+  res.redirect("/dashboard?message=Co-author request rejected successfully.");
 });
 
 app.post("/create-new-conference", async (req, res) => {
