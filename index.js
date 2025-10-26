@@ -93,6 +93,13 @@ app.get(
 );
 
 app.get(
+  "/auth4/google",
+  passport.authenticate("google4", {
+    scope: ["profile", "email"],
+  })
+);
+
+app.get(
   "/auth2/google/dashboard2",
   passport.authenticate("google2", {
     failureRedirect:
@@ -222,6 +229,65 @@ app.get("/error", (req, res) => {
 app.get("/panelist/dashboard", (req, res) => {
   res.render("panelist/dashboard.ejs", { message: req.query.message || null });
 });
+
+app.get("/invitee/dashboard", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== "invitee") {
+    return res.redirect("/?message=You are not authorized to access this page.");
+  }
+
+  // Fetch conference details
+  const { data: conference, error: conferenceError } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", req.user.conference_id)
+    .single();
+
+  if (conferenceError || !conference) {
+    console.error("Error fetching conference:", conferenceError);
+    return res.status(500).send("Error fetching conference details.");
+  }
+
+  // Fetch invitee's submissions
+  const { data: submissions, error: submissionsError } = await supabase
+    .from("invited_talk_submissions")
+    .select("*")
+    .eq("conference_id", req.user.conference_id)
+    .eq("invitee_email", req.user.email);
+
+  if (submissionsError) {
+    console.error("Error fetching submissions:", submissionsError);
+  }
+
+  // Fetch all tracks for this conference to get track names
+  const { data: tracks, error: tracksError } = await supabase
+    .from("conference_tracks")
+    .select("track_id, track_name")
+    .eq("conference_id", req.user.conference_id);
+
+  if (tracksError) {
+    console.error("Error fetching tracks:", tracksError);
+  }
+
+  // Create a map of track_id to track_name
+  const trackMap = {};
+  (tracks || []).forEach(track => {
+    trackMap[track.track_id] = track.track_name;
+  });
+
+  // Enrich submissions with track names
+  const submissionsWithTrackNames = (submissions || []).map(submission => ({
+    ...submission,
+    track_name: trackMap[submission.track_id] || submission.track_id || 'N/A'
+  }));
+
+  res.render("invitee/dashboard.ejs", {
+    user: req.user,
+    conference: conference || {},
+    submissions: submissionsWithTrackNames || [],
+    message: req.query.message || null,
+  });
+});
+
 app.get(
   "/auth/google/dashboard",
   passport.authenticate("google", {
@@ -231,6 +297,18 @@ app.get(
   (req, res) => {
     // Now this handler will be called after successful login
     res.redirect("/dashboard");
+  }
+);
+
+app.get(
+  "/auth4/google/dashboard4",
+  passport.authenticate("google4", {
+    failureRedirect: "/?message=You are not authorized as an invited speaker.",
+    successRedirect: "/invitee/dashboard",
+  }),
+  (req, res) => {
+    // This handler will be called after successful login
+    res.redirect("/invitee/dashboard");
   }
 );
 
@@ -1024,10 +1102,35 @@ app.get("/chair/dashboard/invited-talks/:id",async(req,res)=>{
     };
   }));
 
+  // Fetch all tracks for this conference to get track names
+  const { data: tracks, error: tracksError } = await supabase
+    .from("conference_tracks")
+    .select("track_id, track_name")
+    .eq("conference_id", req.params.id);
+
+  if (tracksError) {
+    console.error("Error fetching tracks:", tracksError);
+  }
+
+  // Create a map of track_id to track_name
+  const trackMap = {};
+  (tracks || []).forEach(track => {
+    trackMap[track.track_id] = track.track_name;
+  });
+
+  // Enrich all submissions with track names
+  const inviteesWithEnrichedSubmissions = inviteesWithSubmissions.map(invitee => ({
+    ...invitee,
+    submissions: (invitee.submissions || []).map(submission => ({
+      ...submission,
+      track_name: trackMap[submission.track_id] || submission.track_id || 'N/A'
+    }))
+  }));
+
   res.render("chair/invited-talks", {
     user: req.user,
     conference: conferenceData,
-    invitees: inviteesWithSubmissions || [],
+    invitees: inviteesWithEnrichedSubmissions || [],
     message: req.query.message || null,
   });
 })
@@ -1565,6 +1668,42 @@ app.get("/submission/primary-author/:id", async (req, res) => {
   }
 
   res.render("submission.ejs", {
+    user: req.user,
+    conferences: conference,
+    tracks: tracks || [],
+    message: req.query.message || null,
+  });
+});
+
+app.get("/submission/invited-talk/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  // Fetch conference
+  const { data: conference, error } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", req.params.id)
+    .single();
+
+  if (error) {
+    console.error("Error fetching conference:", error);
+    return res.status(500).send("Error fetching conference.");
+  }
+
+  // Fetch tracks for this conference
+  const { data: tracks, error: tracksError } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("conference_id", req.params.id);
+
+  if (tracksError) {
+    console.error("Error fetching tracks:", tracksError);
+    return res.status(500).send("Error fetching tracks.");
+  }
+
+  res.render("invitee/submission.ejs", {
     user: req.user,
     conferences: conference,
     tracks: tracks || [],
@@ -2273,6 +2412,17 @@ app.get("/submission/delete/primary-author/:id", async (req, res) => {
   res.redirect("/dashboard?message=Submission deleted Succesfully!");
 });
 
+app.get("/submission/delete/invitee/:id", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== "invitee") {
+    return res.redirect("/");
+  }
+  const { data, error } = await supabase
+    .from("invited_talk_submissions")
+    .delete()
+    .eq("paper_id", req.params.id);
+  res.redirect("/invitee/dashboard?message=Submission deleted successfully!");
+});
+
 app.post("/submit", upload.single("file"), async (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect("/");
@@ -2312,6 +2462,48 @@ app.post("/submit", upload.single("file"), async (req, res) => {
     return res.status(500).send("Error submitting your proposal.");
   } else {
     res.redirect("/dashboard");
+  }
+});
+
+app.post("/submit-invited-talk", upload.single("file"), async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const { title, abstract, areas, id } = req.body;
+  const filePath = req.file.path;
+  const uploadResult = await cloudinary.uploader.upload(filePath, {
+    resource_type: "auto", // auto-detect type (pdf, docx, etc.)
+    folder: "submissions",
+    public_id: `${req.user.uid}-${Date.now()}`,
+  });
+
+  const { data, error } = await supabase.from("invited_talk_submissions").insert([
+    {
+      conference_id: id,
+      invitee_email: req.user.email,
+      title: title,
+      abstract: abstract,
+      track_id: areas, 
+      file_url: uploadResult.secure_url,
+      paper_id: crypto.randomUUID(),
+    },
+  ]);
+
+//   await sendMail(
+//   req.user.email,   // ✅ no EJS tags here
+//   "Your paper titled - " + title + " has been submitted successfully!",
+//   "Hello " + req.user.name + ", your paper titled '" + title + "' has been submitted successfully!",
+//   `<p>Hello <b>${req.user.name}</b>,<br>Your paper titled <i>${title}</i> has been submitted successfully!</p>`
+// );
+
+  
+
+  if (error) {
+    console.error("Error inserting submission:", error);
+    return res.status(500).send("Error submitting your proposal.");
+  } else {
+    res.redirect("invitee/dashboard");
   }
 });
 
@@ -2460,6 +2652,76 @@ passport.use(
     }
   )
 );
+
+passport.use(
+  "google4",
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID4,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET4,
+      callbackURL: "http://localhost:3000/auth4/google/dashboard4",
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    async (accessToken, refreshToken, profile, cb) => {
+      try {
+        const userEmail = profile.emails[0].value;
+        console.log("Google4 OAuth - User email:", userEmail);
+
+        // Check if user email is in invitees table for any conference
+        const { data: invitees, error: inviteesError } = await supabase
+          .from("invitees")
+          .select("*")
+          .eq("email", userEmail);
+
+        console.log("Invitees query result:", { invitees, error: inviteesError });
+
+        if (inviteesError) {
+          console.error("Error querying invitees:", inviteesError);
+          return cb(null, false, {
+            message: "Database error while checking authorization.",
+          });
+        }
+
+        if (!invitees || invitees.length === 0) {
+          console.log("No invitee found for email:", userEmail);
+          return cb(null, false, {
+            message: "You are not authorized as an invited speaker.",
+          });
+        }
+
+        // Use the first invitee record if multiple exist
+        const invitee = invitees[0];
+
+        // Update invitee with name and other details if not already set
+        const updates = {};
+        if (!invitee.name) updates.name = profile.displayName;
+        if (Object.keys(updates).length > 0) {
+          await supabase
+            .from("invitees")
+            .update(updates)
+            .eq("email", userEmail);
+        }
+
+        // Create user object with invitee role
+        const user = {
+          uid: profile.id,
+          name: profile.displayName,
+          email: userEmail,
+          profile_picture: profile.photos[0].value,
+          role: "invitee",
+          conference_id: invitee.conference_id,
+        };
+
+        console.log("Google4 OAuth - User authenticated:", user);
+        return cb(null, user);
+      } catch (err) {
+        console.error("Error in google4 strategy:", err);
+        return cb(err);
+      }
+    }
+  )
+);
+
 passport.serializeUser((user, cb) => {
   cb(null, { ...user, role: user.role });
 });

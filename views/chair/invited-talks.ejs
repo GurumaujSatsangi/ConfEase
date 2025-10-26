@@ -81,6 +81,15 @@
         font-size: 0.9em;
         font-style: italic;
       }
+      .submission-actions {
+        margin-top: 8px;
+        display: flex;
+        gap: 5px;
+      }
+      .submission-actions .btn {
+        padding: 3px 8px;
+        font-size: 0.8em;
+      }
     </style>
   </head>
   <body>
@@ -123,8 +132,15 @@
                       <div class="submission-row">
                         <div class="submission-title"><%= submission.title %></div>
                         <div class="submission-details">
-                          <strong>Track:</strong> <%= submission.track || 'N/A' %><br>
-                          <strong>Description:</strong> <%= submission.description ? submission.description.substring(0, 100) + (submission.description.length > 100 ? '...' : '') : 'N/A' %>
+                          <strong>Track:</strong> <%= submission.track_name %><br>
+                          <strong>Description:</strong> <%= submission.abstract ? submission.abstract.substring(0, 100) + (submission.abstract.length > 100 ? '...' : '') : 'N/A' %>
+                        </div>
+                        <div class="submission-actions">
+                          <% if (submission.file_url) { %>
+                            <a href="<%= submission.file_url %>" target="_blank" class="btn btn-sm btn-outline-info">
+                              <i class="bi bi-eye-fill"></i> View File
+                            </a>
+                          <% } %>
                         </div>
                       </div>
                     <% }); %>

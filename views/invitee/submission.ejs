@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEI CMT</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
+
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- MDB -->
+
+    <%- include('../partials/dashboard/header') %>
+
+    <div class="container">
+      <% if (message) { %>
+        <div class="alert alert-primary alert-dismissible fade show" role="alert">
+          <%= message %>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      <% } %>
+      <h6>
+        Submit Paper / Poster for
+        <b
+          ><%= conferences.title %>
+          <p>Primary Author (Invited Talk): <%=user.name %></p></b
+        >
+      </h6>
+      <hr />
+      <form action="/submit-invited-talk" method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+          <input
+            type="text"
+            readonly
+            hidden
+            value="<%=conferences.conference_id %>"
+            name="id"
+            class="form-control"
+            id="exampleInputEmail1"
+            aria-describedby="emailHelp"
+            placeholder=""
+          />
+        </div>
+        <div class="form-group">
+          <label for="exampleInputEmail1">Title</label>
+          <input
+            type="text"
+            class="form-control"
+            required
+            name="title"
+            id="exampleInputEmail1"
+            aria-describedby="emailHelp"
+            placeholder=""
+          />
+        </div>
+        <br />
+        <div class="form-group">
+          <label for="exampleFormControlTextarea1">Abstract</label>
+          <textarea
+            class="form-control"
+            required
+            name="abstract"
+            id="exampleFormControlTextarea1"
+            rows="3"
+          ></textarea>
+        </div>
+        <br />
+        <div class="form-group">
+          <label for="exampleFormControlSelect1">Area</label>
+          <select
+            class="form-control"
+            required
+            name="areas"
+            id="exampleFormControlSelect1"
+          >
+            <% if (tracks && tracks.length > 0) { %> <%
+            tracks.forEach(function(track) { %>
+            <option value="<%= track.track_id %>">
+              <%= track.track_name %>
+            </option>
+            <% }); %> <% } else { %>
+            <option disabled>No tracks available</option>
+            <% } %>
+          </select>
+        </div>
+        <br />
+        <div class="form-group">
+          <label for="exampleFormControlFile1">Upload Paper </label>
+          <input type="file" required class="form-control-file" name="file" />
+        </div>
+        <br />
+        <input type="submit" class="btn btn-outline-primary" value="Submit" />
+      </form>
+      <div class="container px-5 my-5"></div>
+      <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
+    </div>
+
+    <!-- Spinner Modal -->
+    <div
+      class="modal fade"
+      id="loadingModal"
+      tabindex="-1"
+      aria-hidden="true"
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-transparent border-0 shadow-none">
+          <div
+            class="modal-body d-flex justify-content-center align-items-center"
+          >
+            <div
+              class="spinner-border text-primary"
+              style="width: 3rem; height: 3rem"
+              role="status"
+            >
+              <span class="visually-hidden"
+                >Please wait...submitting data.</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/script.js"></script>
+    <%- include('../partials/footer') %>
+  </body>
+</html>

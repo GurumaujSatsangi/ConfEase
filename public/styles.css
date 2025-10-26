@@ -73,10 +73,18 @@ table td, table th {
 .card {
   margin-bottom: 1rem;
   word-wrap: break-word;
+  height: 200px;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-body {
   padding: 1rem;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 /* Forms */
