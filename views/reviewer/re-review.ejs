@@ -16,6 +16,9 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
       </div>
     <% } %>
+    <div class="alert alert-info">
+      <i class="bi bi-info-circle"></i> <strong>Re-Review Mode:</strong> This is a revised paper submission. Please review the revised version and note that "Revision Required" is not an option for re-reviews.
+    </div>
 <table class="table table-bordered">
               <tr>
                 <td>Title</td>
@@ -27,7 +30,7 @@
               </tr>
 
               <tr>
-                <td>View Paper <i>(Opens in a new tab)</i></td>
+                <td>View Revised Paper <i>(Opens in a new tab)</i></td>
                 <td colspan="5"><a href="<%= userSubmissions.file_url %>" target="_blank"><i class="bi bi-eye-fill"></i></a></td>
               </tr>
 
@@ -39,7 +42,7 @@
               <td>Impact Score</td>
                <td id="mean_score_title"><b>Mean Score</b></td>
              </tr>
-             <tr><form action="/mark-as-reviewed" method="POST">
+             <tr><form action="/mark-as-re-reviewed" method="POST">
               <td><input type="number" class="form-control" max="5" id="os" name="originality_score" required></td>
               <td><input type="number" class="form-control" max="5" id="rs" name="relevance_score" required></td>
               <td><input type="number" class="form-control" max="5" id="tqs" name="technical_quality_score" required></td>
@@ -59,9 +62,9 @@
               <input type="hidden" name="submission_id" value="<%= userSubmissions.submission_id %>">
               <input type="hidden" name="conference_id" value="<%= userSubmissions.conference_id %>">
               <td><select class="form-select" name ="status" aria-label="Default select example" required>
+  <option value="">-- Select Decision --</option>
   <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
   <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
-  <option value="Revision Required">Revision Required</option>
   <option value="Rejected">Rejected</option>
 </select></td>
               <td >

@@ -128,30 +128,76 @@
         <div class="mt-4">
           <h5>Reviewer Feedback</h5>
           <% if (reviewerRemarks && reviewerRemarks.length > 0) { %>
-            <% reviewerRemarks.forEach(function(review, index) { %>
-              <div class="card mb-3">
-                <div class="card-header">
-                  <strong>Reviewer <%= index + 1 %></strong>
-                  <% if (review.mean_score) { %>
-                    <span class="badge bg-primary float-end">Score: <%= review.mean_score %> / 5</span>
-                  <% } %>
-                </div>
-                <div class="card-body">
-                  <% if (review.remarks) { %>
-                    <p class="card-text"><%= review.remarks %></p>
-                  <% } else { %>
-                    <p class="card-text text-muted">No specific remarks provided.</p>
-                  <% } %>
-                  
-                </div>
-              </div>
-            <% }); %>
+            <div class="table-responsive mb-4">
+              <table class="table table-bordered table-striped">
+                <thead class="table-light">
+                  <tr>
+                    <th>Reviewer</th>
+                    <th>Originality</th>
+                    <th>Relevance</th>
+                    <th>Technical Quality</th>
+                    <th>Clarity</th>
+                    <th>Impact</th>
+                    <th>Mean Score</th>
+                    <th>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% reviewerRemarks.forEach(function(review, index) { %>
+                    <tr>
+                      <td><strong>Reviewer <%= index + 1 %></strong></td>
+                      <td><%= review.originality_score || '-' %> / 5</td>
+                      <td><%= review.relevance_score || '-' %> / 5</td>
+                      <td><%= review.technical_quality_score || '-' %> / 5</td>
+                      <td><%= review.clarity_score || '-' %> / 5</td>
+                      <td><%= review.impact_score || '-' %> / 5</td>
+                      <td><strong><%= review.mean_score ? review.mean_score.toFixed(2) : '-' %> / 5</strong></td>
+                      <td><strong><%= review.remarks %></strong></td>
+
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
           <% } else { %>
             <div class="alert alert-info">
               <i class="bi bi-info-circle"></i> No reviewer feedback available for this submission.
             </div>
           <% } %>
         </div>
+
+        <!-- Revised Submission Feedback Section (if exists) -->
+        <% if (revisedSubmissionData && revisedSubmissionData.originality_score) { %>
+          <div class="mt-4">
+            <h5>Re-Review Feedback (After Revision)</h5>
+            <div class="table-responsive">
+              <table class="table table-bordered table-striped">
+                <thead class="table-light bg-success text-white">
+                  <tr>
+                    <th>Re-Reviewer</th>
+                    <th>Originality</th>
+                    <th>Relevance</th>
+                    <th>Technical Quality</th>
+                    <th>Clarity</th>
+                    <th>Impact</th>
+                    <th>Mean Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Re-Review</strong></td>
+                    <td><%= revisedSubmissionData.originality_score %> / 5</td>
+                    <td><%= revisedSubmissionData.relevance_score %> / 5</td>
+                    <td><%= revisedSubmissionData.technical_quality_score %> / 5</td>
+                    <td><%= revisedSubmissionData.clarity_score %> / 5</td>
+                    <td><%= revisedSubmissionData.impact_score %> / 5</td>
+                    <td><strong><%= revisedSubmissionData.mean_score.toFixed(2) %> / 5</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        <% } %>
 
         <div class="form-group">
           <label for="exampleFormControlFile1"

@@ -202,6 +202,17 @@
   <% } else if (submission.submission_status == "Reviewed" ) { %>
     <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
   
+  <% } else if (submission.submission_status == "Revision Required" ) { %>
+    <span class="badge-review"><i class="bi bi-info-circle-fill"></i> Revisions Required</span><br>
+    <small>May be reconsidered after revision and re-review</small><br>
+    <% if (revisedSubmissionsMap && revisedSubmissionsMap[submission.submission_id]) { %>
+      <span class="badge-success mt-2">✓ Revised paper already submitted</span>
+    <% } else { %>
+      <a href="/submission/revised/primary-author/<%= submission.submission_id %>" class="btn btn-sm btn-outline-warning mt-2">
+        <i class="bi bi-upload"></i> Submit Revised Paper
+      </a>
+    <% } %>
+  
   <% } else if (submission.submission_status == "Presentation Completed" ) { %>
       <span class="badge-reviewed">Your presentation is over.</span>
 

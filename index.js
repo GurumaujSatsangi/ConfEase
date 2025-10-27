@@ -422,6 +422,25 @@ if (req.user.role !== "author") {
     }
   }
 
+  // Fetch revised submissions to check if they've been uploaded
+  let revisedSubmissions = [];
+  if (userSubmissionIds.length > 0) {
+    const { data: revisions, error: revisionsError } = await supabase
+      .from("revised_submissions")
+      .select("submission_id, file_url")
+      .in("submission_id", userSubmissionIds);
+
+    if (!revisionsError) {
+      revisedSubmissions = revisions || [];
+    }
+  }
+
+  // Create a map of submission_id to file_url for easy lookup
+  const revisedSubmissionsMap = {};
+  revisedSubmissions.forEach(rev => {
+    revisedSubmissionsMap[rev.submission_id] = rev.file_url;
+  });
+
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: conferencedata || [],
@@ -431,6 +450,7 @@ if (req.user.role !== "author") {
     message: req.query.message || null,
     trackinfodata,
     coAuthorRequests: coAuthorRequests || [],
+    revisedSubmissionsMap: revisedSubmissionsMap || {},
   });
 });
 
@@ -588,9 +608,24 @@ app.get("/reviewer/dashboard", async (req, res) => {
     userSubmissions = submissions || [];
   }
 
+  // Fetch revised submissions for these tracks
+  let revisedSubmissions = [];
+  if (trackIds.length > 0) {
+    const { data: revisions, error: revisionsError } = await supabase
+      .from("submissions")
+      .select("*")
+      .in("track_id", trackIds)
+      .eq("submission_status", "Submitted Revised Paper");
+
+    if (!revisionsError) {
+      revisedSubmissions = revisions || [];
+    }
+  }
+
   res.render("reviewer/dashboard.ejs", {
     user: req.user,
     userSubmissions: userSubmissions,
+    revisedSubmissions: revisedSubmissions,
     tracks: tracksWithConferences || [],
   });
 });
@@ -993,6 +1028,166 @@ app.get("/reviewer/dashboard/review/:id", async (req, res) => {
     message: req.query.message || null,
   });
 });
+
+app.get("/reviewer/dashboard/re-review/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  // 1. Fetch the submission data by paper_code
+  const { data: submissionData, error: submissionError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("paper_code", req.params.id)
+    .single();
+
+  // 2. IMMEDIATELY check for an error or if no data was found
+  if (submissionError) {
+    console.error("Error fetching submission:", submissionError);
+    return res.render("error.ejs", {
+      message: "An error occurred while fetching the submission.",
+    });
+  }
+
+  if (!submissionData) {
+    return res.render("error.ejs", {
+      message: "The submission you are trying to view does not exist.",
+    });
+  }
+
+  // 3. Check if submission status is "Submitted Revised Paper"
+  if (submissionData.submission_status !== "Submitted Revised Paper") {
+    return res.render("error.ejs", {
+      message: "This submission does not have a revised paper to review.",
+    });
+  }
+
+  // 4. Fetch the related data
+  const { data: conferencedata, error: conferenceerror } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", submissionData.conference_id)
+    .single();
+
+  const { data: trackdata, error: trackerror } = await supabase
+    .from("conference_tracks")
+    .select("*")
+    .eq("track_id", submissionData.track_id)
+    .single();
+
+  // 5. Only render the page if all data is valid and present
+  res.render("reviewer/re-review", {
+    user: req.user,
+    userSubmissions: submissionData,
+    conferencedata,
+    trackdata,
+    message: req.query.message || null,
+  });
+});
+
+app.post("/mark-as-re-reviewed", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const {
+    submission_id,
+    conference_id,
+    status,
+    originality_score,
+    relevance_score,
+    technical_quality_score,
+    clarity_score,
+    impact_score,
+    remarks,
+  } = req.body;
+
+  // Get submission details for email notification
+  const { data: submissionData, error: submissionError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("submission_id", submission_id)
+    .single();
+
+  if (submissionError || !submissionData) {
+    console.error("Error fetching submission:", submissionError);
+    return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
+  }
+
+  const mean_score = (parseFloat(originality_score) + parseFloat(relevance_score) + parseFloat(technical_quality_score) + parseFloat(clarity_score) + parseFloat(impact_score)) / 5;
+
+  // Update the revised_submissions table with re-review data
+  const { error: updateRevisionError } = await supabase
+    .from("revised_submissions")
+    .update({
+      review_status: "Re-Reviewed",
+      originality_score: parseFloat(originality_score),
+      relevance_score: parseFloat(relevance_score),
+      technical_quality_score: parseFloat(technical_quality_score),
+      clarity_score: parseFloat(clarity_score),
+      impact_score: parseFloat(impact_score),
+      mean_score: mean_score,
+      acceptance_status: status,
+    })
+    .eq("submission_id", submission_id);
+
+  if (updateRevisionError) {
+    console.error("Error updating revised_submissions:", updateRevisionError);
+    return res.redirect("/reviewer/dashboard?message=Error saving re-review data.");
+  }
+
+
+
+  const { error: updateSubmissionError } = await supabase
+    .from("submissions")
+    .update({ submission_status: status })
+    .eq("submission_id", submission_id);
+
+  if (updateSubmissionError) {
+    console.error("Error updating submission status:", updateSubmissionError);
+    return res.redirect("/reviewer/dashboard?message=Error updating submission status.");
+  }
+
+  // Send email notification to primary author and co-authors about re-review completion
+  try {
+    const { data: conferenceData, error: confError } = await supabase
+      .from("conferences")
+      .select("acceptance_notification, title")
+      .eq("conference_id", conference_id)
+      .single();
+
+    const acceptanceDate = conferenceData?.acceptance_notification 
+      ? new Date(conferenceData.acceptance_notification).toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'the scheduled acceptance notification date';
+
+    const conferenceTitle = conferenceData?.title || 'the conference';
+
+    const coAuthorEmails = Array.isArray(submissionData.co_authors) ? submissionData.co_authors : [];
+    const ccEmails = coAuthorEmails.length > 0 ? coAuthorEmails.join(',') : null;
+    
+    await sendMail(
+      submissionData.primary_author,
+      `Re-review Completed - ${submissionData.title}`,
+      `Dear Author, your revised paper "${submissionData.title}" has been re-reviewed. Results will be published on ${acceptanceDate}.`,
+      `<p>Dear Author,</p>
+       <p>Your revised paper titled <strong>"${submissionData.title}"</strong> has been re-reviewed by one of our reviewers.</p>
+       <p>The re-review process is now complete. The final results and acceptance decisions will be published on <strong>${acceptanceDate}</strong>.</p>
+       <p>Please stay tuned for the official announcement from ${conferenceTitle}.</p>
+       <p>Best regards,<br>Conference Management Team</p>`,
+      ccEmails
+    );
+  } catch (emailError) {
+    console.error("Error sending re-review notification email:", emailError);
+    // Don't fail the re-review process if email fails
+  }
+
+  return res.redirect("/reviewer/dashboard?message=Revised paper review submitted successfully.");
+});
+
 app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
     return res.redirect("/");
@@ -1279,6 +1474,22 @@ app.post("/mark-as-reviewed", async (req, res) => {
   if (error || updateError){
     console.error("Error updating submission:", error || updateError);
     return res.redirect("/reviewer/dashboard?message=We are facing some issues in marking this submission as reviewed.");
+  }
+
+  // If status is "Revision Required", insert into revised_submissions table
+  if (status === "Revision Required") {
+    const { error: revisionError } = await supabase
+      .from("revised_submissions")
+      .insert({
+        submission_id: submission_id
+      });
+
+    if (revisionError) {
+      console.error("Error inserting into revised_submissions:", revisionError);
+      // Don't fail the review process if this insert fails
+    } else {
+      console.log("Successfully inserted submission into revised_submissions table");
+    }
   }
 
   // Send email notification to primary author and co-authors about review completion
@@ -2034,6 +2245,58 @@ app.get("/submission/edit/primary-author/:id", async (req, res) => {
   }
 });
 
+app.get("/submission/revised/primary-author/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  try {
+    // Fetch the submission first
+    const { data: submission, error: submissionError } = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("submission_id", req.params.id)
+      .single();
+
+    if (submissionError || !submission) {
+      console.error("Error fetching submission:", submissionError);
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+
+    // Security check - ensure user is the primary author
+    if (submission.primary_author !== req.user.email) {
+      return res.redirect("/dashboard?message=Only the primary author can submit revised papers.");
+    }
+
+    // Only allow revision submission when status is "Revision Required"
+    if (submission.submission_status !== "Revision Required") {
+      return res.redirect("/dashboard?message=Revised papers can only be submitted for papers with 'Revision Required' status. Current status: " + submission.submission_status);
+    }
+
+    // Fetch tracks using the conference_id from the submission
+    const { data: tracks, error: tracksError } = await supabase
+      .from("conference_tracks")
+      .select("*")
+      .eq("conference_id", submission.conference_id)
+      .order("track_name");
+
+    if (tracksError) {
+      console.error("Error fetching tracks:", tracksError);
+    }
+
+    res.render("submission5.ejs", { 
+      user: req.user, 
+      submission: submission, 
+      tracks: tracks || [],
+      message: req.query.message || null,
+    });
+
+  } catch (error) {
+    console.error("Error in revised submission route:", error);
+    res.redirect("/dashboard?message=An unexpected error occurred.");
+  }
+});
+
 app.get(
   "/submission/final-camera-ready/primary-author/:id",
   async (req, res) => {
@@ -2075,6 +2338,25 @@ app.get(
       console.error("Error fetching reviewer remarks:", reviewError);
     }
 
+    // Fetch revised submission data if it exists
+    let revisedSubmissionData = null;
+    const { data: revisedData, error: revisedError } = await supabase
+      .from("revised_submissions")
+      .select("*")
+      .eq("submission_id", req.params.id)
+      .single();
+
+    if (revisedError && revisedError.code !== 'PGRST116') {
+      console.error("Error fetching revised submission:", revisedError);
+    }
+
+    if (revisedData) {
+      revisedSubmissionData = revisedData;
+      console.log("Revised submission data found:", revisedSubmissionData);
+    } else {
+      console.log("No revised submission data for submission_id:", req.params.id);
+    }
+
     // Fetch conference to check camera-ready deadline
     const { data: conferenceInfo, error: confInfoError } = await supabase
       .from('conferences')
@@ -2114,6 +2396,7 @@ app.get(
         user: req.user, 
         submission: { ...data, track_name: trackName },
         reviewerRemarks: reviewerRemarks || [],
+        revisedSubmissionData: revisedSubmissionData || null,
         message: req.query.message || null,
       });
     }
@@ -2583,6 +2866,110 @@ app.post('/chair/dashboard/delete-submission/:id', async (req, res) => {
   } catch (err) {
     console.error('Unexpected error deleting submission:', err);
     return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Error deleting submission.`);
+  }
+});
+
+app.post("/submit-revised-paper", upload.single("file"), async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect("/");
+  }
+
+  const { submission_id } = req.body;
+
+  if (!req.file) {
+    return res.redirect(`/dashboard?message=Please upload a file.`);
+  }
+
+  try {
+    // Fetch the submission to verify it's in "Revision Required" status
+    const { data: submission, error: submissionError } = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("submission_id", submission_id)
+      .single();
+
+    if (submissionError || !submission) {
+      console.error("Error fetching submission:", submissionError);
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+
+    // Security check - ensure user is the primary author
+    if (submission.primary_author !== req.user.email) {
+      return res.redirect("/dashboard?message=Only the primary author can submit revised papers.");
+    }
+
+    // Verify submission is in "Revision Required" status
+    if (submission.submission_status !== "Revision Required") {
+      return res.redirect("/dashboard?message=This submission is not waiting for revisions.");
+    }
+
+    // Upload file to Cloudinary
+    const filePath = req.file.path;
+    const uploadResult = await cloudinary.uploader.upload(filePath, {
+      resource_type: "auto",
+      folder: "revised_submissions",
+      public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
+    });
+
+    // Update the revised_submissions table with the file URL
+    const { error: updateError } = await supabase
+      .from("revised_submissions")
+      .update({ file_url: uploadResult.secure_url })
+      .eq("submission_id", submission_id);
+
+    if (updateError) {
+      console.error("Error updating revised submission:", updateError);
+      return res.redirect("/dashboard?message=Error uploading revised paper.");
+    }
+
+    // Update the submissions table status to "Submitted Revised Paper"
+    const { error: statusUpdateError } = await supabase
+      .from("submissions")
+      .update({ submission_status: "Submitted Revised Paper" })
+      .eq("submission_id", submission_id);
+
+    if (statusUpdateError) {
+      console.error("Error updating submission status:", statusUpdateError);
+      return res.redirect("/dashboard?message=Error updating submission status.");
+    }
+
+    // Clean up uploaded file
+    try {
+      await fs.unlink(filePath);
+    } catch (cleanupError) {
+      console.error("Error cleaning up file:", cleanupError);
+    }
+
+    // Send email notification to primary author
+    try {
+      const { data: conferenceData, error: confError } = await supabase
+        .from("conferences")
+        .select("title")
+        .eq("conference_id", submission.conference_id)
+        .single();
+
+      const conferenceTitle = conferenceData?.title || "the conference";
+
+      await sendMail(
+        submission.primary_author,
+        `Revised Paper Submitted - ${submission.title}`,
+        `Your revised paper for "${submission.title}" has been submitted for re-review.`,
+        `<p>Dear Author,</p>
+         <p>Your revised paper titled <strong>"${submission.title}"</strong> has been successfully submitted for ${conferenceTitle}.</p>
+         <p>The paper will now be re-reviewed by our reviewers. You will be notified of the decision on the scheduled acceptance notification date.</p>
+         <p>Thank you for your submission.</p>
+         <p>Best regards,<br>Conference Management Team</p>`
+      );
+    } catch (emailError) {
+      console.error("Error sending revised submission email:", emailError);
+      // Don't fail the upload if email fails
+    }
+
+    res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
+
+  } catch (error) {
+    console.error("Error in submit revised paper:", error);
+    res.redirect("/dashboard?message=Error uploading revised paper.");
   }
 });
 

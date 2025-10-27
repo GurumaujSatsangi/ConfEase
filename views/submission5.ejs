@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEI CMT - Submit Revised Paper</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <%- include('partials/dashboard/header') %>
+    <div class="container">
+      <% if (message) { %>
+        <div class="alert alert-primary alert-dismissible fade show" role="alert">
+          <%= message %>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      <% } %>
+      <h6>
+        Submit Revised Paper for your submission titled
+        <b><%= submission.title %></b>
+      </h6>
+      <hr />
+      <form
+        action="/submit-revised-paper"
+        method="POST"
+        enctype="multipart/form-data"
+      >
+        <div class="form-group">
+          <input
+            type="text"
+            readonly
+            hidden
+            value="<%=submission.submission_id %>"
+            name="submission_id"
+            class="form-control"
+            id="submissionId"
+            aria-describedby="submissionHelp"
+            placeholder=""
+          />
+        </div>
+
+        <table class="table table-bordered">
+          <tbody>
+            <tr>
+              <th>Title</th>
+              <td><%= submission.title %></td>
+            </tr>
+            <tr>
+              <th>Abstract</th>
+              <td><%= submission.abstract %></td>
+            </tr>
+            <tr>
+              <th>Track/Area</th>
+              <td><%= submission.track_name %></td>
+            </tr>
+            <tr>
+              <th>Status</th>
+              <td><span class="badge bg-warning text-dark">Revision Required</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Reviewer Feedback Section -->
+        <div class="mt-4">
+          <h5><i class="bi bi-chat-left-text-fill"></i> Reviewer Feedback</h5>
+          <p class="text-muted">Please review the feedback below and incorporate the suggested revisions in your paper.</p>
+          <div class="alert alert-info">
+            <strong><i class="bi bi-info-circle"></i> Note:</strong> Your revised paper will be re-reviewed by the same reviewers. Make sure to address all the comments and suggestions.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="revisedPaperFile">
+            <strong>Upload Revised Paper</strong>
+            <span class="text-danger">*</span>
+          </label>
+          <input 
+            type="file" 
+            required 
+            class="form-control" 
+            name="file"
+            id="revisedPaperFile"
+            accept=".pdf,.doc,.docx"
+          />
+          <small class="form-text text-muted">
+            Accepted formats: PDF, DOC, DOCX. Max size: 10MB
+          </small>
+        </div>
+
+        <div class="form-group mt-3">
+          <label for="revisionNotes">
+            <strong>Revision Notes (Optional)</strong>
+          </label>
+          <textarea 
+            class="form-control" 
+            id="revisionNotes"
+            name="revision_notes"
+            rows="4"
+            placeholder="You can optionally provide notes explaining the changes you made in response to the reviewer feedback..."
+          ></textarea>
+          <small class="form-text text-muted">
+            These notes will help the reviewers understand your revisions better.
+          </small>
+        </div>
+
+        <div class="mt-4">
+          <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-upload"></i> Submit Revised Paper
+          </button>
+          <a href="/dashboard" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+          </a>
+        </div>
+      </form>
+      <div class="container px-5 my-5"></div>
+      <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
+
+      <!-- Spinner Modal -->
+      <div
+        class="modal fade"
+        id="loadingModal"
+        tabindex="-1"
+        aria-hidden="true"
+        data-bs-backdrop="static"
+        data-bs-keyboard="false"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content bg-transparent border-0 shadow-none">
+            <div
+              class="modal-body d-flex justify-content-center align-items-center"
+            >
+              <div
+                class="spinner-border text-primary"
+                style="width: 3rem; height: 3rem"
+                role="status"
+              >
+                <span class="visually-hidden"
+                  >Please wait...submitting data.</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <%- include('partials/footer') %>
+    <script src="/script.js"></script>
+  </body>
+</html>

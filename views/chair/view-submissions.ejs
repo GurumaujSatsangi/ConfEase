@@ -172,7 +172,7 @@
 
           <!-- Score / Remarks -->
           <td>
-              <% if (['Accepted', 'Rejected', 'Submitted Final Camera Ready Paper'].includes(submission.submission_status)) { %>
+              <% if (!['Submitted for Review', 'Reviewed'].includes(submission.submission_status)) { %>
               <% if (submission.mean_score) { %>
                 <div><strong>Score:</strong> <%= submission.mean_score %></div>
               <% } %>
