@@ -65,13 +65,17 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 - **Edit Capabilities**: Primary authors can edit submissions before review deadline
 - **Track Selection**: Choose appropriate tracks for paper categorization
 - **Multi-Author Support**: Primary and co-author role management
+- **Revision Submission**: Authors can upload revised papers after revision feedback
+- **Co-Author Requests**: Invite co-authors to join submissions with accept/reject workflow
 
 ### 👥 Peer Review and Decision
 - **Reviewer Dashboard**: View assigned papers by track
 - **Comprehensive Evaluation**: Score papers on originality, relevance, technical quality, clarity, and impact
-- **Detailed Feedback**: Provide remarks and recommendations (Accept/Minor Revisions/Major Revisions/Reject)
+- **Detailed Feedback**: Provide remarks and recommendations (Accept/Reject/Revision Required)
 - **Mean Score Calculation**: Automatic aggregation of review scores
 - **Duplicate Prevention**: System prevents multiple reviews by the same reviewer
+- **Revision Workflow**: Authors can submit revised papers if requested by reviewers
+- **Re-Review System**: Reviewers can evaluate revised papers separately
 - **Result Publication**: Automated email notifications to authors upon acceptance decision
 
 ### 📅 Scheduling and Presentation
@@ -351,11 +355,40 @@ CREATE TABLE final_camera_ready_submissions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Create revised_submissions table
+CREATE TABLE revised_submissions (
+  revised_submission_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
+  file_url TEXT,
+  review_status TEXT,
+  originality_score NUMERIC,
+  relevance_score NUMERIC,
+  technical_quality_score NUMERIC,
+  clarity_score NUMERIC,
+  impact_score NUMERIC,
+  mean_score NUMERIC,
+  acceptance_status TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create co_author_requests table
+CREATE TABLE co_author_requests (
+  request_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
+  co_author_email TEXT NOT NULL,
+  status TEXT DEFAULT 'Pending',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_submissions_conference ON submissions(conference_id);
 CREATE INDEX idx_submissions_track ON submissions(track_id);
 CREATE INDEX idx_tracks_conference ON conference_tracks(conference_id);
 CREATE INDEX idx_reviews_submission ON peer_review(submission_id);
+CREATE INDEX idx_revised_submissions_submission ON revised_submissions(submission_id);
+CREATE INDEX idx_co_author_requests_submission ON co_author_requests(submission_id);
 ```
 
 ### Step 5: Configure Google OAuth
@@ -427,8 +460,13 @@ The application will be available at `http://localhost:3000`
    - Submit to receive unique paper code
 3. **Share with Co-Authors**: Provide paper code to collaborators
 4. **Track Progress**: Monitor submission status on dashboard
-5. **Submit Final Version**: Upload camera-ready paper after acceptance
-6. **View Presentation Schedule**: Check date and time on dashboard
+5. **Revision Submission** (if requested):
+   - Navigate to "Submit Revised Paper" link on dashboard
+   - Upload revised version
+   - Resubmit for re-review
+6. **Submit Final Version**: Upload camera-ready paper after acceptance
+7. **View Presentation Schedule**: Check date and time on dashboard
+8. **View All Feedback**: See both initial review and re-review scores on camera-ready submission page
 
 ### For Co-Authors
 
@@ -444,9 +482,14 @@ The application will be available at `http://localhost:3000`
 3. **Review Papers**:
    - Download and read submission
    - Score on 5 criteria (1-5 scale)
-   - Provide detailed remarks
-   - Submit recommendation
-4. **Track Reviews**: See completed reviews on dashboard
+   - Provide recommendation (Accept/Reject/Revision Required)
+   - Submit review
+4. **Re-Review Revised Papers** (if applicable):
+   - View "Revised Submissions" section on dashboard
+   - Click "Review Revised Paper" for papers requiring revision
+   - Re-evaluate the revised version with same scoring criteria
+   - Make final decision (Accept/Reject - no revision option)
+5. **Track Reviews**: See completed reviews on dashboard
 
 ### For Panelists
 
@@ -542,6 +585,21 @@ The application will be available at `http://localhost:3000`
 - panelist_score
 - status
 
+#### `revised_submissions`
+- revised_submission_id (PK)
+- submission_id (FK)
+- file_url
+- review_status
+- scores (5 criteria)
+- mean_score
+- acceptance_status
+
+#### `co_author_requests`
+- request_id (PK)
+- submission_id (FK)
+- co_author_email
+- status
+
 ---
 
 ## 📡 API Documentation
@@ -576,8 +634,12 @@ POST /edit-submission                    - Update submission
 GET  /submission/delete/primary-author/:id - Delete submission
 GET  /submission/co-author/:id           - Join as co-author form
 POST /join                               - Join paper as co-author
+GET  /submission/revised/primary-author/:id - Submit revised paper form
+POST /submit-revised-paper               - Submit revised paper
 GET  /submission/final-camera-ready/primary-author/:id - Final submission form
 POST /final-camera-ready-submission      - Submit final version
+POST /co-author-request/accept/:request_id - Accept co-author request
+POST /co-author-request/reject/:request_id - Reject co-author request
 ```
 
 ### Chair Endpoints
@@ -599,9 +661,11 @@ POST /chair/dashboard/set-session/:id                - Set session details
 ### Reviewer Endpoints
 
 ```
-GET  /reviewer/dashboard                 - Reviewer dashboard
+GET  /reviewer/dashboard                 - Reviewer dashboard with Review & Revised Submissions sections
 GET  /reviewer/dashboard/review/:id      - Review paper form
-POST /mark-as-reviewed                   - Submit review
+POST /mark-as-reviewed                   - Submit initial review
+GET  /reviewer/dashboard/re-review/:id   - Re-review revised paper form
+POST /mark-as-re-reviewed                - Submit re-review
 ```
 
 ### Panelist Endpoints
