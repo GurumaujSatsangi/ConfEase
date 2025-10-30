@@ -53,31 +53,37 @@
             <td>
               <a
                 href="/chair/dashboard/view-submissions/<%= conference.conference_id %>"
-                class="btn btn-outline-primary"
+                class="btn btn-outline-primary btn-uniform"
                 >View Submissions <i class="bi bi-eye-fill"></i
               ></a>
               <br /><br />
               <a
                 href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>"
-                class="btn btn-outline-primary"
-                >Manage Sessions <i class="bi bi-person-fill-gear"></i
+                class="btn btn-outline-primary btn-uniform"
+                >Oral Presentation <i class="bi bi-mic-fill"></i>
+              </a>
+              <br /><br />
+              <a
+                href="/chair/dashboard/manage-poster-sessions/<%= conference.conference_id %>"
+                class="btn btn-outline-primary btn-uniform"
+                >Poster Presentation <i class="bi bi-easel-fill"></i
               ></a>
               <br /><br />
-                <a
+              <a
                 href="/chair/dashboard/invited-talks/<%= conference.conference_id %>"
-                class="btn btn-outline-primary"
+                class="btn btn-outline-primary btn-uniform"
                 >Invited Talks <i class="bi bi-envelope-plus-fill"></i></a>
               <br /><br />
               <a
                 href="/chair/dashboard/edit-conference/<%= conference.conference_id %>"
-                class="btn btn-outline-primary"
+                class="btn btn-outline-primary btn-uniform"
                 >Edit Conference <i class="bi bi-pencil-square"></i
               ></a>
 
               <br /><br />
               <a
                 href="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
-                class="btn btn-outline-primary"
+                class="btn btn-outline-danger btn-uniform"
                 >Delete Conference <i class="bi bi-trash3-fill"></i
               ></a>
             </td>

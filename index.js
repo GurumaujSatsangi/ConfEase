@@ -441,6 +441,33 @@ if (req.user.role !== "author") {
     revisedSubmissionsMap[rev.submission_id] = rev.file_url;
   });
 
+  // Fetch poster sessions for conferences of poster presentations
+  const conferenceIds = [...new Set((submissiondata || [])
+    .filter(sub => sub.submission_status === "Accepted for Poster Presentation")
+    .map(sub => sub.conference_id))];
+
+  let posterSessionsMap = {};
+  if (conferenceIds.length > 0) {
+    const { data: posterSessions, error: posterError } = await supabase
+      .from("poster_session")
+      .select("*")
+      .in("conference_id", conferenceIds);
+
+    if (!posterError && posterSessions) {
+      posterSessions.forEach(ps => {
+        posterSessionsMap[ps.conference_id] = ps;
+      });
+    }
+  }
+
+  // Create a map of track_id to track details for easy lookup (for oral presentations)
+  const trackDetailsMap = {};
+  if (presentationdatainfo && presentationdatainfo.length > 0) {
+    presentationdatainfo.forEach(track => {
+      trackDetailsMap[track.track_id] = track;
+    });
+  }
+
   res.render("dashboard.ejs", {
     user: req.user,
     conferences: conferencedata || [],
@@ -451,6 +478,8 @@ if (req.user.role !== "author") {
     trackinfodata,
     coAuthorRequests: coAuthorRequests || [],
     revisedSubmissionsMap: revisedSubmissionsMap || {},
+    posterSessionsMap: posterSessionsMap || {},
+    trackDetailsMap: trackDetailsMap || {},
   });
 });
 
@@ -786,6 +815,115 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     count: count || [],
     message: req.query.message || null,
   });
+});
+
+app.get("/chair/dashboard/manage-poster-sessions/:id", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
+
+  // Fetch conference details
+  const { data: conference, error: conferenceError } = await supabase
+    .from("conferences")
+    .select("*")
+    .eq("conference_id", req.params.id)
+    .single();
+
+  if (conferenceError || !conference) {
+    console.error("Error fetching conference:", conferenceError);
+    return res.status(500).send("Error fetching conference details.");
+  }
+
+  // Fetch poster session details from poster_session table
+  const { data: posterSession, error: posterSessionError } = await supabase
+    .from("poster_session")
+    .select("*")
+    .eq("conference_id", req.params.id)
+    .single();
+
+  if (posterSessionError && posterSessionError.code !== 'PGRST116') {
+    console.error("Error fetching poster session:", posterSessionError);
+  }
+
+  // Fetch submissions with status "Accepted for Poster Presentation"
+  const { data: posterSubmissions, error: submissionsError } = await supabase
+    .from("submissions")
+    .select("*")
+    .eq("conference_id", req.params.id)
+    .eq("submission_status", "Accepted for Poster Presentation");
+
+  if (submissionsError) {
+    console.error("Error fetching submissions:", submissionsError);
+    return res.status(500).send("Error fetching submissions.");
+  }
+
+  // Get author names for all submissions
+  const allEmails = new Set();
+  (posterSubmissions || []).forEach(sub => {
+    allEmails.add(sub.primary_author);
+    if (Array.isArray(sub.co_authors)) {
+      sub.co_authors.forEach(email => allEmails.add(email));
+    }
+  });
+
+  const { data: userData, error: userError } = await supabase
+    .from("users")
+    .select("email, name")
+    .in("email", Array.from(allEmails));
+
+  const emailToNameMap = {};
+  (userData || []).forEach(user => {
+    emailToNameMap[user.email] = user.name;
+  });
+
+  const formatNameEmail = (email) => {
+    const name = emailToNameMap[email];
+    return name ? `${name} (${email})` : email;
+  };
+
+  // Add formatted author names to each submission
+  const posterSubmissionsFormatted = (posterSubmissions || []).map(sub => ({
+    ...sub,
+    primary_author_formatted: formatNameEmail(sub.primary_author),
+    co_authors_formatted: Array.isArray(sub.co_authors) 
+      ? sub.co_authors.map(email => formatNameEmail(email)).join(', ')
+      : (sub.co_authors ? formatNameEmail(sub.co_authors) : 'None')
+  }));
+
+  res.render("chair/manage-poster-sessions.ejs", {
+    user: req.user,
+    conference: conference || {},
+    posterSession: posterSession || {},
+    submissions: posterSubmissionsFormatted || [],
+    message: req.query.message || null,
+  });
+});
+
+app.post("/chair/dashboard/set-poster-session/:id", async (req, res) => {
+  if (!req.isAuthenticated() || req.user.role !== "chair") {
+    return res.redirect("/");
+  }
+
+  const { session_date, start_time, end_time, conference_id } = req.body;
+
+  // Update poster_session table with session details
+  const { error } = await supabase
+    .from("poster_session")
+    .update({
+      date: session_date,
+      start_time: start_time,
+      end_time: end_time,
+    })
+    .eq("conference_id", conference_id);
+
+  if (error) {
+    console.error("Error updating poster session:", error);
+    return res.redirect(`/chair/dashboard/manage-poster-sessions/${conference_id}?message=Error setting poster session.`);
+  }
+
+  res.redirect(
+    `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
+  );
 });
 
 app.post("/chair/dashboard/set-session/:id", async (req, res) => {
@@ -1593,6 +1731,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
   res.render("reviewer/dashboard.ejs", {
     user: req.user,
     userSubmissions: userSubmissions,
+    revisedSubmissions: [],
     tracks: tracksWithConferences || [],
     message: "Submission has been successfully marked as reviewed.",
   });
@@ -1872,7 +2011,7 @@ app.post("/co-author-request/accept/:request_id", async (req, res) => {
   // Send email notification to co-author about acceptance
   try {
     await sendMail(
-      coAuthorRequest.co_author_email,
+      coAuthorRequest.co_author,
       `Co-Author Request Accepted - ${submission.title}`,
       `Your co-author request for "${submission.title}" has been accepted.`,
       `<p>Dear Co-Author,</p>
@@ -2000,7 +2139,7 @@ app.post("/co-author-request/reject/:request_id", async (req, res) => {
   // Send email notification to co-author about rejection
   try {
     await sendMail(
-      coAuthorRequest.co_author_email,
+      coAuthorRequest.co_author,
       `Co-Author Request Rejected - ${submission.title}`,
       `Your co-author request for "${submission.title}" has been rejected.`,
       `<p>Dear Co-Author,</p>
@@ -2047,7 +2186,22 @@ app.post("/create-new-conference", async (req, res) => {
     return res.status(500).send("Error creating conference.");
   }
 
-  // 2. Collect tracks from req.body
+  // 2. Create poster_session row for this conference
+  const { error: posterError } = await supabase
+    .from("poster_session")
+    .insert({
+      conference_id: confData.conference_id,
+      date: null,
+      start_time: null,
+      end_time: null,
+    });
+
+  if (posterError) {
+    console.error("Error creating poster session:", posterError);
+    // Don't fail the conference creation, just log the error
+  }
+
+  // 3. Collect tracks from req.body
   const tracks = [];
   let i = 1;
   while (req.body[`track_title_${i}`] && req.body[`track_reviewer_${i}`]) {
@@ -2059,7 +2213,7 @@ app.post("/create-new-conference", async (req, res) => {
     i++;
   }
 
-  // 3. Insert tracks into conference_tracks table
+  // 4. Insert tracks into conference_tracks table
   if (tracks.length > 0) {
     const { error: tracksError } = await supabase
       .from("conference_tracks")
@@ -2284,10 +2438,21 @@ app.get("/submission/revised/primary-author/:id", async (req, res) => {
       console.error("Error fetching tracks:", tracksError);
     }
 
+    // Fetch reviewer remarks and scores from peer_review table
+    const { data: reviewerData, error: reviewError } = await supabase
+      .from("peer_review")
+      .select("*")
+      .eq("submission_id", req.params.id);
+
+    if (reviewError) {
+      console.error("Error fetching reviewer remarks:", reviewError);
+    }
+
     res.render("submission5.ejs", { 
       user: req.user, 
       submission: submission, 
       tracks: tracks || [],
+      reviewerData: reviewerData || [],
       message: req.query.message || null,
     });
 
@@ -2461,13 +2626,30 @@ app.post(
       console.error("Error inserting submission:", error);
       return res.status(500).send("Error submitting your proposal.");
     } else {
-       await supabase
-      .from("submissions")
-      .update({
-        submission_status: "Submitted Final Camera Ready Paper",
-        file_url: uploadResult.secure_url,
-      })
-      .eq("submission_id", id);
+      // Fetch the submission to check if it's for oral or poster presentation
+      const { data: submissionData, error: fetchError } = await supabase
+        .from("submissions")
+        .select("submission_status")
+        .eq("submission_id", id)
+        .single();
+
+      let newStatus = "Submitted Final Camera Ready Paper";
+      
+      if (!fetchError && submissionData) {
+        if (submissionData.submission_status === "Accepted for Poster Presentation") {
+          newStatus = "Submitted Final Camera Ready Paper for Poster Presentation";
+        } else if (submissionData.submission_status === "Accepted for Oral Presentation") {
+          newStatus = "Submitted Final Camera Ready Paper for Oral Presentation";
+        }
+      }
+
+      await supabase
+        .from("submissions")
+        .update({
+          submission_status: newStatus,
+          file_url: uploadResult.secure_url,
+        })
+        .eq("submission_id", id);
       res.redirect("/dashboard");
     }
   }
@@ -2922,10 +3104,13 @@ app.post("/submit-revised-paper", upload.single("file"), async (req, res) => {
       return res.redirect("/dashboard?message=Error uploading revised paper.");
     }
 
-    // Update the submissions table status to "Submitted Revised Paper"
+    // Update the submissions table status to "Submitted Revised Paper" AND update file_url
     const { error: statusUpdateError } = await supabase
       .from("submissions")
-      .update({ submission_status: "Submitted Revised Paper" })
+      .update({ 
+        submission_status: "Submitted Revised Paper",
+        file_url: uploadResult.secure_url
+      })
       .eq("submission_id", submission_id);
 
     if (statusUpdateError) {

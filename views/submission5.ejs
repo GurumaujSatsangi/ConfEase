@@ -40,34 +40,116 @@
           />
         </div>
 
-        <table class="table table-bordered">
-          <tbody>
-            <tr>
-              <th>Title</th>
-              <td><%= submission.title %></td>
-            </tr>
-            <tr>
-              <th>Abstract</th>
-              <td><%= submission.abstract %></td>
-            </tr>
-            <tr>
-              <th>Track/Area</th>
-              <td><%= submission.track_name %></td>
-            </tr>
-            <tr>
-              <th>Status</th>
-              <td><span class="badge bg-warning text-dark">Revision Required</span></td>
-            </tr>
-          </tbody>
-        </table>
 
         <!-- Reviewer Feedback Section -->
         <div class="mt-4">
-          <h5><i class="bi bi-chat-left-text-fill"></i> Reviewer Feedback</h5>
-          <p class="text-muted">Please review the feedback below and incorporate the suggested revisions in your paper.</p>
-          <div class="alert alert-info">
-            <strong><i class="bi bi-info-circle"></i> Note:</strong> Your revised paper will be re-reviewed by the same reviewers. Make sure to address all the comments and suggestions.
-          </div>
+          <h5>Reviewer Feedback</h5>
+         
+
+          <% if (reviewerData && reviewerData.length > 0) { %>
+            <div class="accordion" id="reviewFeedbackAccordion">
+              <% reviewerData.forEach((review, index) => { %>
+                <div class="accordion-item">
+                  <h2 class="accordion-header">
+                    <button class="accordion-button <% if (index !== 0) { %>collapsed<% } %>" type="button" data-bs-toggle="collapse" data-bs-target="#review<%= index %>" aria-expanded="<% if (index === 0) { %>true<% } else { %>false<% } %>" aria-controls="review<%= index %>">
+                      <strong>Reviewer <%= index + 1 %></strong>
+                      <% if (review.mean_score) { %>
+                        <span class="badge bg-secondary ms-2">Score: <%= review.mean_score %>/5</span>
+                      <% } %>
+                    </button>
+                  </h2>
+                  <div id="review<%= index %>" class="accordion-collapse collapse <% if (index === 0) { %>show<% } %>" data-bs-parent="#reviewFeedbackAccordion">
+                    <div class="accordion-body">
+                      <div class="row mb-3">
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Originality</th>
+                              <td>
+                                <% if (review.originality_score) { %>
+                                  <span class="badge bg-info"><%= review.originality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Relevance</th>
+                              <td>
+                                <% if (review.relevance_score) { %>
+                                  <span class="badge bg-info"><%= review.relevance_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Technical Quality</th>
+                              <td>
+                                <% if (review.technical_quality_score) { %>
+                                  <span class="badge bg-info"><%= review.technical_quality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Clarity</th>
+                              <td>
+                                <% if (review.clarity_score) { %>
+                                  <span class="badge bg-info"><%= review.clarity_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Impact</th>
+                              <td>
+                                <% if (review.impact_score) { %>
+                                  <span class="badge bg-info"><%= review.impact_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Mean Score</th>
+                              <td>
+                                <% if (review.mean_score) { %>
+                                  <span class="badge bg-success"><%= review.mean_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                      </div>
+                      <div class="mt-3">
+                        <h6><strong>Remarks</strong></h6>
+                        <div class="p-3 bg-light rounded">
+                          <% if (review.remarks && review.remarks.trim() !== '') { %>
+                            <%= review.remarks %>
+                          <% } else { %>
+                            <span class="text-muted"><em>No remarks provided by the reviewer.</em></span>
+                          <% } %>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <% }); %>
+            </div>
+          <% } else { %>
+            <div class="alert alert-warning">
+              <i class="bi bi-exclamation-triangle"></i> No reviewer feedback available yet. Please check back later.
+            </div>
+          <% } %>
         </div>
 
         <div class="form-group">
@@ -83,34 +165,16 @@
             id="revisedPaperFile"
             accept=".pdf,.doc,.docx"
           />
-          <small class="form-text text-muted">
-            Accepted formats: PDF, DOC, DOCX. Max size: 10MB
-          </small>
+        
         </div>
 
-        <div class="form-group mt-3">
-          <label for="revisionNotes">
-            <strong>Revision Notes (Optional)</strong>
-          </label>
-          <textarea 
-            class="form-control" 
-            id="revisionNotes"
-            name="revision_notes"
-            rows="4"
-            placeholder="You can optionally provide notes explaining the changes you made in response to the reviewer feedback..."
-          ></textarea>
-          <small class="form-text text-muted">
-            These notes will help the reviewers understand your revisions better.
-          </small>
-        </div>
+      
 
         <div class="mt-4">
           <button type="submit" class="btn btn-outline-primary">
             <i class="bi bi-upload"></i> Submit Revised Paper
           </button>
-          <a href="/dashboard" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Dashboard
-          </a>
+       
         </div>
       </form>
       <div class="container px-5 my-5"></div>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEI CMT</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <%- include('../partials/dashboard/header') %>
+
+    <div class="container">
+      <% if (message) { %>
+        <div class="alert alert-primary alert-dismissible fade show" role="alert">
+          <%= message %>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      <% } %>
+      
+      <h4>Manage Poster Presentation Sessions</h4>
+      <h6>Conference: <%= conference.title %></h6>
+      <hr />
+
+      <!-- Poster Session Setup -->
+      <div class="card mb-4">
+        <div class="card-body p-4">
+          <div class="mb-3">
+            <h5 class="card-title mb-2">Session Details</h5>
+          </div>
+
+          <form action="/chair/dashboard/set-poster-session/<%= conference.conference_id %>" method="POST">
+            <div class="row">
+              <div class="col-md-4 mb-3">
+                <label for="session_date" class="form-label"><i class="bi bi-calendar3 me-1"></i>Session Date</label>
+                <input 
+                  type="date" 
+                  class="form-control" 
+                  id="session_date" 
+                  name="session_date" 
+                  value="<%= posterSession && posterSession.date ? posterSession.date : '' %>"
+                  required
+                />
+              </div>
+              <div class="col-md-4 mb-3">
+                <label for="start_time" class="form-label"><i class="bi bi-clock me-1"></i>Start Time</label>
+                <input 
+                  type="time" 
+                  class="form-control" 
+                  id="start_time" 
+                  name="start_time" 
+                  value="<%= posterSession && posterSession.start_time ? posterSession.start_time : '' %>"
+                  required
+                />
+              </div>
+              <div class="col-md-4 mb-3">
+                <label for="end_time" class="form-label"><i class="bi bi-hourglass-end me-1"></i>End Time</label>
+                <input 
+                  type="time" 
+                  class="form-control" 
+                  id="end_time" 
+                  name="end_time" 
+                  value="<%= posterSession && posterSession.end_time ? posterSession.end_time : '' %>"
+                  required
+                />
+              </div>
+            </div>
+            <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
+            <button type="submit" class="btn btn-success btn-sm">
+              <i class="bi bi-check-circle me-1"></i>Save Session Details
+            </button>
+          </form>
+
+          <!-- Display Current Session Details -->
+          <% if (posterSession && (posterSession.date || posterSession.start_time || posterSession.end_time)) { %>
+            <hr class="my-3">
+            <div class="alert alert-info mb-0">
+              <p class="mb-2"><strong>Current Session Details:</strong></p>
+              <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col"><i class="bi bi-calendar3 me-1"></i>Date</th>
+                    <th scope="col"><i class="bi bi-clock me-1"></i>Start Time</th>
+                    <th scope="col"><i class="bi bi-hourglass-end me-1"></i>End Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><%= posterSession.date || 'Not set' %></td>
+                    <td><%= posterSession.start_time || 'Not set' %></td>
+                    <td><%= posterSession.end_time || 'Not set' %></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Poster Submissions List -->
+      <h5><i class="bi bi-file-earmark-pdf me-2"></i>Accepted Poster Presentations</h5>
+      <hr />
+
+      <% if (submissions && submissions.length > 0) { %>
+        <div class="table-responsive">
+          <table class="table table-striped table-hover">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Paper Title</th>
+                <th scope="col">Primary Author</th>
+                <th scope="col">Co-Authors</th>
+                <th scope="col">View Paper</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% submissions.forEach(function(submission, idx) { %>
+                <tr>
+                  <td>
+                    <strong><%= submission.title %></strong>
+                  </td>
+                  <td><%= submission.primary_author_formatted %></td>
+                  <td><%= submission.co_authors_formatted %></td>
+                  <td><a href="<%= submission.file_url %>" target="_blank">Click Here</a></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        
+            <strong>No poster presentations found</strong>
+      
+      <% } %>
+
+    
+    </div>
+
+    <script src="/script.js"></script>
+
+    <%- include('../partials/footer') %>
+  </body>
+</html>

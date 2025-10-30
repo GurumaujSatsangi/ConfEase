@@ -48,10 +48,18 @@
              
               <tr>
                 <td>
-                </td>
+                  <a
+                        href="<%= conference.brochure %>"
+                        class="btn btn-outline-primary"
+                        tabindex="-1"
+                        role="button"
+                        style="width: 350px"
+                        aria-disabled="true"
+                        >View Brochure</a
+                      ></td>
 
                        <% if (currentDate > conference.full_paper_submission) { %>
-                        <td colspan="2">  <span class="badge-rejected"><b>Due Date to submit or join a paper is over</b></span>
+                        <td colspan="2">  <span class="badge-rejected">Due Date to submit or join a paper is over</span>
 </td>
       <% } else { %>              
         <td>  
@@ -108,10 +116,10 @@
                 <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
                 <th style="max-width: 150px;">Primary Author</th>
                  <% } %>
-                <th style="min-width: 120px;">Paper Code <i>(Share with your co-authors)</i></th>
+                <th style="min-width: 120px;">Paper Code</th>
                 <th style="min-width: 120px;">Status</th>
-                <th style="max-width: 200px;">Final Camera Ready Paper Submission</th>
-                <th style="max-width: 150px;">Presentation Date & Time</th>
+                <th style="max-width: 200px;">Final Camera Ready</th>
+                <th style="max-width: 150px;">Presentation</th>
                 <th style="width: 100px; text-align: center;">Action</th>
               </tr>
               <tr>
@@ -173,7 +181,7 @@
                 <td><%= submission.paper_code %></td>
                 <td><%= submission.submission_status %></td>
                <td>
-  <% if (submission.submission_status == "Accepted for Poster Presentation" || submission.submission_status == "Accepted for Oral Presentation") { %>
+  <% if (submission.submission_status == "Accepted" ) { %>
     <% if (submission.primary_author === user.email) { %>
             <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br><a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit</a>
 
@@ -182,22 +190,6 @@
     <% } %>
   <% } else if (submission.submission_status == "Submitted for Review" ) { %>
     <span class="badge-review">Review is still in Progress</span>
-  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Oral Presentation" ) { %>
-      <% if (submission.primary_author === user.email) { %>
-    <span class="badge-submitted">✓ Final camera ready paper submitted (Oral Presentation)</span>
-
-    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-    <span class="badge-submitted">✓ Final camera ready paper submitted (Oral Presentation)</span>
-    <% } %>
-    
-  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Poster Presentation" ) { %>
-      <% if (submission.primary_author === user.email) { %>
-    <span class="badge-submitted">✓ Final camera ready paper submitted (Poster Presentation)</span>
-
-    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-    <span class="badge-submitted">✓ Final camera ready paper submitted (Poster Presentation)</span>
-    <% } %>
-    
   <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
       <% if (submission.primary_author === user.email) { %>
     <span class="badge-submitted">You have already submitted your Final Camera Ready Paper.</span>
@@ -234,31 +226,17 @@
 </td>
 <td>
     <% 
-        // Get presentation data based on submission status
-        let presentationInfo = null;
-        
-        if (submission.submission_status === "Accepted for Oral Presentation" ||
-            submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation"
-            ) {
-          // For oral presentations, get from track details
-          presentationInfo = trackDetailsMap[submission.track_id];
-        } else if (submission.submission_status === "Accepted for Poster Presentation" ||
-                   submission.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
-          // For poster presentations, get from poster_sessions
-          presentationInfo = posterSessionsMap[submission.conference_id];
-        }
+        // Find the presentation data for this submission's track_id
+        const matchingPresentation = presentationdata.find(p => p.track_id === submission.track_id);
     %>
-    <% if (presentationInfo && presentationInfo.presentation_date) { %>
-        <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.presentation_date %></b> between <b><%= presentationInfo.presentation_start_time %></b> & <b><%= presentationInfo.presentation_end_time %></b></span><br>
-    <% } else if (presentationInfo && presentationInfo.date) { %>
-        <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.date %></b> between <b><%= presentationInfo.start_time %></b> & <b><%= presentationInfo.end_time %></b></span><br>
-    <% } else if (submission.submission_status === "Presentation Completed") { %>
-        <span class="badge-reviewed">Your presentation is over.</span>
-    <% } else { %> 
-        <span class="badge-rejected">Not Scheduled Yet</span>
-    <% } %>
+    <% if (submission.submission_status == "Submitted Final Camera Ready Paper" && matchingPresentation && matchingPresentation.status == "Scheduled") { %>
+        <span class="badge-reviewed">Your presentation is on <b><%= matchingPresentation.presentation_date %></b> between <b><%= matchingPresentation.presentation_start_time %></b> & <b><%= matchingPresentation.presentation_end_time %></b></span><br>
+    <% } else if (submission.submission_status == "Presentation Completed" ) { %>
+    <span class="badge-reviewed">Your presentation is over.</span>
     
-
+        <% } else { %> 
+        <span class="badge-rejected"> Not Scheduled Yet</span>
+    <% } %>
 </td>
 <td style="text-align: center; width: 100px;">
     <% 
