@@ -26,16 +26,15 @@
         
         <hr>
     
-<% if (session && session.length > 0) { %> <%
-        session.forEach(function(session) { %>
+<% if (session && session.length > 0) { %>
         <table class="table">
-
           <tr>
             <td><b>Paper Title</b></td>
             <td><b>Mean Score awarded by Reviewer</b></td>
             <td><b>View Paper</b></td>
             <td><b>Panelist Score</b></td>
           </tr>
+          <% session.forEach(function(session) { %>
           <tr>
                <form action="/mark-presentation-as-complete" method="POST">
     <input type="hidden" name="paper_id" value="<%= session.submission_id %>">
@@ -74,12 +73,12 @@
           </form> 
 
           </tr>
+        <% }); %>
         </table>
-        
-        <% }); %> <% } else { %>
+<% } else { %>
         <h2>No Submissions Found</h2>
-        <% } %>
-    </main>
+<% } %>
+
 <% if (message) { %>
   <script>
     Swal.fire({
@@ -92,7 +91,7 @@
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   </script>
-  <% } %>
+<% } %>
 
       </div>
     <script src="/script.js"></script>

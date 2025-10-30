@@ -845,12 +845,12 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", async (req, res) => {
     console.error("Error fetching poster session:", posterSessionError);
   }
 
-  // Fetch submissions with status "Accepted for Poster Presentation"
+  // Fetch submissions with status "Submitted Final Camera Ready Paper for Poster Presentation"
   const { data: posterSubmissions, error: submissionsError } = await supabase
     .from("submissions")
     .select("*")
     .eq("conference_id", req.params.id)
-    .eq("submission_status", "Accepted for Poster Presentation");
+    .eq("submission_status", "Submitted Final Camera Ready Paper for Poster Presentation");
 
   if (submissionsError) {
     console.error("Error fetching submissions:", submissionsError);
@@ -1002,11 +1002,12 @@ app.get("/panelist/active-session/:id", async (req, res) => {
   }
 
   // Fetch submissions by track_id instead of area
-  // Use final camera ready submissions for panelist session view
+  // Fetch submissions with status "Submitted Final Camera Ready Paper for Oral Presentation"
   const { data: session, error } = await supabase
-    .from("final_camera_ready_submissions")
+    .from("submissions")
     .select("*")
-    .eq("track_id", trackinfo.track_id);
+    .eq("track_id", trackinfo.track_id)
+    .eq("submission_status", "Submitted Final Camera Ready Paper for Oral Presentation");
 
   if (error) {
     console.error("Error fetching session:", error);
@@ -1033,13 +1034,19 @@ app.get("/panelist/active-session/:id", async (req, res) => {
         session[i].mean_score = null;
       }
 
-      // For final camera ready submissions the panelist score and status are on the same row
-      if (session[i].panelist_score !== undefined) {
-        // value already present from final_camera_ready_submissions
-        session[i].presentation_status = session[i].status || null;
+      // Fetch panelist score from final_camera_ready_submissions table
+      const { data: finalSubmission, error: finalError } = await supabase
+        .from("final_camera_ready_submissions")
+        .select("panelist_score, status")
+        .eq("submission_id", session[i].submission_id)
+        .single();
+
+      if (!finalError && finalSubmission) {
+        session[i].panelist_score = finalSubmission.panelist_score || null;
+        session[i].presentation_status = finalSubmission.status || null;
       } else {
         session[i].panelist_score = null;
-        session[i].presentation_status = session[i].status || null;
+        session[i].presentation_status = null;
       }
     }
   }
