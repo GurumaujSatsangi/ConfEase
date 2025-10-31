@@ -128,6 +128,9 @@ app.get("/", async (req, res) => {
     } else if (req.user.role === "chair") {
       return res.redirect("/chair/dashboard");
     }
+    else if (req.user.role === "invitee") {
+      return res.redirect("/invitee/dashboard");
+    }
     // Add more roles as needed
   }
   const message = req.query.message || null;
