@@ -24,7 +24,39 @@ const app = express();
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ 
+  dest: "uploads/",
+  limits: {
+    fileSize: 4 * 1024 * 1024 // 4 MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.size > 4 * 1024 * 1024) {
+      return cb(new Error("File size exceeds 4MB limit"), false);
+    }
+    cb(null, true);
+  }
+});
+
+// Helper function to wrap route handlers and catch multer errors
+const catchMulterErrors = (routeHandler) => {
+  return (req, res, next) => {
+    routeHandler(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        const referer = req.get('referer') || '';
+        const message = err.code === 'LIMIT_FILE_SIZE' 
+          ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+          : err.message;
+        
+        if (referer.includes('/invitee')) {
+          return res.redirect(`/invitee/dashboard?message=Error: ${message}`);
+        } else {
+          return res.redirect(`/dashboard?message=Error: ${message}`);
+        }
+      }
+      next(err);
+    });
+  };
+};
 
 app.use(
   session({
@@ -33,6 +65,38 @@ app.use(
     saveUninitialized: false,
   })
 );
+
+// Multer error handling middleware
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    // Check which page the user came from and redirect accordingly
+    const referer = req.get('referer') || '';
+    
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      if (referer.includes('/invitee')) {
+        return res.redirect('/invitee/dashboard?message=Error: File size exceeds 4MB limit. Please upload a smaller file.');
+      } else {
+        return res.redirect('/dashboard?message=Error: File size exceeds 4MB limit. Please upload a smaller file.');
+      }
+    } else if (err.code === 'LIMIT_PART_COUNT') {
+      if (referer.includes('/invitee')) {
+        return res.redirect('/invitee/dashboard?message=Error: Too many file parts. Please try again.');
+      } else {
+        return res.redirect('/dashboard?message=Error: Too many file parts. Please try again.');
+      }
+    }
+    
+    // Generic multer error
+    if (referer.includes('/invitee')) {
+      return res.redirect(`/invitee/dashboard?message=Error: ${err.message}`);
+    } else {
+      return res.redirect(`/dashboard?message=Error: ${err.message}`);
+    }
+  }
+  
+  // Non-multer errors
+  next(err);
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -443,7 +507,7 @@ if (req.user.role !== "author") {
 
   // Fetch poster sessions for conferences of poster presentations
   const conferenceIds = [...new Set((submissiondata || [])
-    .filter(sub => sub.submission_status === "Accepted for Poster Presentation")
+    .filter(sub => sub.submission_status === "Accepted for Poster Presentation" || sub.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")
     .map(sub => sub.conference_id))];
 
   let posterSessionsMap = {};
@@ -544,7 +608,8 @@ app.post("/publish/review-results", async (req, res) => {
         const coAuthorEmails = Array.isArray(submissionData.co_authors) ? submissionData.co_authors : [];
         const ccEmails = coAuthorEmails.length > 0 ? coAuthorEmails.join(',') : null;
         
-        const statusMessage = data.acceptance_status === "Accepted" ? 
+        const isAccepted = data.acceptance_status.includes("Accepted");
+        const statusMessage = isAccepted ? 
           "We are pleased to inform you that your paper has been accepted!" :
           "We regret to inform you that your paper has not been accepted.";
         
@@ -558,11 +623,12 @@ app.post("/publish/review-results", async (req, res) => {
            <p><strong>Conference:</strong> ${conferenceTitle}</p>
            <p><strong>Decision:</strong> ${data.acceptance_status}</p>
            <p><strong>Review Score:</strong> ${data.mean_score.toFixed(2)}/5</p>
-           ${data.acceptance_status === "Accepted" ? 
+           ${isAccepted ? 
              "<p>Please prepare your final camera-ready paper for publication.</p>" : 
              "<p>Thank you for your submission. We encourage you to consider submitting to future conferences.</p>"
            }
-           <p>Best regards,<br>Conference Management Team</p>`,
+           <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+           <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
           ccEmails
         );
       } catch (emailError) {
@@ -1322,7 +1388,8 @@ app.post("/mark-as-re-reviewed", async (req, res) => {
        <p>Your revised paper titled <strong>"${submissionData.title}"</strong> has been re-reviewed by one of our reviewers.</p>
        <p>The re-review process is now complete. The final results and acceptance decisions will be published on <strong>${acceptanceDate}</strong>.</p>
        <p>Please stay tuned for the official announcement from ${conferenceTitle}.</p>
-       <p>Best regards,<br>Conference Management Team</p>`,
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
       ccEmails
     );
   } catch (emailError) {
@@ -1390,7 +1457,8 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
            <p><strong>Presentation Date:</strong> ${session_date}</p>
            <p><strong>Time:</strong> ${session_start_time} to ${session_end_time}</p>
            <p>Please be available during the scheduled time to evaluate the presentations.</p>
-           <p>Best regards,<br>Conference Management Team</p>`
+           <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+           <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
         );
       } catch (emailError) {
         console.error(`Error sending panelist notification email to ${panelistEmail}:`, emailError);
@@ -1515,6 +1583,31 @@ app.post("/add-invitee", async(req,res)=>{
   if (error) {
     console.error("Error adding invitee:", error);
     return res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Error adding invitee.`);
+  }
+
+  // Send email notification to invitee
+  try {
+    const { data: conferenceData, error: confError } = await supabase
+      .from("conferences")
+      .select("title")
+      .eq("conference_id", conferenceId)
+      .single();
+
+    const conferenceTitle = conferenceData?.title || "the conference";
+
+    await sendMail(
+      email,
+      `Invited to Present at ${conferenceTitle}`,
+      `You have been invited to present at ${conferenceTitle}.`,
+      `<p>Dear Invitee,</p>
+       <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
+       <p>Please log in to your invitee dashboard using this email address: <strong>${email}</strong> to submit your presentation.</p>
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
+    );
+  } catch (emailError) {
+    console.error("Error sending invitee notification email:", emailError);
+    // Don't fail the invitee addition if email fails
   }
 
   res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Invitee added successfully.`);
@@ -1667,7 +1760,8 @@ app.post("/mark-as-reviewed", async (req, res) => {
        <p>Your paper titled <strong>"${submissionData.title}"</strong> has been reviewed by one of our reviewers.</p>
        <p>The review process is now complete. The final results and acceptance decisions will be published on <strong>${acceptanceDate}</strong>.</p>
        <p>Please stay tuned for the official announcement from ${conferenceTitle}.</p>
-       <p>Best regards,<br>Conference Management Team</p>`,
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
       ccEmails
     );
   } catch (emailError) {
@@ -1929,7 +2023,8 @@ app.post("/join", async (req, res) => {
        <p>A co-author has requested to join your paper titled <strong>"${data.title}"</strong>.</p>
        <p><strong>Co-Author Email:</strong> ${req.user.email}</p>
        <p>Please review and accept or reject this request from your dashboard.</p>
-       <p>Best regards,<br>Conference Management Team</p>`
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
     );
   } catch (emailError) {
     console.error("Error sending co-author request notification email:", emailError);
@@ -2024,7 +2119,8 @@ app.post("/co-author-request/accept/:request_id", async (req, res) => {
       `<p>Dear Co-Author,</p>
        <p>Your request to join the paper titled <strong>"${submission.title}"</strong> has been <strong>accepted</strong>.</p>
        <p>You are now listed as a co-author on this submission. You can view the paper details in your dashboard.</p>
-       <p>Best regards,<br>Conference Management Team</p>`
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
     );
   } catch (emailError) {
     console.error("Error sending acceptance email:", emailError);
@@ -2152,7 +2248,8 @@ app.post("/co-author-request/reject/:request_id", async (req, res) => {
       `<p>Dear Co-Author,</p>
        <p>Your request to join the paper titled <strong>"${submission.title}"</strong> has been <strong>rejected</strong>.</p>
        <p>If you believe this was a mistake, please contact the paper's primary author.</p>
-       <p>Best regards,<br>Conference Management Team</p>`
+       <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
     );
   } catch (emailError) {
     console.error("Error sending rejection email:", emailError);
@@ -2245,7 +2342,8 @@ app.post("/create-new-conference", async (req, res) => {
              <p><strong>Conference Dates:</strong> ${conference_start_date} to ${conference_end_date}</p>
              <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
              <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
-             <p>Best regards,<br>Conference Management Team</p>`
+             <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+             <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
           );
         } catch (emailError) {
           console.error(`Error sending reviewer notification email to ${reviewerEmail}:`, emailError);
@@ -2577,88 +2675,103 @@ app.get(
 
 app.post(
   "/final-camera-ready-submission",
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.redirect("/");
-    }
-    const { confid, title, abstract, areas, id, co_authors } = req.body;
-
-    // Verify camera-ready deadline for the conference
-    try {
-      const { data: confRow, error: confErr } = await supabase
-        .from('conferences')
-        .select('camera_ready_paper_submission')
-        .eq('conference_id', confid)
-        .single();
-
-      if (!confErr && confRow && confRow.camera_ready_paper_submission) {
-        const now = new Date();
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const istTime = new Date(now.getTime() + istOffset);
-        const currentDate = istTime.toISOString().split('T')[0];
-        const deadline = (new Date(confRow.camera_ready_paper_submission)).toISOString().split('T')[0];
-
-        if (currentDate > deadline) {
-          return res.redirect('/dashboard?message=The camera-ready submission deadline has passed.');
-        }
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        const message = err.code === 'LIMIT_FILE_SIZE' 
+          ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+          : err.message;
+        return res.redirect(`/dashboard?message=Error: ${message}`);
       }
-    } catch (err) {
-      console.error('Error checking camera-ready deadline:', err);
-      // proceed cautiously (allow submission) or you may choose to block; we'll allow fallback
-    }
-    const filePath = req.file.path;
-    const uploadResult = await cloudinary.uploader.upload(filePath, {
-      resource_type: "auto", // auto-detect type (pdf, docx, etc.)
-      folder: "submissions",
-      public_id: `${req.user.name}-${Date.now()}-Final`,
+
+      // If no error, proceed with the actual handler
+      (async () => {
+        if (!req.isAuthenticated()) {
+          return res.redirect("/");
+        }
+
+        // Check if file was uploaded
+        if (!req.file) {
+          return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+        }
+
+        const { confid, title, abstract, areas, id, co_authors } = req.body;
+
+        // Verify camera-ready deadline for the conference
+        try {
+          const { data: confRow, error: confErr } = await supabase
+            .from('conferences')
+            .select('camera_ready_paper_submission')
+            .eq('conference_id', confid)
+            .single();
+
+          if (!confErr && confRow && confRow.camera_ready_paper_submission) {
+            const now = new Date();
+            const istOffset = 5.5 * 60 * 60 * 1000;
+            const istTime = new Date(now.getTime() + istOffset);
+            const currentDate = istTime.toISOString().split('T')[0];
+            const deadline = (new Date(confRow.camera_ready_paper_submission)).toISOString().split('T')[0];
+
+            if (currentDate > deadline) {
+              return res.redirect('/dashboard?message=The camera-ready submission deadline has passed.');
+            }
+          }
+        } catch (err) {
+          console.error('Error checking camera-ready deadline:', err);
+          // proceed cautiously (allow submission) or you may choose to block; we'll allow fallback
+        }
+        const filePath = req.file.path;
+        const uploadResult = await cloudinary.uploader.upload(filePath, {
+          resource_type: "auto", // auto-detect type (pdf, docx, etc.)
+          folder: "submissions",
+          public_id: `${req.user.name}-${Date.now()}-Final`,
+        });
+
+        const { data, error } = await supabase
+          .from("final_camera_ready_submissions")
+          .insert({
+            conference_id: confid,
+            submission_id: id,
+            primary_author: req.user.name,
+            title: title,
+            abstract: abstract,
+            track_id: areas, // Use track_id instead of area
+            co_authors: co_authors,
+            file_url: uploadResult.secure_url,
+          });
+
+        if (error) {
+          console.error("Error inserting submission:", error);
+          return res.status(500).send("Error submitting your proposal.");
+        } else {
+          // Fetch the submission to check if it's for oral or poster presentation
+          const { data: submissionData, error: fetchError } = await supabase
+            .from("submissions")
+            .select("submission_status")
+            .eq("submission_id", id)
+            .single();
+
+          let newStatus = "Submitted Final Camera Ready Paper";
+          
+          if (!fetchError && submissionData) {
+            if (submissionData.submission_status === "Accepted for Poster Presentation") {
+              newStatus = "Submitted Final Camera Ready Paper for Poster Presentation";
+            } else if (submissionData.submission_status === "Accepted for Oral Presentation") {
+              newStatus = "Submitted Final Camera Ready Paper for Oral Presentation";
+            }
+          }
+
+          await supabase
+            .from("submissions")
+            .update({
+              submission_status: newStatus,
+              file_url: uploadResult.secure_url,
+            })
+            .eq("submission_id", id);
+          res.redirect("/dashboard");
+        }
+      })().catch(next);
     });
-
-    const { data, error } = await supabase
-      .from("final_camera_ready_submissions")
-      .insert({
-        conference_id: confid,
-        submission_id: id,
-        primary_author: req.user.name,
-        title: title,
-        abstract: abstract,
-        track_id: areas, // Use track_id instead of area
-        co_authors: co_authors,
-        file_url: uploadResult.secure_url,
-      });
-
-   
-
-    if (error) {
-      console.error("Error inserting submission:", error);
-      return res.status(500).send("Error submitting your proposal.");
-    } else {
-      // Fetch the submission to check if it's for oral or poster presentation
-      const { data: submissionData, error: fetchError } = await supabase
-        .from("submissions")
-        .select("submission_status")
-        .eq("submission_id", id)
-        .single();
-
-      let newStatus = "Submitted Final Camera Ready Paper";
-      
-      if (!fetchError && submissionData) {
-        if (submissionData.submission_status === "Accepted for Poster Presentation") {
-          newStatus = "Submitted Final Camera Ready Paper for Poster Presentation";
-        } else if (submissionData.submission_status === "Accepted for Oral Presentation") {
-          newStatus = "Submitted Final Camera Ready Paper for Oral Presentation";
-        }
-      }
-
-      await supabase
-        .from("submissions")
-        .update({
-          submission_status: newStatus,
-          file_url: uploadResult.secure_url,
-        })
-        .eq("submission_id", id);
-      res.redirect("/dashboard");
-    }
   }
 );
 
@@ -2827,7 +2940,8 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
            <p><strong>Track:</strong> ${newTrack.track_name}</p>
            <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
            <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
-           <p>Best regards,<br>Conference Management Team</p>`
+           <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+           <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
         );
       } catch (emailError) {
         console.error(`Error sending reviewer notification email to ${reviewerEmail}:`, emailError);
@@ -2876,7 +2990,8 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
              <p><strong>Track:</strong> ${track.track_name}</p>
              <p><strong>Login Instructions:</strong> Please log in to the reviewer dashboard using this email address: <strong>${reviewerEmail}</strong></p>
              <p>You can access the reviewer panel to view submissions and begin your reviews.</p>
-             <p>Best regards,<br>Conference Management Team</p>`
+             <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
+             <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
           );
         } catch (emailError) {
           console.error(`Error sending new reviewer notification email to ${reviewerEmail}:`, emailError);
@@ -3058,181 +3173,180 @@ app.post('/chair/dashboard/delete-submission/:id', async (req, res) => {
   }
 });
 
-app.post("/submit-revised-paper", upload.single("file"), async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
-
-  const { submission_id } = req.body;
-
-  if (!req.file) {
-    return res.redirect(`/dashboard?message=Please upload a file.`);
-  }
-
-  try {
-    // Fetch the submission to verify it's in "Revision Required" status
-    const { data: submission, error: submissionError } = await supabase
-      .from("submissions")
-      .select("*")
-      .eq("submission_id", submission_id)
-      .single();
-
-    if (submissionError || !submission) {
-      console.error("Error fetching submission:", submissionError);
-      return res.redirect("/dashboard?message=Submission not found.");
+app.post("/submit-revised-paper", (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const message = err.code === 'LIMIT_FILE_SIZE' 
+        ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+        : err.message;
+      return res.redirect(`/dashboard?message=Error: ${message}`);
     }
+    
+    // If no error, proceed with the actual handler
+    (async () => {
+      if (!req.isAuthenticated()) {
+        return res.redirect("/");
+      }
 
-    // Security check - ensure user is the primary author
-    if (submission.primary_author !== req.user.email) {
-      return res.redirect("/dashboard?message=Only the primary author can submit revised papers.");
-    }
+      const { submission_id } = req.body;
 
-    // Verify submission is in "Revision Required" status
-    if (submission.submission_status !== "Revision Required") {
-      return res.redirect("/dashboard?message=This submission is not waiting for revisions.");
-    }
+      if (!req.file) {
+        return res.redirect(`/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.`);
+      }
 
-    // Upload file to Cloudinary
-    const filePath = req.file.path;
-    const uploadResult = await cloudinary.uploader.upload(filePath, {
-      resource_type: "auto",
-      folder: "revised_submissions",
-      public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
-    });
+      try {
+        // Fetch the submission to verify it's in "Revision Required" status
+        const { data: submission, error: submissionError } = await supabase
+          .from("submissions")
+          .select("*")
+          .eq("submission_id", submission_id)
+          .single();
 
-    // Update the revised_submissions table with the file URL
-    const { error: updateError } = await supabase
-      .from("revised_submissions")
-      .update({ file_url: uploadResult.secure_url })
-      .eq("submission_id", submission_id);
+        if (submissionError || !submission) {
+          console.error("Error fetching submission:", submissionError);
+          return res.redirect("/dashboard?message=Submission not found.");
+        }
 
-    if (updateError) {
-      console.error("Error updating revised submission:", updateError);
-      return res.redirect("/dashboard?message=Error uploading revised paper.");
-    }
+        // Security check - ensure user is the primary author
+        if (submission.primary_author !== req.user.email) {
+          return res.redirect("/dashboard?message=Only the primary author can submit revised papers.");
+        }
 
-    // Update the submissions table status to "Submitted Revised Paper" AND update file_url
-    const { error: statusUpdateError } = await supabase
-      .from("submissions")
-      .update({ 
-        submission_status: "Submitted Revised Paper",
-        file_url: uploadResult.secure_url
-      })
-      .eq("submission_id", submission_id);
+        // Verify submission is in "Revision Required" status
+        if (submission.submission_status !== "Revision Required") {
+          return res.redirect("/dashboard?message=This submission is not waiting for revisions.");
+        }
 
-    if (statusUpdateError) {
-      console.error("Error updating submission status:", statusUpdateError);
-      return res.redirect("/dashboard?message=Error updating submission status.");
-    }
+        // Upload file to Cloudinary
+        const filePath = req.file.path;
+        const uploadResult = await cloudinary.uploader.upload(filePath, {
+          resource_type: "auto",
+          folder: "revised_submissions",
+          public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
+        });
 
-    // Clean up uploaded file
-    try {
-      await fs.unlink(filePath);
-    } catch (cleanupError) {
-      console.error("Error cleaning up file:", cleanupError);
-    }
+        // Update the revised_submissions table with the file URL
+        const { error: updateError } = await supabase
+          .from("revised_submissions")
+          .update({ file_url: uploadResult.secure_url })
+          .eq("submission_id", submission_id);
 
-    // Send email notification to primary author
-    try {
-      const { data: conferenceData, error: confError } = await supabase
-        .from("conferences")
-        .select("title")
-        .eq("conference_id", submission.conference_id)
-        .single();
+        if (updateError) {
+          console.error("Error updating revised submission:", updateError);
+          return res.redirect("/dashboard?message=Error uploading revised paper.");
+        }
 
-      const conferenceTitle = conferenceData?.title || "the conference";
+        // Update the submissions table status to "Submitted Revised Paper" AND update file_url
+        const { error: statusUpdateError } = await supabase
+          .from("submissions")
+          .update({ 
+            submission_status: "Submitted Revised Paper",
+            file_url: uploadResult.secure_url
+          })
+          .eq("submission_id", submission_id);
 
-      await sendMail(
-        submission.primary_author,
-        `Revised Paper Submitted - ${submission.title}`,
-        `Your revised paper for "${submission.title}" has been submitted for re-review.`,
-        `<p>Dear Author,</p>
-         <p>Your revised paper titled <strong>"${submission.title}"</strong> has been successfully submitted for ${conferenceTitle}.</p>
-         <p>The paper will now be re-reviewed by our reviewers. You will be notified of the decision on the scheduled acceptance notification date.</p>
-         <p>Thank you for your submission.</p>
-         <p>Best regards,<br>Conference Management Team</p>`
-      );
-    } catch (emailError) {
-      console.error("Error sending revised submission email:", emailError);
-      // Don't fail the upload if email fails
-    }
+        if (statusUpdateError) {
+          console.error("Error updating submission status:", statusUpdateError);
+          return res.redirect("/dashboard?message=Error updating submission status.");
+        }
 
-    res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
+        // Clean up uploaded file
+        try {
+          await fs.unlink(filePath);
+        } catch (cleanupError) {
+          console.error("Error cleaning up file:", cleanupError);
+        }
 
-  } catch (error) {
-    console.error("Error in submit revised paper:", error);
-    res.redirect("/dashboard?message=Error uploading revised paper.");
-  }
+        res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
+
+      } catch (error) {
+        console.error("Error in submit revised paper:", error);
+        res.redirect("/dashboard?message=Error uploading revised paper.");
+      }
+    })().catch(next);
+  });
 });
 
-app.post("/edit-submission", upload.single("file"), async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
-
-  let { title, abstract, areas, id } = req.body;
-  
-  // Debug logging
-  console.log("Form data received:", {
-    title,
-    abstract,
-    areas,
-    areas_type: typeof areas,
-    id
-  });
-  
-  // Ensure areas is a string and not empty
-  if (typeof areas !== 'string') areas = String(areas);
-
-  try {
-    // Prepare the update data
-    const updateData = {
-      title: title,
-      abstract: abstract
-    };
-    if (areas && areas.trim() !== "" && areas !== "undefined") {
-      updateData.track_id = areas;
-      console.log("Setting track_id to:", areas);
-    } else {
-      console.log("Areas is empty, undefined, or invalid:", areas);
+app.post("/edit-submission", (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const message = err.code === 'LIMIT_FILE_SIZE' 
+        ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+        : err.message;
+      return res.redirect(`/dashboard?message=Error: ${message}`);
     }
-
-    if (req.file) {
-      const filePath = req.file.path;
-      const uploadResult = await cloudinary.uploader.upload(filePath, {
-        resource_type: "auto",
-        folder: "submissions",
-        public_id: `${req.user.name}-${Date.now()}`,
-      });
-
-      // Update file-related fields only if new file was uploaded
-      updateData.file_url = uploadResult.secure_url;
-
-      // Clean up uploaded file
-      try {
-        await fs.unlink(filePath);
-      } catch (cleanupError) {
-        console.error("Error cleaning up file:", cleanupError);
+    
+    // If no error, proceed with the actual handler
+    (async () => {
+      if (!req.isAuthenticated()) {
+        return res.redirect("/");
       }
-    }
 
-    // Update the submission
-    const { data, error } = await supabase
-      .from("submissions")
-      .update(updateData)
-      .eq("submission_id", id);
+      let { title, abstract, areas, id } = req.body;
+      
+      // Debug logging
+      console.log("Form data received:", {
+        title,
+        abstract,
+        areas,
+        areas_type: typeof areas,
+        id
+      });
+      
+      // Ensure areas is a string and not empty
+      if (typeof areas !== 'string') areas = String(areas);
 
-    if (error) {
-      console.error("Error updating submission:", error);
-      return res.redirect("/dashboard?message=Error updating submission.");
-    }
+      try {
+        // Prepare the update data
+        const updateData = {
+          title: title,
+          abstract: abstract
+        };
+        if (areas && areas.trim() !== "" && areas !== "undefined") {
+          updateData.track_id = areas;
+          console.log("Setting track_id to:", areas);
+        } else {
+          console.log("Areas is empty, undefined, or invalid:", areas);
+        }
 
-    res.redirect("/dashboard?message=Submission updated successfully!");
+        if (req.file) {
+          const filePath = req.file.path;
+          const uploadResult = await cloudinary.uploader.upload(filePath, {
+            resource_type: "auto",
+            folder: "submissions",
+            public_id: `${req.user.name}-${Date.now()}`,
+          });
 
-  } catch (error) {
-    console.error("Error in edit submission:", error);
-    res.redirect("/dashboard?message=Error updating submission.");
-  }
+          // Update file-related fields only if new file was uploaded
+          updateData.file_url = uploadResult.secure_url;
+
+          // Clean up uploaded file
+          try {
+            await fs.unlink(filePath);
+          } catch (cleanupError) {
+            console.error("Error cleaning up file:", cleanupError);
+          }
+        }
+
+        // Update the submission
+        const { data, error } = await supabase
+          .from("submissions")
+          .update(updateData)
+          .eq("submission_id", id);
+
+        if (error) {
+          console.error("Error updating submission:", error);
+          return res.redirect("/dashboard?message=Error updating submission.");
+        }
+
+        res.redirect("/dashboard?message=Submission updated successfully!");
+
+      } catch (error) {
+        console.error("Error in edit submission:", error);
+        res.redirect("/dashboard?message=Error updating submission.");
+      }
+    })().catch(next);
+  });
 });
 
 app.get("/submission/delete/primary-author/:id", async (req, res) => {
@@ -3257,88 +3371,104 @@ app.get("/submission/delete/invitee/:id", async (req, res) => {
   res.redirect("/invitee/dashboard?message=Submission deleted successfully!");
 });
 
-app.post("/submit", upload.single("file"), async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/submit", (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const message = err.code === 'LIMIT_FILE_SIZE' 
+        ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+        : err.message;
+      return res.redirect(`/dashboard?message=Error: ${message}`);
+    }
+    
+    // If no error, proceed with the actual handler
+    (async () => {
+      if (!req.isAuthenticated()) {
+        return res.redirect("/");
+      }
 
-  const { title, abstract, areas, id } = req.body;
-  const filePath = req.file.path;
-  const uploadResult = await cloudinary.uploader.upload(filePath, {
-    resource_type: "auto", // auto-detect type (pdf, docx, etc.)
-    folder: "submissions",
-    public_id: `${req.user.uid}-${Date.now()}`,
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+      }
+
+      const { title, abstract, areas, id } = req.body;
+      const filePath = req.file.path;
+      const uploadResult = await cloudinary.uploader.upload(filePath, {
+        resource_type: "auto", // auto-detect type (pdf, docx, etc.)
+        folder: "submissions",
+        public_id: `${req.user.uid}-${Date.now()}`,
+      });
+
+      const { data, error } = await supabase.from("submissions").insert([
+        {
+          conference_id: id,
+          primary_author: req.user.email,
+          title: title,
+          abstract: abstract,
+          track_id: areas, // Use track_id instead of area
+          file_url: uploadResult.secure_url,
+          paper_code: crypto.randomUUID(),
+        },
+      ]);
+
+      if (error) {
+        console.error("Error inserting submission:", error);
+        return res.status(500).send("Error submitting your proposal.");
+      } else {
+        res.redirect("/dashboard");
+      }
+    })().catch(next);
   });
-
-  const { data, error } = await supabase.from("submissions").insert([
-    {
-      conference_id: id,
-      primary_author: req.user.email,
-      title: title,
-      abstract: abstract,
-      track_id: areas, // Use track_id instead of area
-      file_url: uploadResult.secure_url,
-      paper_code: crypto.randomUUID(),
-    },
-  ]);
-
-  await sendMail(
-  req.user.email,   // ✅ no EJS tags here
-  "Your paper titled - " + title + " has been submitted successfully!",
-  "Hello " + req.user.name + ", your paper titled '" + title + "' has been submitted successfully!",
-  `<p>Hello <b>${req.user.name}</b>,<br>Your paper titled <i>${title}</i> has been submitted successfully!</p>`
-);
-
-  
-
-  if (error) {
-    console.error("Error inserting submission:", error);
-    return res.status(500).send("Error submitting your proposal.");
-  } else {
-    res.redirect("/dashboard");
-  }
 });
 
-app.post("/submit-invited-talk", upload.single("file"), async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/submit-invited-talk", (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const message = err.code === 'LIMIT_FILE_SIZE' 
+        ? 'File size exceeds 4MB limit. Please upload a smaller file.'
+        : err.message;
+      return res.redirect(`/invitee/dashboard?message=Error: ${message}`);
+    }
+    
+    // If no error, proceed with the actual handler
+    (async () => {
+      if (!req.isAuthenticated()) {
+        return res.redirect("/");
+      }
 
-  const { title, abstract, areas, id } = req.body;
-  const filePath = req.file.path;
-  const uploadResult = await cloudinary.uploader.upload(filePath, {
-    resource_type: "auto", // auto-detect type (pdf, docx, etc.)
-    folder: "submissions",
-    public_id: `${req.user.uid}-${Date.now()}`,
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.redirect("/invitee/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+      }
+
+      const { title, abstract, areas, id } = req.body;
+      const filePath = req.file.path;
+      const uploadResult = await cloudinary.uploader.upload(filePath, {
+        resource_type: "auto", // auto-detect type (pdf, docx, etc.)
+        folder: "submissions",
+        public_id: `${req.user.uid}-${Date.now()}`,
+      });
+
+      const { data, error } = await supabase.from("invited_talk_submissions").insert([
+        {
+          conference_id: id,
+          invitee_email: req.user.email,
+          title: title,
+          abstract: abstract,
+          track_id: areas, 
+          file_url: uploadResult.secure_url,
+          paper_id: crypto.randomUUID(),
+        },
+      ]);
+
+      if (error) {
+        console.error("Error inserting submission:", error);
+        return res.status(500).send("Error submitting your proposal.");
+      } else {
+        res.redirect("invitee/dashboard");
+      }
+    })().catch(next);
   });
-
-  const { data, error } = await supabase.from("invited_talk_submissions").insert([
-    {
-      conference_id: id,
-      invitee_email: req.user.email,
-      title: title,
-      abstract: abstract,
-      track_id: areas, 
-      file_url: uploadResult.secure_url,
-      paper_id: crypto.randomUUID(),
-    },
-  ]);
-
-//   await sendMail(
-//   req.user.email,   // ✅ no EJS tags here
-//   "Your paper titled - " + title + " has been submitted successfully!",
-//   "Hello " + req.user.name + ", your paper titled '" + title + "' has been submitted successfully!",
-//   `<p>Hello <b>${req.user.name}</b>,<br>Your paper titled <i>${title}</i> has been submitted successfully!</p>`
-// );
-
-  
-
-  if (error) {
-    console.error("Error inserting submission:", error);
-    return res.status(500).send("Error submitting your proposal.");
-  } else {
-    res.redirect("invitee/dashboard");
-  }
 });
 
 passport.use(

@@ -237,13 +237,11 @@
         // Get presentation data based on submission status
         let presentationInfo = null;
         
-        if (submission.submission_status === "Accepted for Oral Presentation" ||
-            submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation"
+        if (submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation"
             ) {
           // For oral presentations, get from track details
           presentationInfo = trackDetailsMap[submission.track_id];
-        } else if (submission.submission_status === "Accepted for Poster Presentation" ||
-                   submission.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
+        } else if (submission.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
           // For poster presentations, get from poster_sessions
           presentationInfo = posterSessionsMap[submission.conference_id];
         }
