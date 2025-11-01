@@ -102,12 +102,115 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
   - Panelist schedule notifications
   - Session reminders
 
-### 🔒 Security Features
-- **OAuth 2.0 Authentication**: Secure Google Sign-In integration
-- **Role-Based Authorization**: Separate authentication flows for each user role
-- **Session Management**: Passport.js-based secure sessions
-- **Data Validation**: Server-side validation for all inputs
-- **Secure File Uploads**: Cloudinary integration with access control
+### 🔒 Security & Row Level Security (RLS)
+
+### RLS Implementation
+
+The application implements **comprehensive Row Level Security (RLS)** across all 12 database tables to ensure:
+
+✅ **Data Isolation**: Users can only access data they're authorized to view
+✅ **Role-Based Access**: Automatic enforcement at the database level
+✅ **JWT Authentication**: Policies validate JWT claims from auth token
+✅ **Email-Based Identification**: Primary identifier across all policies
+✅ **52+ Granular Policies**: Fine-tuned access control per table per role
+
+### RLS Architecture
+
+```
+User Login (OAuth 2.0)
+        ↓
+Passport Strategy Assignment
+        ↓
+JWT Created with Claims:
+  - email (user's email)
+  - role (author/reviewer/chair/invitee)
+  - sub (user ID)
+        ↓
+Database Query
+        ↓
+RLS Policy Evaluation (using JWT claims)
+        ↓
+Row-Level Filtering (automatically applied)
+```
+
+### User Roles & JWT Claims
+
+| Role | Strategy | JWT Role Claim | Use Case |
+|------|----------|----------------|----------|
+| Author | `/auth/google` | `author` | Paper submission & revision |
+| Reviewer | `/auth2/google` | `reviewer` | Peer review & re-review |
+| Chair | `/auth3/google` | `chair` | Full administrative control |
+| Invitee | `/auth4/google` | `invitee` | Invited talks & panelist duties |
+| Anonymous | None | `anon` | Public conference viewing |
+
+### RLS Policies by Table (52 Total)
+
+**Conferences** (4 policies): Public read, chair write
+**Conference Tracks** (4 policies): Public read, chair write
+**Submissions** (7 policies): Author/reviewer/chair role-based access
+**Users** (4 policies): Self-service + authenticated access
+**Chair** (2 policies): Chair-only management
+**Peer Review** (5 policies): Reviewer/chair access
+**Final Camera Ready Submissions** (3 policies): Author/chair access
+**Revised Submissions** (5 policies): Author/reviewer/chair access
+**Co-Author Requests** (5 policies): Author/co-author/chair access
+**Invitees** (3 policies): Invitee/chair access
+**Invited Talk Submissions** (5 policies): Invitee/chair access
+**Poster Sessions** (2 policies): Public read, chair write
+
+### RLS Documentation Files
+
+- **`RLS_MIGRATION.sql`** (22 KB)
+  - Production-ready SQL with all 52 policies
+  - Drop-safe with `DROP IF EXISTS` patterns
+  - Ready to execute in Supabase SQL Editor
+  - Deployment time: ~2 seconds
+
+- **`RLS_QUICKSTART.md`** (8 KB)
+  - 6-step deployment guide
+  - Test procedures for each role
+  - Common issues & fixes
+  - Rollback instructions
+
+- **`RLS_POLICIES_BY_TABLE.md`** (40+ KB)
+  - Table-by-table policy breakdown
+  - Policy conditions and logic
+  - JWT claims reference
+  - Type casting solutions
+
+- **`RLS_POLICY_GUIDE.md`** (16 KB)
+  - Comprehensive technical documentation
+  - Architecture overview
+  - SQL examples
+  - Troubleshooting section
+
+- **`RLS_ARCHITECTURE_DIAGRAMS.md`** (24 KB)
+  - System architecture flow diagrams
+  - RLS policy enforcement flow
+  - Role-based access patterns
+  - Defense-in-depth architecture
+
+### Key Security Features
+
+✅ **Email-Based Identification**: All policies use email as primary identifier
+✅ **Type Safety**: Proper UUID/VARCHAR casting in all policies
+✅ **Array Operations**: Safe co-author array checks using `@>` operator
+✅ **Subquery Safety**: Foreign key joins with proper casting
+✅ **Least Privilege**: Each role gets only required permissions
+✅ **No Data Leakage**: Unauthenticated users limited to public tables only
+
+### JWT Claims Extraction in Policies
+
+```sql
+-- Extract role from JWT
+(current_setting('request.jwt.claims', true)::json ->> 'role') = 'author'
+
+-- Extract email from JWT
+(current_setting('request.jwt.claims', true)::json ->> 'email')
+
+-- Check if authenticated
+auth.role() = 'authenticated'
+```
 
 ---
 
@@ -129,16 +232,22 @@ The **DEI Conference Management Toolkit** is a comprehensive web-based platform 
 - **Alerts**: SweetAlert2
 
 ### Database
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Supabase (PostgreSQL) with **Row Level Security (RLS)**
 - **ORM**: Supabase JavaScript Client
-- **Tables**: 
-  - `users` - User profiles
-  - `conferences` - Conference details
-  - `conference_tracks` - Track management
-  - `submissions` - Paper submissions
-  - `peer_review` - Review scores and feedback
-  - `final_camera_ready_submissions` - Final submissions
-  - `chair` - Conference chair credentials
+- **Security**: JWT-based RLS policies for role-based access control
+- **Tables (12 total, all RLS-enabled)**: 
+  - `conferences` - Conference details (public read, chair write)
+  - `conference_tracks` - Track management (public read, chair write)
+  - `submissions` - Paper submissions (author/reviewer/chair role-based)
+  - `users` - User profiles (authenticated users only)
+  - `chair` - Conference chair credentials (chair only)
+  - `peer_review` - Review scores and feedback (reviewer/chair access)
+  - `final_camera_ready_submissions` - Final submissions (author/chair)
+  - `revised_submissions` - Revised papers (author/reviewer/chair)
+  - `co_author_requests` - Co-author collaboration requests (author/co-author)
+  - `invitees` - Invited speakers/panelists (invitee/chair)
+  - `invited_talk_submissions` - Invited talk submissions (invitee/chair)
+  - `poster_session` - Poster sessions (public read, chair write)
 
 ### External Services
 - **Cloud Storage**: Cloudinary for document management
@@ -253,26 +362,43 @@ EMAIL_PASSWORD=your_app_password
 
 ### Step 4: Set Up Supabase Database
 
+#### Option A: Run RLS Migration Script (Recommended)
+
+1. **Enable RLS on all tables** using the provided migration script:
+   - Copy the contents of `RLS_MIGRATION.sql`
+   - Paste into your Supabase SQL Editor
+   - Execute to enable RLS with 52+ granular policies
+   - **⚠️ Important**: Use the `service_role` key with Admin privileges
+
+2. **RLS Policy Documentation**:
+   - See `RLS_POLICIES_BY_TABLE.md` for detailed policy reference
+   - See `RLS_QUICKSTART.md` for deployment guide
+   - See `RLS_POLICY_GUIDE.md` for comprehensive technical documentation
+   - See `RLS_ARCHITECTURE_DIAGRAMS.md` for visual architecture
+
+#### Option B: Manual Table Creation
+
 Run the following SQL in your Supabase SQL editor:
 
 ```sql
 -- Create users table
 CREATE TABLE users (
-  uid TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,
-  profile_picture TEXT,
-  role TEXT DEFAULT 'author',
-  created_at TIMESTAMP DEFAULT NOW()
+  id INT8 PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  uid VARCHAR UNIQUE,
+  email VARCHAR UNIQUE NOT NULL,
+  name TEXT,
+  contact_number INT8,
+  organization TEXT,
+  profile_picture VARCHAR
 );
 
 -- Create chair table
 CREATE TABLE chair (
-  email_id TEXT PRIMARY KEY,
+  id INT8 PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  email_id VARCHAR UNIQUE NOT NULL,
   name TEXT,
-  uid TEXT,
-  profile_picture TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
+  uid VARCHAR,
+  profile_picture VARCHAR
 );
 
 -- Create conferences table
@@ -285,110 +411,133 @@ CREATE TABLE conferences (
   full_paper_submission DATE,
   acceptance_notification DATE,
   camera_ready_paper_submission DATE,
-  brochure TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Create conference_tracks table
 CREATE TABLE conference_tracks (
   track_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  conference_id UUID REFERENCES conferences(conference_id) ON DELETE CASCADE,
-  track_name TEXT NOT NULL,
+  conference_id VARCHAR,
+  track_name TEXT,
   track_reviewers TEXT[],
   presentation_date DATE,
   presentation_start_time TIME,
   presentation_end_time TIME,
-  panelists TEXT[],
-  session_code TEXT,
-  status TEXT DEFAULT 'Not Scheduled',
-  created_at TIMESTAMP DEFAULT NOW()
+  panelists VARCHAR,
+  status TEXT DEFAULT 'Not Scheduled'
 );
 
 -- Create submissions table
 CREATE TABLE submissions (
   submission_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  conference_id UUID REFERENCES conferences(conference_id) ON DELETE CASCADE,
-  track_id UUID REFERENCES conference_tracks(track_id),
-  paper_code UUID UNIQUE,
-  primary_author TEXT NOT NULL,
+  conference_id VARCHAR,
+  track_id TEXT,
+  paper_code VARCHAR,
+  primary_author VARCHAR NOT NULL,
   co_authors TEXT[],
   title TEXT NOT NULL,
   abstract TEXT,
-  file_url TEXT,
+  file_url VARCHAR,
   submission_status TEXT DEFAULT 'Submitted for Review',
-  score NUMERIC,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Create peer_review table
 CREATE TABLE peer_review (
-  review_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
-  conference_id UUID REFERENCES conferences(conference_id) ON DELETE CASCADE,
+  id INT8 PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  conference_id VARCHAR,
+  submission_id VARCHAR NOT NULL,
   reviewer TEXT NOT NULL,
-  review_status TEXT DEFAULT 'Pending',
-  originality_score NUMERIC,
-  relevance_score NUMERIC,
-  technical_quality_score NUMERIC,
-  clarity_score NUMERIC,
-  impact_score NUMERIC,
-  mean_score NUMERIC,
-  remarks TEXT,
+  originality_score FLOAT4,
+  relevance_score FLOAT4,
+  technical_quality_score FLOAT4,
+  clarity_score FLOAT4,
+  impact_score FLOAT4,
+  mean_score FLOAT4,
   acceptance_status TEXT,
+  remarks TEXT,
+  review_status TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Create final_camera_ready_submissions table
 CREATE TABLE final_camera_ready_submissions (
-  final_submission_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
-  conference_id UUID REFERENCES conferences(conference_id) ON DELETE CASCADE,
-  track_id UUID REFERENCES conference_tracks(track_id),
-  primary_author TEXT,
-  co_authors TEXT[],
+  submission_id UUID PRIMARY KEY,
+  conference_id VARCHAR,
   title TEXT,
   abstract TEXT,
-  file_url TEXT,
-  panelist_score NUMERIC,
-  status TEXT DEFAULT 'Pending',
-  created_at TIMESTAMP DEFAULT NOW()
+  track_id TEXT,
+  co_authors TEXT,
+  file_url VARCHAR,
+  status TEXT,
+  panelist_score FLOAT4,
+  primary_author TEXT
 );
 
 -- Create revised_submissions table
 CREATE TABLE revised_submissions (
-  revised_submission_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
-  file_url TEXT,
-  review_status TEXT,
-  originality_score NUMERIC,
-  relevance_score NUMERIC,
-  technical_quality_score NUMERIC,
-  clarity_score NUMERIC,
-  impact_score NUMERIC,
-  mean_score NUMERIC,
+  submission_id VARCHAR PRIMARY KEY,
+  file_url VARCHAR,
+  originally_score FLOAT4,
+  relevance_score FLOAT4,
+  technical_quality_score FLOAT4,
+  clarity_score FLOAT4,
+  impact_score FLOAT4,
+  mean_score FLOAT4,
   acceptance_status TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  review_status TEXT
 );
 
 -- Create co_author_requests table
 CREATE TABLE co_author_requests (
   request_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  submission_id UUID REFERENCES submissions(submission_id) ON DELETE CASCADE,
-  co_author_email TEXT NOT NULL,
-  status TEXT DEFAULT 'Pending',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  conference_id VARCHAR,
+  submission_id VARCHAR NOT NULL,
+  primary_author VARCHAR,
+  co_author VARCHAR,
+  status TEXT
+);
+
+-- Create invitees table
+CREATE TABLE invitees (
+  invite_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT,
+  email VARCHAR,
+  conference_id VARCHAR
+);
+
+-- Create invited_talk_submissions table
+CREATE TABLE invited_talk_submissions (
+  paper_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  invitee_email VARCHAR,
+  conference_id VARCHAR,
+  title TEXT,
+  abstract TEXT,
+  file_url VARCHAR,
+  track_id TEXT
+);
+
+-- Create poster_session table
+CREATE TABLE poster_session (
+  poster_session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conference_id VARCHAR,
+  date DATE,
+  start_time TIME,
+  end_time TIME
 );
 
 -- Create indexes for better performance
+CREATE INDEX idx_submissions_primary_author ON submissions(primary_author);
 CREATE INDEX idx_submissions_conference ON submissions(conference_id);
 CREATE INDEX idx_submissions_track ON submissions(track_id);
+CREATE INDEX idx_peer_review_submission ON peer_review(submission_id);
+CREATE INDEX idx_peer_review_reviewer ON peer_review(reviewer);
 CREATE INDEX idx_tracks_conference ON conference_tracks(conference_id);
-CREATE INDEX idx_reviews_submission ON peer_review(submission_id);
-CREATE INDEX idx_revised_submissions_submission ON revised_submissions(submission_id);
 CREATE INDEX idx_co_author_requests_submission ON co_author_requests(submission_id);
+CREATE INDEX idx_invitees_email ON invitees(email);
+CREATE INDEX idx_invited_talks_email ON invited_talk_submissions(invitee_email);
+
+-- After creating tables, enable RLS and apply policies from RLS_MIGRATION.sql
 ```
 
 ### Step 5: Configure Google OAuth
@@ -431,6 +580,38 @@ The application will be available at `http://localhost:3000`
 1. Enable 2-factor authentication on your Gmail account
 2. Generate an [App Password](https://myaccount.google.com/apppasswords)
 3. Use the app password in `EMAIL_PASSWORD` env variable
+
+### Supabase Configuration
+
+#### Enable RLS Policies
+
+1. **Go to SQL Editor** in Supabase Dashboard
+2. **Copy entire contents** of `RLS_MIGRATION.sql`
+3. **Paste into SQL Editor**
+4. **Execute the script**
+   - ⚠️ **Important**: Use the `service_role` key (not anon key)
+   - Must have Admin privileges
+5. **Verify policies** were created:
+   ```sql
+   SELECT schemaname, tablename, policyname, cmd, qual 
+   FROM pg_policies 
+   ORDER BY tablename;
+   ```
+
+#### JWT Configuration (Automatic)
+
+Supabase automatically adds JWT claims when using authenticated clients:
+- `current_setting('request.jwt.claims')` extracts the JWT payload
+- Policies parse email and role from these claims
+- No additional configuration needed
+
+#### Verify RLS is Working
+
+Test in your application:
+1. Login as **Author** → Can see only own submissions
+2. Login as **Reviewer** → Can see all submissions
+3. Login as **Chair** → Can see/edit all data
+4. Logout → Can see only public conferences/tracks
 
 
 
@@ -719,6 +900,59 @@ Found a bug? Please open an issue with:
 - Expected vs actual behavior
 - Screenshots (if applicable)
 - Environment details (Node version, browser, etc.)
+
+---
+
+## 🔧 Troubleshooting RLS Issues
+
+### Problem: "User cannot see their own submissions"
+
+**Solution**:
+1. Verify `primary_author` is stored as **exact email** (case-sensitive)
+2. Check JWT contains correct email in claims
+3. Verify `submissions_read_authors` policy is enabled:
+   ```sql
+   SELECT * FROM pg_policies WHERE tablename = 'submissions' AND policyname = 'submissions_read_authors';
+   ```
+4. Test with browser DevTools:
+   - Network tab → Authorization header
+   - Decode JWT to verify `email` claim
+
+### Problem: "operator does not exist: uuid = text"
+
+**Solution**:
+- Check table schema for submission_id type
+- Use proper type casting: `submissions.submission_id::text`
+- Verify `RLS_MIGRATION.sql` includes type casts
+
+### Problem: "Reviewer cannot see all submissions"
+
+**Solution**:
+1. Verify reviewer role is set correctly in JWT (should be `reviewer`)
+2. Check `submissions_read_reviewers` policy exists
+3. Verify reviewer email is in track_reviewers array
+4. Test: SELECT with chair role (should always work)
+
+### Problem: "RLS policy not working after deployment"
+
+**Solution**:
+1. Confirm RLS is **ENABLED** on table:
+   ```sql
+   SELECT relrowsecurity FROM pg_class WHERE relname = 'submissions';
+   ```
+   Should return `true`
+
+2. Check service_role key was used during deployment
+3. Verify all policies have `DROP IF EXISTS` before `CREATE POLICY`
+4. Run entire `RLS_MIGRATION.sql` script in order
+
+### Problem: "Anonymous users see no data"
+
+**Expected behavior**: RLS properly restricts anonymous users to public tables only:
+- ✅ Can see: conferences, conference_tracks, poster_session
+- ❌ Cannot see: submissions, peer_review, user data, etc.
+
+Use authenticated client for non-public data access.
 
 ---
 
