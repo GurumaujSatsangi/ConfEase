@@ -11,12 +11,6 @@
   <body>
     <%- include('partials/header') %>
     <div class="container">
-      <% if (message) { %>
-        <div class="alert alert-primary alert-dismissible fade show" role="alert">
-          <%= message %>
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-      <% } %>
       <table class="table" style="table-layout: fixed; width: 100%;">
         <tr>
           <td style="width: 25%; padding: 15px;">
@@ -30,7 +24,21 @@
             <p class="card-title">(Contributed Talk)</p>
 
     
-    <a href="/auth/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
+    <div class="d-flex gap-2">
+      <table class="table">
+        <tr>
+       
+       <td>      <a href="/auth/google" class="btn btn-primary">Sign in with Google</a>
+</td>
+        </tr>
+        <tr>
+          <td>
+      <a href="/auth/local" class="btn btn-primary">Sign in with Email</a>
+
+          </td>
+        </tr>
+      </table>
+    </div>
   </div>
 </div>
           </td>
@@ -44,7 +52,7 @@
   <div class="card-body">
         <p class="card-title">(Invited Talk)</p>
 
-    <a href="/auth4/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
+    <a href="/auth4/google" class="btn btn-primary">Sign in with Google</a>
   </div>
 </div>
           </td>
@@ -55,7 +63,7 @@
   <div class="card-body">
             <p class="card-title">(Manage Conferences)</p>
 
-    <a href="/auth3/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
+    <a href="/auth3/google" class="btn btn-primary">Sign in with Google</a>
   </div>
 </div>
           </td>
@@ -66,7 +74,7 @@
   <div class="card-body">
             <p class="card-title">(Review Submissions)</p>
 
-    <a href="/auth2/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
+    <a href="/auth2/google" class="btn btn-primary">Sign in with Google</a>
   </div>
 </div>
           </td>
@@ -139,6 +147,34 @@ The Dayalbagh Educational Institute (DEI), declared a Deemed University by the G
 </div>
 
     </div>
+    <!-- SweetAlert2 for friendly auth messages -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+      // If the page was redirected with a `message` query param, show a SweetAlert.
+      (function () {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const msg = params.get('message');
+          if (msg) {
+            // show a friendly dialog with choices for email or Google sign-in
+            Swal.fire({
+              title: 'Sign-in message',
+              text: decodeURIComponent(msg),
+              icon: 'info',
+              showDenyButton: true,
+              confirmButtonText: 'Sign in with Email',
+              denyButtonText: 'Sign in with Google',
+            }).then((result) => {
+              if (result.isConfirmed) window.location.href = '/auth/local';
+              else if (result.isDenied) window.location.href = '/auth/google';
+            });
+          }
+        } catch (e) {
+          // ignore errors — do not break page
+          console.error('SweetAlert handling error', e);
+        }
+      })();
+    </script>
     <script src="/script.js"></script>
     <%- include('partials/footer') %>
   </body>

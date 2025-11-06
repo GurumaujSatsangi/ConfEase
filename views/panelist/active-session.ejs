@@ -79,19 +79,7 @@
         <h2>No Submissions Found</h2>
 <% } %>
 
-<% if (message) { %>
-  <script>
-    Swal.fire({
-      title: 'Alert',
-      text: '<%= message %>',
-      icon: 'info',
-      confirmButtonText: 'OK'
-    });
-    if (window.location.search.includes('message=')) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  </script>
-<% } %>
+ 
 
       </div>
     <script src="/script.js"></script>

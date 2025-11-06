@@ -3,6 +3,9 @@ import bodyParser from "body-parser";
 import passport from "passport";
 import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import bcrypt from "bcrypt";
+import { Strategy as LocalStrategy } from "passport-local";
+import jwt from "jsonwebtoken";
 import session from "express-session";
 import dotenv from "dotenv";
 import { v2 as cloudinary } from "cloudinary";
@@ -14,6 +17,9 @@ import fs from "fs/promises";
 import { name } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "./mailer.js"
+import events from 'events';
+// Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
+events.defaultMaxListeners = 20;
 
 const app = express();
 
@@ -24,54 +30,13 @@ const app = express();
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const upload = multer({ 
-  dest: "uploads/",
-  limits: {
-    fileSize: 4 * 1024 * 1024 // 4 MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.size > 4 * 1024 * 1024) {
-      return cb(new Error("File size exceeds 4MB limit"), false);
-    }
-    cb(null, true);
-  }
-});
+const upload = multer({ dest: "uploads/" });
 
-// Helper function to wrap route handlers and catch multer errors
-const catchMulterErrors = (routeHandler) => {
-  return (req, res, next) => {
-    routeHandler(req, res, (err) => {
-      if (err instanceof multer.MulterError) {
-        const referer = req.get('referer') || '';
-        const message = err.code === 'LIMIT_FILE_SIZE' 
-          ? 'File size exceeds 4MB limit. Please upload a smaller file.'
-          : err.message;
-        
-        if (referer.includes('/invitee')) {
-          return res.redirect(`/invitee/dashboard?message=Error: ${message}`);
-        } else {
-          return res.redirect(`/dashboard?message=Error: ${message}`);
-        }
-      }
-      next(err);
-    });
-  };
-};
-
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "deimml",
-    resave: false,
-    saveUninitialized: false,
-  })
-);
-
-// Multer error handling middleware
+// Multer error handler middleware
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    // Check which page the user came from and redirect accordingly
     const referer = req.get('referer') || '';
-    
+
     if (err.code === 'LIMIT_FILE_SIZE') {
       if (referer.includes('/invitee')) {
         return res.redirect('/invitee/dashboard?message=Error: File size exceeds 4MB limit. Please upload a smaller file.');
@@ -85,16 +50,14 @@ app.use((err, req, res, next) => {
         return res.redirect('/dashboard?message=Error: Too many file parts. Please try again.');
       }
     }
-    
-    // Generic multer error
+
     if (referer.includes('/invitee')) {
       return res.redirect(`/invitee/dashboard?message=Error: ${err.message}`);
     } else {
       return res.redirect(`/dashboard?message=Error: ${err.message}`);
     }
   }
-  
-  // Non-multer errors
+
   next(err);
 });
 
@@ -109,6 +72,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 const port = process.env.PORT || 3000;
+const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static("public"));
@@ -116,8 +80,85 @@ app.set("view engine", "ejs");
 app.use("/static", express.static(path.join(__dirname, "public")));
 
 app.set("views", path.join(__dirname, "views"));
+// Session middleware must be registered before passport.session()
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "dev_session_secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
+  })
+);
+
 app.use(passport.initialize());
 app.use(passport.session());
+
+// -----------------------------
+// Local auth routes (email + password)
+// -----------------------------
+// Register: create a new user with password_hash
+app.post("/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "name, email and password are required" });
+    }
+
+    // Check if user already exists
+    const existing = await supabase.from("users").select("*").eq("email", email).single();
+    if (existing.data) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    const password_hash = await bcrypt.hash(password, 10);
+    const uid = uuidv4();
+
+    const { error: insertError } = await supabase.from("users").insert([
+      {
+        uid,
+        name,
+        email,
+        password_hash,
+        role: 'author',
+        profile_picture: null,
+      },
+    ]);
+
+    if (insertError) {
+      console.error("Error inserting user:", insertError);
+      return res.status(500).json({ error: "Could not create user" });
+    }
+
+  const { data: newUser } = await supabase.from("users").select("uid,name,email,profile_picture,role").eq("email", email).single();
+
+    // create JWT and set cookie so browser can be redirected and authenticated
+    const payload = { uid: newUser.uid, name: newUser.name, email: newUser.email, role: newUser.role || 'author' };
+    const token = jwt.sign(payload, process.env.JWT_SECRET || "dev_jwt_secret", { expiresIn: "7d" });
+
+    // set httpOnly cookie and also return token in json for client-side usage
+    res.cookie("jwt", token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
+
+    return res.status(201).json({ token, user: payload });
+  } catch (err) {
+    console.error("/register error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Login: use passport local strategy and return JWT
+app.get('/auth4/google/dashboard4', (req, res, next) => {
+  passport.authenticate('google4', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) {
+      const msg = info && info.message ? info.message : 'Authentication failed';
+      return res.redirect('/?message=' + encodeURIComponent(msg));
+    }
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+      return res.redirect('/invitee/dashboard');
+    });
+  })(req, res, next);
+});
 
 app.get("/", async (req, res) => {
   if (req.isAuthenticated()) {
@@ -355,17 +396,139 @@ app.get("/invitee/dashboard", async (req, res) => {
   });
 });
 
-app.get(
-  "/auth/google/dashboard",
-  passport.authenticate("google", {
-    failureRedirect: "/",
-    // successRedirect: "/dashboard", // REMOVE THIS
-  }),
-  (req, res) => {
-    // Now this handler will be called after successful login
-    res.redirect("/dashboard");
+app.get('/auth/google/dashboard', (req, res, next) => {
+  passport.authenticate('google', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) {
+      const msg = info && info.message ? info.message : 'Authentication failed';
+      return res.redirect('/?message=' + encodeURIComponent(msg));
+    }
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+      return res.redirect('/dashboard');
+    });
+  })(req, res, next);
+});
+
+// Render local auth page (login + register)
+app.get('/auth/local', (req, res) => {
+  const message = req.query.message || null;
+  res.render('local_auth', { message });
+});
+
+// -----------------------------
+// Author password reset (email link)
+// -----------------------------
+app.get('/author/forgot-password', (req, res) => {
+  const message = req.query.message || null;
+  res.render('author/forgot_password', { message });
+});
+
+app.post('/author/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email required' });
+
+    // Find user by email first (don't restrict by role yet) so we can log role mismatches
+    const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
+    if (error || !user) {
+      // Don't reveal existence
+      console.warn('/author/forgot-password: no user found for', email, error || '');
+      return res.json({ success: true });
+    }
+
+    // Proceed with password reset for any user matching the email.
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const { data: updateData, error: updateError } = await supabase
+      .from('users')
+      .update({ password_reset_token: resetToken, password_reset_expires: expiresAt })
+      .eq('uid', user.uid);
+
+    if (updateError) {
+      console.error('/author/forgot-password: failed to update reset token for', email, updateError);
+      // don't reveal too much to client, but include a hint for debugging
+      return res.status(500).json({ success: false, error: 'Failed to set reset token' });
+    }
+
+    const resetLink = `${APP_URL}/author/reset-password?token=${encodeURIComponent(resetToken)}`;
+    const subject = 'DEI CMT - Password reset request';
+    const text = `You requested a password reset. Use this link (valid 30 minutes): ${resetLink}`;
+    const html = `<p>You requested a password reset. Use this link (valid 30 minutes):</p><p><a href="${resetLink}">${resetLink}</a></p>`;
+
+    try { await sendMail(email, subject, text, html); } catch (mailErr) { console.error('mail err', mailErr); }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('forgot-password error', err);
+    return res.status(500).json({ error: 'server error' });
   }
-);
+});
+
+app.get('/author/reset-password', async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.redirect('/?message=' + encodeURIComponent('Invalid or expired reset link'));
+  try {
+    const { data: user, error } = await supabase.from('users').select('*').eq('password_reset_token', token).single();
+    if (error || !user) return res.redirect('/?message=' + encodeURIComponent('Invalid or expired reset link'));
+    if (!user.password_reset_expires || new Date(user.password_reset_expires) < new Date()) {
+      return res.redirect('/?message=' + encodeURIComponent('Reset link has expired'));
+    }
+    return res.render('author/reset_password', { token });
+  } catch (err) {
+    console.error('reset GET error', err);
+    return res.redirect('/?message=' + encodeURIComponent('Server error'));
+  }
+});
+
+app.post('/author/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'token and password required' });
+    const { data: user, error } = await supabase.from('users').select('*').eq('password_reset_token', token).single();
+    if (error || !user) return res.status(400).json({ error: 'Invalid or expired token' });
+    if (!user.password_reset_expires || new Date(user.password_reset_expires) < new Date()) return res.status(400).json({ error: 'Token expired' });
+  // No role restriction: allow resetting password for the matched user
+
+    const password_hash = await bcrypt.hash(password, 10);
+    await supabase.from('users').update({ password_hash, password_reset_token: null, password_reset_expires: null }).eq('uid', user.uid);
+
+    const payload = { uid: user.uid, name: user.name, email: user.email, role: user.role || 'author' };
+    const jwtToken = jwt.sign(payload, process.env.JWT_SECRET || 'dev_jwt_secret', { expiresIn: '7d' });
+    res.cookie('jwt', jwtToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('reset POST error', err);
+    return res.status(500).json({ error: 'server error' });
+  }
+});
+
+// Debug endpoint: send a test email (guarded by DEBUG_EMAIL_SECRET).
+// Usage: GET /__debug/send-test-email?secret=...&to=you@example.com
+app.get('/__debug/send-test-email', async (req, res) => {
+  const secret = req.query.secret;
+  const allowed = process.env.DEBUG_EMAIL_SECRET || null;
+  if (!allowed) return res.status(403).send('Debug email not enabled');
+  if (!secret || secret !== allowed) return res.status(401).send('Bad secret');
+
+  const to = req.query.to;
+  if (!to) return res.status(400).send('Provide ?to=your@email.com');
+
+  try {
+    const subject = 'Test email from ConfEase';
+    const text = 'This is a test email to verify mail configuration.';
+    const html = '<p>This is a test email to verify mail configuration.</p>';
+    const info = await sendMail(to, subject, text, html);
+    // include preview url if available
+    return res.json({ success: true, info });
+  } catch (err) {
+    console.error('debug send email error', err);
+    return res.status(500).json({ success: false, error: err && err.message ? err.message : String(err) });
+  }
+});
 
 app.get(
   "/auth4/google/dashboard4",
@@ -379,11 +542,12 @@ app.get(
   }
 );
 
-app.get("/dashboard", async (req, res) => {
-  if (!req.isAuthenticated()) {
+app.get("/dashboard", ensureAuthenticatedOrToken, async (req, res) => {
+  // ensureAuthenticatedOrToken attaches req.user either from session or decoded JWT
+  if (!req.user) {
     return res.redirect("/");
   }
-if (req.user.role !== "author") {
+  if (req.user.role !== "author") {
     return res.redirect("/?message=You are not authorized to access the author dashboard.");
   }
   const { data:conferencedata, error:conferenceerror } = await supabase.from("conferences").select("*");
@@ -3480,45 +3644,61 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://confease.onrender.com/auth/google/dashboard",
+      callbackURL: "http://localhost:3000/auth/google/dashboard",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        const result = await supabase
-          .from("users")
-          .select("*")
-          .eq("uid", profile.id)
-          .single();
-        let user;
-        if (!result.data) {
-          const { error } = await supabase.from("users").insert([
-            {
-              uid: profile.id,
-              name: profile.displayName,
-              email: profile.emails[0].value,
-              profile_picture: profile.photos[0].value,
-            },
-          ]);
-          if (error) {
-            console.error("Error inserting user:", error);
-            return cb(error);
-          }
-          const { data: newUser, error: fetchError } = await supabase
-            .from("users")
-            .select("*")
-            .eq("uid", profile.id)
-            .single();
-          if (fetchError) {
-            console.error("Fetch after insert failed:", fetchError);
-            return cb(fetchError);
-          }
-          user = newUser;
-        } else {
-          user = result.data;
+        // First, try to find user by uid
+        const byUid = await supabase.from("users").select("*").eq("uid", profile.id).single();
+        if (byUid.data) {
+          const user = byUid.data;
+          user.role = user.role || "author";
+          return cb(null, user);
         }
-        user.role = "author";
-        return cb(null, user);
+
+        // If not found by uid, check by email to avoid duplicate accounts
+        const email = profile.emails[0].value;
+        const byEmail = await supabase.from("users").select("*").eq("email", email).single();
+        if (byEmail.data) {
+          const existing = byEmail.data;
+          // If the existing user has a local password, deny Google sign-in to avoid clash
+          if (existing.password_hash) {
+            return cb(null, false, { message: "An account with this email already exists. Please sign in with email and password." });
+          }
+
+          // Otherwise link the Google uid to the existing user record and update profile fields if missing
+          const updates = {};
+          if (!existing.uid) updates.uid = profile.id;
+          if (!existing.profile_picture) updates.profile_picture = profile.photos[0].value;
+          if (!existing.name) updates.name = profile.displayName;
+          if (Object.keys(updates).length > 0) {
+            await supabase.from("users").update(updates).eq("email", email);
+          }
+          existing.role = existing.role || "author";
+          return cb(null, existing);
+        }
+
+        // No user by uid or email: insert new user (Google-only)
+        const { error } = await supabase.from("users").insert([
+          {
+            uid: profile.id,
+            name: profile.displayName,
+            email: email,
+            profile_picture: profile.photos[0].value,
+          },
+        ]);
+        if (error) {
+          console.error("Error inserting user:", error);
+          return cb(error);
+        }
+        const { data: newUser, error: fetchError } = await supabase.from("users").select("*").eq("uid", profile.id).single();
+        if (fetchError) {
+          console.error("Fetch after insert failed:", fetchError);
+          return cb(fetchError);
+        }
+        newUser.role = newUser.role || "author";
+        return cb(null, newUser);
       } catch (err) {
         return cb(err);
       }
@@ -3532,7 +3712,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID3,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "https://confease.onrender.com/auth3/google/dashboard3",
+      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -3549,6 +3729,8 @@ passport.use(
             message: "You are not authorized as a chair for this conference.",
           });
         }
+
+        // NOTE: Do not block chair Google sign-in based on local password presence here.
 
         // Update missing fields if needed
         const updates = {};
@@ -3578,7 +3760,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID2,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "https://confease.onrender.com/auth2/google/dashboard2",
+      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -3603,11 +3785,12 @@ passport.use(
           });
         }
 
-        // Do NOT insert into users table. Just use Google profile info.
+        const email = profile.emails[0].value;
+        // Do NOT insert into users table. Just use Google profile info (reviewer role)
         const user = {
           uid: profile.id,
           name: profile.displayName,
-          email: profile.emails[0].value,
+          email: email,
           profile_picture: profile.photos[0].value,
           role: "reviewer",
         };
@@ -3626,7 +3809,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID4,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET4,
-      callbackURL: "https://confease.onrender.com/auth4/google/dashboard4",
+      callbackURL: "http://localhost:3000/auth4/google/dashboard4",
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
@@ -3656,7 +3839,7 @@ passport.use(
           });
         }
 
-        // Use the first invitee record if multiple exist
+  // Use the first invitee record if multiple exist
         const invitee = invitees[0];
 
         // Update invitee with name and other details if not already set
@@ -3688,6 +3871,120 @@ passport.use(
     }
   )
 );
+
+// -----------------------------
+// Passport Local Strategy (email + password)
+// -----------------------------
+passport.use(
+  "local",
+  new LocalStrategy({ usernameField: "email", passwordField: "password" }, async (email, password, done) => {
+    try {
+      const result = await supabase.from("users").select("*").eq("email", email).single();
+      const user = result.data;
+      if (!user) {
+        return done(null, false, { message: "Invalid email or password" });
+      }
+
+      if (!user.password_hash) {
+        // User exists but has no local password set (likely Google user)
+        return done(null, false, { message: "No local password set for this user" });
+      }
+
+      const match = await bcrypt.compare(password, user.password_hash);
+      if (!match) {
+        return done(null, false, { message: "Invalid email or password" });
+      }
+
+      // Remove sensitive fields before returning
+      delete user.password_hash;
+      user.role = user.role || "author";
+      return done(null, user);
+    } catch (err) {
+      console.error("LocalStrategy error:", err);
+      return done(err);
+    }
+  })
+);
+
+// POST /login - authenticate using passport local strategy and return JWT + set cookie
+app.post('/login', (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) {
+      const message = info && info.message ? info.message : 'Invalid email or password';
+      return res.status(401).json({ error: message });
+    }
+
+    // Log the user into the session (so req.isAuthenticated() works) and also issue JWT
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+
+      const payload = { uid: user.uid, name: user.name, email: user.email, role: user.role || 'author' };
+      const token = jwt.sign(payload, process.env.JWT_SECRET || 'dev_jwt_secret', { expiresIn: '7d' });
+
+      // set httpOnly cookie and return token for client-side usage
+      res.cookie('jwt', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
+      return res.json({ token, user: payload });
+    });
+  })(req, res, next);
+});
+
+// JWT authentication middleware
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers && req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Missing Authorization header" });
+  }
+  const parts = authHeader.split(" ");
+  if (parts.length !== 2 || parts[0] !== "Bearer") {
+    return res.status(401).json({ error: "Invalid Authorization header format" });
+  }
+  const token = parts[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+    req.user = decoded; // attach decoded payload (uid, name, email)
+    return next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+// Helper: allow either session-based Passport or JWT (useful when migrating routes)
+function ensureAuthenticatedOrToken(req, res, next) {
+  if (req.isAuthenticated && req.isAuthenticated()) return next();
+  // else try JWT
+  const authHeader = req.headers && req.headers.authorization;
+  if (authHeader) {
+    const parts = authHeader.split(" ");
+    if (parts.length === 2 && parts[0] === "Bearer") {
+      try {
+        const decoded = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
+        req.user = decoded;
+        return next();
+      } catch (err) {
+        return res.redirect("/");
+      }
+    }
+  }
+
+  // If no Authorization header, try cookie named 'jwt' (simple parse)
+  const cookieHeader = req.headers && req.headers.cookie;
+  if (cookieHeader) {
+    const jwtCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('jwt='));
+    if (jwtCookie) {
+      const token = jwtCookie.split('=')[1];
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+        req.user = decoded;
+        return next();
+      } catch (err) {
+        return res.redirect("/");
+      }
+    }
+  }
+
+  return res.redirect("/");
+}
 
 passport.serializeUser((user, cb) => {
   cb(null, { ...user, role: user.role });

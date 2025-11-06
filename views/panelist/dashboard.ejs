@@ -86,19 +86,7 @@
 </form>
       </div>
     </main>
-<% if (message) { %>
-  <script>
-    Swal.fire({
-      title: 'Alert',
-      text: '<%= message %>',
-      icon: 'info',
-      confirmButtonText: 'OK'
-    });
-    if (window.location.search.includes('message=')) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  </script>
-  <% } %>
+ 
     <script src="/script.js"></script>
    
 

@@ -12,12 +12,7 @@
     <%-include('../partials/dashboard/header') %>
 
       <div class="container">
-        <% if (message) { %>
-          <div class="alert alert-primary alert-dismissible fade show" role="alert">
-            <%= message %>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>
-        <% } %>
+        
         <h4>Manage Oral Presentation Sessions</h4>
         <h6>Conference: <%= conference.title %></h6>
         <hr />

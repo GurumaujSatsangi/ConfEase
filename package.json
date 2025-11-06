@@ -12,6 +12,7 @@
   "dependencies": {
     "@imagekit/javascript": "^5.1.0",
     "@supabase/supabase-js": "^2.49.4",
+    "bcrypt": "^5.1.1",
     "body-parser": "^2.2.0",
     "cloudinary": "^2.6.1",
     "crypto": "^1.0.1",
@@ -20,6 +21,7 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "googleapis": "^150.0.1",
+    "jsonwebtoken": "^9.0.0",
     "macaddress": "^0.5.3",
     "mdb-ui-kit": "^9.0.0",
     "multer": "^2.0.1",
@@ -28,6 +30,7 @@
     "otp": "^1.1.2",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "passport-local": "^1.0.0",
     "supabase": "^2.20.12",
     "sweetalert2": "^11.22.2",
     "uuid": "^11.1.0"

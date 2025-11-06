@@ -41,3 +41,21 @@
   </div>
 </nav>
 <script src="/script.js"></script>
+<% if (typeof message !== 'undefined' && message) { %>
+  <!-- pass server message via a safe meta tag to avoid inline JSON-injection lint errors -->
+  <meta name="server-message" content="<%= String(message).replace(/\"/g, '&quot;') %>">
+  <script>
+    (function () {
+      try {
+        const meta = document.querySelector('meta[name="server-message"]');
+        const msg = meta ? meta.getAttribute('content') : null;
+        if (msg) {
+          Swal.fire({ icon: 'info', title: '', text: msg, confirmButtonText: 'OK' });
+        }
+      } catch (e) {
+        // do not break page if SweetAlert fails
+        console.error('Error showing server message via SweetAlert', e);
+      }
+    })();
+  </script>
+<% } %>

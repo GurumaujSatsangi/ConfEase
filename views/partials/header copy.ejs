@@ -41,3 +41,19 @@
   </div>
 </nav>
 <script src="/script.js"></script>
+<% if (typeof message !== 'undefined' && message) { %>
+  <meta name="server-message" content="<%= String(message).replace(/\"/g, '&quot;') %>">
+  <script>
+    (function () {
+      try {
+        const meta = document.querySelector('meta[name="server-message"]');
+        const msg = meta ? meta.getAttribute('content') : null;
+        if (msg) {
+          Swal.fire({ icon: 'info', title: '', text: msg, confirmButtonText: 'OK' });
+        }
+      } catch (e) {
+        console.error('Error showing server message via SweetAlert', e);
+      }
+    })();
+  </script>
+<% } %>

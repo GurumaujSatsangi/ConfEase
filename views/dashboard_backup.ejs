@@ -13,12 +13,7 @@
     <div class="container">
 
       <h4>Welcome <%= user.name %> (<%=user.email %>)!</h4><hr>
-      <% if (message) { %>
-  <div class="alert alert-primary alert-dismissible fade show" role="alert">
-    <%= message %>
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-  </div>
-<% } %>
+      
 
         <h4>Active Conferences</h4>
         <% if (conferences && conferences.length > 0) { %> <%
