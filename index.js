@@ -93,6 +93,50 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Middleware: accept either Passport session or a JWT (Authorization header or jwt cookie)
+function ensureAuthenticatedOrToken(req, res, next) {
+  try {
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      return next();
+    }
+
+    // Try Authorization: Bearer <token>
+    const authHeader = req.headers && req.headers.authorization;
+    if (authHeader) {
+      const parts = authHeader.split(" ");
+      if (parts.length === 2 && parts[0] === "Bearer") {
+        try {
+          req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
+          return next();
+        } catch (err) {
+          // invalid token
+          return res.redirect("/");
+        }
+      }
+    }
+
+    // Try jwt cookie from header (no cookie-parser dependency required)
+    const cookieHeader = req.headers && req.headers.cookie;
+    if (cookieHeader) {
+      const jwtCookie = cookieHeader.split(";").map((c) => c.trim()).find((c) => c.startsWith("jwt="));
+      if (jwtCookie) {
+        const token = jwtCookie.split("=")[1];
+        try {
+          req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+          return next();
+        } catch (err) {
+          return res.redirect("/");
+        }
+      }
+    }
+
+    return res.redirect("/");
+  } catch (err) {
+    console.error("ensureAuthenticatedOrToken error:", err);
+    return res.redirect("/");
+  }
+}
+
 // -----------------------------
 // Local auth routes (email + password)
 // -----------------------------
@@ -338,8 +382,8 @@ app.get("/panelist/dashboard", (req, res) => {
   res.render("panelist/dashboard.ejs", { message: req.query.message || null });
 });
 
-app.get("/invitee/dashboard", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "invitee") {
+app.get("/invitee/dashboard", ensureAuthenticatedOrToken, async (req, res) => {
+  if (!req.user || req.user.role !== "invitee") {
     return res.redirect("/?message=You are not authorized to access this page.");
   }
 
@@ -355,7 +399,7 @@ app.get("/invitee/dashboard", async (req, res) => {
     return res.status(500).send("Error fetching conference details.");
   }
 
-  // Fetch invitee's submissions
+  // Fetch invitee's submissions (use req.user.email which is the stored invitee_email)
   const { data: submissions, error: submissionsError } = await supabase
     .from("invited_talk_submissions")
     .select("*")
@@ -410,125 +454,7 @@ app.get('/auth/google/dashboard', (req, res, next) => {
   })(req, res, next);
 });
 
-// Render local auth page (login + register)
-app.get('/auth/local', (req, res) => {
-  const message = req.query.message || null;
-  res.render('local_auth', { message });
-});
 
-// -----------------------------
-// Author password reset (email link)
-// -----------------------------
-app.get('/author/forgot-password', (req, res) => {
-  const message = req.query.message || null;
-  res.render('author/forgot_password', { message });
-});
-
-app.post('/author/forgot-password', async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'email required' });
-
-    // Find user by email first (don't restrict by role yet) so we can log role mismatches
-    const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
-    if (error || !user) {
-      // Don't reveal existence
-      console.warn('/author/forgot-password: no user found for', email, error || '');
-      return res.json({ success: true });
-    }
-
-    // Proceed with password reset for any user matching the email.
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-    const { data: updateData, error: updateError } = await supabase
-      .from('users')
-      .update({ password_reset_token: resetToken, password_reset_expires: expiresAt })
-      .eq('uid', user.uid);
-
-    if (updateError) {
-      console.error('/author/forgot-password: failed to update reset token for', email, updateError);
-      // don't reveal too much to client, but include a hint for debugging
-      return res.status(500).json({ success: false, error: 'Failed to set reset token' });
-    }
-
-    const resetLink = `${APP_URL}/author/reset-password?token=${encodeURIComponent(resetToken)}`;
-    const subject = 'DEI CMT - Password reset request';
-    const text = `You requested a password reset. Use this link (valid 30 minutes): ${resetLink}`;
-    const html = `<p>You requested a password reset. Use this link (valid 30 minutes):</p><p><a href="${resetLink}">${resetLink}</a></p>`;
-
-    try { await sendMail(email, subject, text, html); } catch (mailErr) { console.error('mail err', mailErr); }
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error('forgot-password error', err);
-    return res.status(500).json({ error: 'server error' });
-  }
-});
-
-app.get('/author/reset-password', async (req, res) => {
-  const token = req.query.token;
-  if (!token) return res.redirect('/?message=' + encodeURIComponent('Invalid or expired reset link'));
-  try {
-    const { data: user, error } = await supabase.from('users').select('*').eq('password_reset_token', token).single();
-    if (error || !user) return res.redirect('/?message=' + encodeURIComponent('Invalid or expired reset link'));
-    if (!user.password_reset_expires || new Date(user.password_reset_expires) < new Date()) {
-      return res.redirect('/?message=' + encodeURIComponent('Reset link has expired'));
-    }
-    return res.render('author/reset_password', { token });
-  } catch (err) {
-    console.error('reset GET error', err);
-    return res.redirect('/?message=' + encodeURIComponent('Server error'));
-  }
-});
-
-app.post('/author/reset-password', async (req, res) => {
-  try {
-    const { token, password } = req.body;
-    if (!token || !password) return res.status(400).json({ error: 'token and password required' });
-    const { data: user, error } = await supabase.from('users').select('*').eq('password_reset_token', token).single();
-    if (error || !user) return res.status(400).json({ error: 'Invalid or expired token' });
-    if (!user.password_reset_expires || new Date(user.password_reset_expires) < new Date()) return res.status(400).json({ error: 'Token expired' });
-  // No role restriction: allow resetting password for the matched user
-
-    const password_hash = await bcrypt.hash(password, 10);
-    await supabase.from('users').update({ password_hash, password_reset_token: null, password_reset_expires: null }).eq('uid', user.uid);
-
-    const payload = { uid: user.uid, name: user.name, email: user.email, role: user.role || 'author' };
-    const jwtToken = jwt.sign(payload, process.env.JWT_SECRET || 'dev_jwt_secret', { expiresIn: '7d' });
-    res.cookie('jwt', jwtToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error('reset POST error', err);
-    return res.status(500).json({ error: 'server error' });
-  }
-});
-
-// Debug endpoint: send a test email (guarded by DEBUG_EMAIL_SECRET).
-// Usage: GET /__debug/send-test-email?secret=...&to=you@example.com
-app.get('/__debug/send-test-email', async (req, res) => {
-  const secret = req.query.secret;
-  const allowed = process.env.DEBUG_EMAIL_SECRET || null;
-  if (!allowed) return res.status(403).send('Debug email not enabled');
-  if (!secret || secret !== allowed) return res.status(401).send('Bad secret');
-
-  const to = req.query.to;
-  if (!to) return res.status(400).send('Provide ?to=your@email.com');
-
-  try {
-    const subject = 'Test email from ConfEase';
-    const text = 'This is a test email to verify mail configuration.';
-    const html = '<p>This is a test email to verify mail configuration.</p>';
-    const info = await sendMail(to, subject, text, html);
-    // include preview url if available
-    return res.json({ success: true, info });
-  } catch (err) {
-    console.error('debug send email error', err);
-    return res.status(500).json({ success: false, error: err && err.message ? err.message : String(err) });
-  }
-});
 
 app.get(
   "/auth4/google/dashboard4",
@@ -542,7 +468,7 @@ app.get(
   }
 );
 
-app.get("/dashboard", ensureAuthenticatedOrToken, async (req, res) => {
+app.get("/dashboard", async (req, res) => {
   // ensureAuthenticatedOrToken attaches req.user either from session or decoded JWT
   if (!req.user) {
     return res.redirect("/");
@@ -1705,13 +1631,11 @@ app.get("/chair/dashboard/invited-talks/:id",async(req,res)=>{
     console.error("Error fetching tracks:", tracksError);
   }
 
-  // Create a map of track_id to track_name
   const trackMap = {};
   (tracks || []).forEach(track => {
     trackMap[track.track_id] = track.track_name;
   });
 
-  // Enrich all submissions with track names
   const inviteesWithEnrichedSubmissions = inviteesWithSubmissions.map(invitee => ({
     ...invitee,
     submissions: (invitee.submissions || []).map(submission => ({
@@ -1731,6 +1655,7 @@ app.get("/chair/dashboard/invited-talks/:id",async(req,res)=>{
 app.get("/privacy-policy",async(req,res)=>{
   res.render("privacy-policy");
 })
+
 app.post("/add-invitee", async(req,res)=>{
    if (!req.isAuthenticated()) {
     return res.redirect("/");
@@ -1752,8 +1677,21 @@ app.post("/add-invitee", async(req,res)=>{
     return res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Error adding invitee.`);
   }
 
-  // Send email notification to invitee
+  // Create a one-time setup token (valid 24 hours) and save it on the invitee row
   try {
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const { error: tokenErr } = await supabase
+      .from('invitees')
+      .update({ password_reset_token: setupToken, password_reset_expires: expiresAt })
+      .eq('email', email);
+
+    if (tokenErr) {
+      console.error('Error saving setup token for invitee:', tokenErr);
+    }
+
+    // Send email notification to invitee with a set-password link
     const { data: conferenceData, error: confError } = await supabase
       .from("conferences")
       .select("title")
@@ -1761,20 +1699,29 @@ app.post("/add-invitee", async(req,res)=>{
       .single();
 
     const conferenceTitle = conferenceData?.title || "the conference";
+    const resetLink = `${APP_URL}/invitee/reset-password?token=${encodeURIComponent(setupToken)}`;
 
-    await sendMail(
-      email,
-      `Invited to Present at ${conferenceTitle}`,
-      `You have been invited to present at ${conferenceTitle}.`,
-      `<p>Dear Invitee,</p>
+    const htmlBody = `<p>Dear Invitee,</p>
        <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
-       <p>Please log in to your invitee dashboard using this email address: <strong>${email}</strong> to submit your presentation.</p>
+       <p>You can either Sing in using Google or using the email & password method. If you wish to use the email & password method, please set a password for your account using this secure link (valid 24 hours):</p>
+       <p><a href="${resetLink}">${resetLink}</a></p>
+       <p>After setting a password you can submit your presentation from your invitee dashboard using this email address: <strong>${email}</strong>.</p>
        <p>In case of any technical assistance, please feel free to reach out to us at <strong>multimedia@dei.ac.in</strong> or contact us at <strong>+91 9875691340</strong>.</p>
-       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
-    );
-  } catch (emailError) {
-    console.error("Error sending invitee notification email:", emailError);
-    // Don't fail the invitee addition if email fails
+       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`;
+
+    try {
+      await sendMail(
+        email,
+        `Invited to Present at ${conferenceTitle} - Set your password`,
+        `You have been invited to present at ${conferenceTitle}. Use this link to set your password: ${resetLink}`,
+        htmlBody
+      );
+    } catch (emailError) {
+      console.error("Error sending invitee notification email:", emailError);
+      // Don't fail the invitee addition if email fails
+    }
+  } catch (err) {
+    console.error('Error preparing invitee setup email:', err);
   }
 
   res.redirect(`/chair/dashboard/invited-talks/${conferenceId}?message=Invitee added successfully.`);
@@ -2567,9 +2514,9 @@ app.get("/submission/primary-author/:id", async (req, res) => {
   });
 });
 
-app.get("/submission/invited-talk/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
+app.get("/submission/invited-talk/:id", ensureAuthenticatedOrToken, async (req, res) => {
+  if (!req.user || req.user.role !== "invitee") {
+    return res.redirect("/?message=You are not authorized to access this page.");
   }
 
   // Fetch conference
@@ -3351,8 +3298,36 @@ app.post("/submit-revised-paper", (req, res, next) => {
     
     // If no error, proceed with the actual handler
     (async () => {
-      if (!req.isAuthenticated()) {
-        return res.redirect("/");
+      // Accept either passport session or JWT (cookie / Authorization header)
+      if (!(req.isAuthenticated && req.isAuthenticated())) {
+        // try Authorization header
+        const authHeader = req.headers && req.headers.authorization;
+        if (authHeader) {
+          const parts = authHeader.split(" ");
+          if (parts.length === 2 && parts[0] === "Bearer") {
+            try {
+              req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
+            } catch (err) {
+              return res.redirect("/");
+            }
+          }
+        }
+
+        // try jwt cookie
+        if (!req.user) {
+          const cookieHeader = req.headers && req.headers.cookie;
+          if (cookieHeader) {
+            const jwtCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('jwt='));
+            if (jwtCookie) {
+              const token = jwtCookie.split('=')[1];
+              try {
+                req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+              } catch (err) {
+                return res.redirect("/");
+              }
+            }
+          }
+        }
       }
 
       const { submission_id } = req.body;
@@ -3423,9 +3398,7 @@ app.post("/submit-revised-paper", (req, res, next) => {
         } catch (cleanupError) {
           console.error("Error cleaning up file:", cleanupError);
         }
-
         res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
-
       } catch (error) {
         console.error("Error in submit revised paper:", error);
         res.redirect("/dashboard?message=Error uploading revised paper.");
@@ -3445,8 +3418,36 @@ app.post("/edit-submission", (req, res, next) => {
     
     // If no error, proceed with the actual handler
     (async () => {
-      if (!req.isAuthenticated()) {
-        return res.redirect("/");
+      // Accept either passport session or JWT (cookie / Authorization header)
+      if (!(req.isAuthenticated && req.isAuthenticated())) {
+        // try Authorization header
+        const authHeader = req.headers && req.headers.authorization;
+        if (authHeader) {
+          const parts = authHeader.split(" ");
+          if (parts.length === 2 && parts[0] === "Bearer") {
+            try {
+              req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
+            } catch (err) {
+              return res.redirect("/");
+            }
+          }
+        }
+
+        // try jwt cookie
+        if (!req.user) {
+          const cookieHeader = req.headers && req.headers.cookie;
+          if (cookieHeader) {
+            const jwtCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('jwt='));
+            if (jwtCookie) {
+              const token = jwtCookie.split('=')[1];
+              try {
+                req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+              } catch (err) {
+                return res.redirect("/");
+              }
+            }
+          }
+        }
       }
 
       let { title, abstract, areas, id } = req.body;
@@ -3588,7 +3589,7 @@ app.post("/submit", (req, res, next) => {
   });
 });
 
-app.post("/submit-invited-talk", (req, res, next) => {
+app.post("/submit-invited-talk", async (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       const message = err.code === 'LIMIT_FILE_SIZE' 
@@ -3596,33 +3597,40 @@ app.post("/submit-invited-talk", (req, res, next) => {
         : err.message;
       return res.redirect(`/invitee/dashboard?message=Error: ${message}`);
     }
-    
-    // If no error, proceed with the actual handler
+
     (async () => {
-      if (!req.isAuthenticated()) {
-        return res.redirect("/");
+      // Only invitee should be allowed
+      if (!req.user || req.user.role !== "invitee") {
+        return res.redirect("/?message=Unauthorized");
       }
 
-      // Check if file was uploaded
+      // Ensure file exists
       if (!req.file) {
-        return res.redirect("/invitee/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
       }
 
-      const { title, abstract, areas, id } = req.body;
+      const { title, abstract, areas } = req.body;
+
+      if (!title || !abstract || !areas) {
+        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("All fields are required"));
+      }
+
+      // Upload file to Cloudinary
       const filePath = req.file.path;
       const uploadResult = await cloudinary.uploader.upload(filePath, {
-        resource_type: "auto", // auto-detect type (pdf, docx, etc.)
+        resource_type: "auto",
         folder: "submissions",
-        public_id: `${req.user.uid}-${Date.now()}`,
+        public_id: `${req.user.email}-${Date.now()}`,
       });
 
-      const { data, error } = await supabase.from("invited_talk_submissions").insert([
+      // INSERT submission
+      const { error } = await supabase.from("invited_talk_submissions").insert([
         {
-          conference_id: id,
-          invitee_email: req.user.email,
+          conference_id: req.user.conference_id,   // ✅ correct source
+          invitee_email: req.user.email,           // ✅ from authenticated user
           title: title,
           abstract: abstract,
-          track_id: areas, 
+          track_id: areas,                         // ✅ correct field
           file_url: uploadResult.secure_url,
           paper_id: crypto.randomUUID(),
         },
@@ -3630,13 +3638,14 @@ app.post("/submit-invited-talk", (req, res, next) => {
 
       if (error) {
         console.error("Error inserting submission:", error);
-        return res.status(500).send("Error submitting your proposal.");
-      } else {
-        res.redirect("invitee/dashboard");
+        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Submission failed."));
       }
+
+      return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Submission saved successfully"));
     })().catch(next);
   });
 });
+
 
 passport.use(
   "google",
@@ -3842,6 +3851,8 @@ passport.use(
   // Use the first invitee record if multiple exist
         const invitee = invitees[0];
 
+        
+
         // Update invitee with name and other details if not already set
         const updates = {};
         if (!invitee.name) updates.name = profile.displayName;
@@ -3872,119 +3883,6 @@ passport.use(
   )
 );
 
-// -----------------------------
-// Passport Local Strategy (email + password)
-// -----------------------------
-passport.use(
-  "local",
-  new LocalStrategy({ usernameField: "email", passwordField: "password" }, async (email, password, done) => {
-    try {
-      const result = await supabase.from("users").select("*").eq("email", email).single();
-      const user = result.data;
-      if (!user) {
-        return done(null, false, { message: "Invalid email or password" });
-      }
-
-      if (!user.password_hash) {
-        // User exists but has no local password set (likely Google user)
-        return done(null, false, { message: "No local password set for this user" });
-      }
-
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) {
-        return done(null, false, { message: "Invalid email or password" });
-      }
-
-      // Remove sensitive fields before returning
-      delete user.password_hash;
-      user.role = user.role || "author";
-      return done(null, user);
-    } catch (err) {
-      console.error("LocalStrategy error:", err);
-      return done(err);
-    }
-  })
-);
-
-// POST /login - authenticate using passport local strategy and return JWT + set cookie
-app.post('/login', (req, res, next) => {
-  passport.authenticate('local', (err, user, info) => {
-    if (err) return next(err);
-    if (!user) {
-      const message = info && info.message ? info.message : 'Invalid email or password';
-      return res.status(401).json({ error: message });
-    }
-
-    // Log the user into the session (so req.isAuthenticated() works) and also issue JWT
-    req.logIn(user, (err) => {
-      if (err) return next(err);
-
-      const payload = { uid: user.uid, name: user.name, email: user.email, role: user.role || 'author' };
-      const token = jwt.sign(payload, process.env.JWT_SECRET || 'dev_jwt_secret', { expiresIn: '7d' });
-
-      // set httpOnly cookie and return token for client-side usage
-      res.cookie('jwt', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, path: '/' });
-      return res.json({ token, user: payload });
-    });
-  })(req, res, next);
-});
-
-// JWT authentication middleware
-function authenticateJWT(req, res, next) {
-  const authHeader = req.headers && req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Missing Authorization header" });
-  }
-  const parts = authHeader.split(" ");
-  if (parts.length !== 2 || parts[0] !== "Bearer") {
-    return res.status(401).json({ error: "Invalid Authorization header format" });
-  }
-  const token = parts[1];
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
-    req.user = decoded; // attach decoded payload (uid, name, email)
-    return next();
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-}
-
-// Helper: allow either session-based Passport or JWT (useful when migrating routes)
-function ensureAuthenticatedOrToken(req, res, next) {
-  if (req.isAuthenticated && req.isAuthenticated()) return next();
-  // else try JWT
-  const authHeader = req.headers && req.headers.authorization;
-  if (authHeader) {
-    const parts = authHeader.split(" ");
-    if (parts.length === 2 && parts[0] === "Bearer") {
-      try {
-        const decoded = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
-        req.user = decoded;
-        return next();
-      } catch (err) {
-        return res.redirect("/");
-      }
-    }
-  }
-
-  // If no Authorization header, try cookie named 'jwt' (simple parse)
-  const cookieHeader = req.headers && req.headers.cookie;
-  if (cookieHeader) {
-    const jwtCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('jwt='));
-    if (jwtCookie) {
-      const token = jwtCookie.split('=')[1];
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
-        req.user = decoded;
-        return next();
-      } catch (err) {
-        return res.redirect("/");
-      }
-    }
-  }
-
-  return res.redirect("/");
-}
 
 passport.serializeUser((user, cb) => {
   cb(null, { ...user, role: user.role });

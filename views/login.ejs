@@ -12,6 +12,19 @@
     <%- include('partials/header') %>
     <div class="container">
       <table class="table" style="table-layout: fixed; width: 100%;">
+       
+       <tr>
+        <td colspan="4"><div class="card">
+          <h5 class="card-header">Important Note</h5>
+
+            <div class="card-body">
+              <p align="justify">
+          Currently, only Google Sign-In is available for authentication. Additional login methods, including Email and Password, will be introduced soon. We apologize for any inconvenience this may cause and appreciate your understanding as we work to improve your experience.
+
+        </p></div>
+      </div></td>
+       </tr>
+       
         <tr>
           <td style="width: 25%; padding: 15px;">
 
@@ -24,21 +37,7 @@
             <p class="card-title">(Contributed Talk)</p>
 
     
-    <div class="d-flex gap-2">
-      <table class="table">
-        <tr>
-       
-       <td>      <a href="/auth/google" class="btn btn-primary">Sign in with Google</a>
-</td>
-        </tr>
-        <tr>
-          <td>
-      <a href="/auth/local" class="btn btn-primary">Sign in with Email</a>
-
-          </td>
-        </tr>
-      </table>
-    </div>
+   <a href="/auth/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
   </div>
 </div>
           </td>
@@ -51,8 +50,10 @@
 </h5>
   <div class="card-body">
         <p class="card-title">(Invited Talk)</p>
+       
+             <a href="/auth4/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
 
-    <a href="/auth4/google" class="btn btn-primary">Sign in with Google</a>
+
   </div>
 </div>
           </td>
@@ -63,7 +64,7 @@
   <div class="card-body">
             <p class="card-title">(Manage Conferences)</p>
 
-    <a href="/auth3/google" class="btn btn-primary">Sign in with Google</a>
+    <a href="/auth3/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
   </div>
 </div>
           </td>
@@ -74,7 +75,7 @@
   <div class="card-body">
             <p class="card-title">(Review Submissions)</p>
 
-    <a href="/auth2/google" class="btn btn-primary">Sign in with Google</a>
+    <a href="/auth2/google" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i></a>
   </div>
 </div>
           </td>
@@ -163,7 +164,7 @@ The Dayalbagh Educational Institute (DEI), declared a Deemed University by the G
               icon: 'info',
               showDenyButton: true,
               confirmButtonText: 'Sign in with Email',
-              denyButtonText: 'Sign in with Google',
+              denyButtonText: '<i class="bi bi-box-arrow-in-right"></i>',
             }).then((result) => {
               if (result.isConfirmed) window.location.href = '/auth/local';
               else if (result.isDenied) window.location.href = '/auth/google';
