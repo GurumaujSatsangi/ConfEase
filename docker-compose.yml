@@ -1,13 +1,93 @@
-version: "3.8"
-
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: confease-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - confease-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Application
   app:
     build: .
-    container_name: confease_app
+    container_name: confease-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_USER: ${DB_USER}
+      DB_HOST: postgres
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: 5432
+      
+      # Session & JWT
+      SESSION_SECRET: ${SESSION_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      
+      # Google OAuth - Author
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:3000/auth/google/dashboard}
+      
+      # Google OAuth - Reviewer
+      GOOGLE_CLIENT_ID2: ${GOOGLE_CLIENT_ID2}
+      GOOGLE_CLIENT_SECRET2: ${GOOGLE_CLIENT_SECRET2}
+      GOOGLE_CALLBACK_URL2: ${GOOGLE_CALLBACK_URL2:-http://localhost:3000/auth2/google/dashboard2}
+      
+      # Google OAuth - Chair
+      GOOGLE_CLIENT_ID3: ${GOOGLE_CLIENT_ID3}
+      GOOGLE_CLIENT_SECRET3: ${GOOGLE_CLIENT_SECRET3}
+      GOOGLE_CALLBACK_URL3: ${GOOGLE_CALLBACK_URL3:-http://localhost:3000/auth3/google/dashboard3}
+      
+      # Google OAuth - Invitee
+      GOOGLE_CLIENT_ID4: ${GOOGLE_CLIENT_ID4}
+      GOOGLE_CLIENT_SECRET4: ${GOOGLE_CLIENT_SECRET4}
+      GOOGLE_CALLBACK_URL4: ${GOOGLE_CALLBACK_URL4:-http://localhost:3000/auth4/google/dashboard4}
+      
+      # Cloudinary
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      
+      # Email Configuration
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+      
+      # Supabase (if still needed for some features)
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      
+      # Node Environment
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
     ports:
       - "3000:3000"
-    env_file:
-      - .env
     volumes:
-      - .:/app
-      - /app/node_modules
+      - ./uploads:/app/uploads
+    networks:
+      - confease-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  confease-network:
+    driver: bridge

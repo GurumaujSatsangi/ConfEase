@@ -11,7 +11,6 @@ import jwt from "jsonwebtoken";
 import session from "express-session";
 import dotenv from "dotenv";
 import { v2 as cloudinary } from "cloudinary";
-import { createClient } from "@supabase/supabase-js";
 import { fileURLToPath } from "url";
 import path from "path";
 import multer from "multer";
@@ -69,10 +68,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+
 const port = process.env.PORT || 3000;
 const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -85,7 +81,7 @@ app.set("views", path.join(__dirname, "views"));
 // Session middleware must be registered before passport.session()
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "dev_session_secret",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
@@ -157,6 +153,25 @@ app.get('/auth4/google/dashboard4', (req, res, next) => {
 });
 
 
+// Health check endpoint for Docker
+app.get("/health", async (req, res) => {
+  try {
+    // Check database connection
+    await pool.query("SELECT 1");
+    res.status(200).json({ 
+      status: "healthy", 
+      timestamp: new Date().toISOString(),
+      database: "connected"
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: "unhealthy", 
+      timestamp: new Date().toISOString(),
+      database: "disconnected",
+      error: error.message
+    });
+  }
+});
 
 
 app.get("/", async (req, res) => {

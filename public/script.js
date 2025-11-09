@@ -102,3 +102,14 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+
+
+function actionplan(){
+
+Swal.fire({
+  imageUrl: "./dummy.png",
+  imageWidth: 500,
+  imageHeight: 1000,
+  imageAlt: "DEI CMT Process Flow"
+});
+}
