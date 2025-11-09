@@ -9,6 +9,17 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <%
+    // Helper function to format yyyy-mm-dd to dd-mm-yyyy for display
+    function formatDateDisplay(dateStr) {
+      if (!dateStr) return dateStr;
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return dateStr;
+    }
+    %>
     <%- include('partials/dashboard/header') %>
     <div class="container">
 
@@ -32,13 +43,13 @@
 
               <tr>
                 <td >Conference Timeline</td>
-                <td>Start Date: <br><b><%= conference.conference_start_date %></b></td>
-                <td>End Date: <br><b><%= conference.conference_end_date %></b></td>
+                <td>Start Date: <br><b><%= formatDateDisplay(conference.conference_start_date) %></b></td>
+                <td>End Date: <br><b><%= formatDateDisplay(conference.conference_end_date) %></b></td>
              </tr>
               <tr>
-                <td>Full Paper Submission: <br><b><%= conference.full_paper_submission %> (11:59 PM IST)</b></td>
-                <td>Acceptance Notification: <br><b><%= conference.acceptance_notification %> (11:59 PM IST)</b></td>
-                <td>Final Camera Ready Paper Submission: <br><b><%= conference.camera_ready_paper_submission %> (11:59 PM IST)</b></td>
+                <td>Full Paper Submission: <br><b><%= formatDateDisplay(conference.full_paper_submission) %> (11:59 PM IST)</b></td>
+                <td>Acceptance Notification: <br><b><%= formatDateDisplay(conference.acceptance_notification) %> (11:59 PM IST)</b></td>
+                <td>Final Camera Ready Paper Submission: <br><b><%= formatDateDisplay(conference.camera_ready_paper_submission) %> (11:59 PM IST)</b></td>
               </tr>
              
               <tr>
