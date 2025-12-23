@@ -553,23 +553,8 @@ async function checkAuth(req, res, next) {
   }
 }
 
-async function fetchAllConference(){
-  const result = await pool.query("select * from conferences");
-  return result.rows;
-}
-async function fetchSubmissions(email){
-  const result = await pool.query(
-    "select * from submissions where primary_author=$1",[email]
-  );
-  return result.rows;
-}
 
 
-// app.get("/dashboard", checkAuth, async (req, res) => {
-//   const conferences = await fetchAllConference();
-//   const submissions = await fetchSubmissions(req.user.email);
-//   res.render("dashboard2", { user: req.user, conferences,submissions});
-// });
 
 // =====================
 // Utilities
@@ -1867,8 +1852,15 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 
 
 app.get("/login/user", async (req,res)=>{
-  res.render("login/user");
+  const message = req.query.message || null;
+  res.render("login/user", { message });
 })
+
+app.get("/registration/user", async (req,res)=>{
+  const message = req.query.message || null;
+  res.render("login/user2", { message });
+})
+
 
 app.post("/user-login", async (req, res) => {
   try {
@@ -1881,7 +1873,7 @@ app.post("/user-login", async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(401).send("Invalid email or password");
+      return res.redirect("/login/user?message=Invalid email or password");
     }
 
     const user = userResult.rows[0];
@@ -1890,7 +1882,7 @@ app.post("/user-login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      return res.status(401).send("Invalid email or password");
+      return res.redirect("/login/user?message=Invalid email or password");
     }
 
     // generate jwt
