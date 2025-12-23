@@ -86,6 +86,26 @@
                    
                 </td>
               </tr>
+              <tr>
+                <td colspan="4"><% if(isReviewerResult === true) { %>
+                <center>
+            <a href="/" style="width:300px" class="btn btn-outline-success">Review Papers</a>
+                </center>
+              <% } %>
+                <% if(isInviteeResult === true) { %>
+                    <center>
+            <a href="/" style="width:300px" class="btn btn-outline-success">Submit Paper for Invited Talk</a>
+                </center>
+               <% } %>
+
+                <% if(isSessionChairResult === true) { %>
+                    <center>
+            <a href="/" style="width:300px" class="btn btn-outline-success">Start Oral Presentation</a>
+                </center>
+               <% } %>
+
+              </td>
+              </tr>
             </table>
           </div>
         </div>

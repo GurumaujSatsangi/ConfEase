@@ -697,6 +697,46 @@ function buildTrackDetailsMap(tracks) {
   return map;
 }
 
+async function isReviewer(email){
+const data = await pool.query("select * from conference_tracks where $1=ANY(track_reviewers)",[email]);
+let result;
+if(data.rows.length>0){
+  result = true;
+}
+else{
+  result = false;
+}
+return result;
+}
+
+
+async function isInvitee(email){
+const data = await pool.query("select * from invitees where email=$1",[email]);
+let result;
+if(data.rows.length>0){
+  result = true;
+}
+else{
+  result = false;
+}
+return result;
+}
+
+
+async function isSessionChair(email){
+const data = await pool.query("select * from conference_tracks where $1=any(panelists)",[email]);
+let result;
+if(data.rows.length>0){
+  result = true;
+}
+else{
+  result = false;
+}
+return result;
+}
+
+
+
 // =====================
 // Dashboard Route
 // =====================
@@ -704,6 +744,9 @@ app.get("/dashboard", checkAuth, async (req, res) => {
   
 
   try {
+    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isInviteeResult = await isInvitee(req.user.email);
+    const isReviewerResult = await isReviewer(req.user.email);
     const conferences = await fetchAllConferences();
     const submissions = await fetchUserSubmissions(req.user.email);
     const trackIds = await fetchTrackIds(req.user.email);
@@ -735,6 +778,9 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       user: req.user,
       conferences,
       userSubmissions,
+      isReviewerResult,
+      isSessionChairResult,
+      isInviteeResult,
       presentationdata: presentationTracks,
       coAuthorRequests,
       revisedSubmissionsMap,
@@ -1848,6 +1894,7 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     return res.status(500).send("Error managing sessions.");
   }
 });
+
 
 app.post("/user-registration", async (req, res) => {
   try {
