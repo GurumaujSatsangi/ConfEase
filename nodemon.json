@@ -1,0 +1,7 @@
+{
+  "watch": ["index.js", "views", "public", "config", "mailer.js"],
+  "ext": "js,ejs,json,css",
+  "ignore": ["uploads/**", "node_modules/**"],
+  "exec": "node index.js",
+  "legacyWatch": true
+}

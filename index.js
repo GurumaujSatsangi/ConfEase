@@ -1,5 +1,6 @@
 import express from "express";
 import bodyParser from "body-parser";
+import cookieParser from "cookie-parser";
 import passport from "passport";
 import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
@@ -73,6 +74,7 @@ const port = process.env.PORT || 3000;
 const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(cookieParser());
 app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use("/static", express.static(path.join(__dirname, "public")));
@@ -175,19 +177,7 @@ app.get("/health", async (req, res) => {
 
 
 app.get("/", async (req, res) => {
-  if (req.isAuthenticated()) {
-    if (req.user.role === "author") {
-      return res.redirect("/dashboard");
-    } else if (req.user.role === "reviewer") {
-      return res.redirect("/reviewer/dashboard");
-    } else if (req.user.role === "chair") {
-      return res.redirect("/chair/dashboard");
-    }
-    else if (req.user.role === "invitee") {
-      return res.redirect("/invitee/dashboard");
-    }
-    // Add more roles as needed
-  }
+ 
   const message = req.query.message || null;
   const result = await pool.query("SELECT * FROM conferences");
   const data = result.rows;
@@ -532,195 +522,250 @@ app.get(
   }
 );
 
+async function checkAuth(req, res, next) {
+  const token = req.cookies.token;
 
-app.get("/dashboard", async (req, res) => {
-  if (!req.user) return res.redirect("/");
-  if (req.user.role !== "author") {
-    return res.redirect("/?message=You are not authorized to access the author dashboard.");
+  if (!token) {
+    return res.redirect("/login/user");
   }
 
   try {
-    // Helper function to format dates to yyyy-mm-dd for comparisons
-    const formatDateISO = (dateString) => {
-      if (!dateString) return dateString;
-      const date = new Date(dateString);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
+    // decode JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // 1. Get all conferences
-    const conferencedata = (await pool.query(`SELECT * FROM conferences;`)).rows.map(conference => ({
-      ...conference,
-      conference_start_date: formatDateISO(conference.conference_start_date),
-      conference_end_date: formatDateISO(conference.conference_end_date),
-      full_paper_submission: formatDateISO(conference.full_paper_submission),
-      acceptance_notification: formatDateISO(conference.acceptance_notification),
-      camera_ready_paper_submission: formatDateISO(conference.camera_ready_paper_submission)
-    }));
+    // fetch user using email from token
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [decoded.email]
+    );
 
-    // 2. Get user's track_ids
-    const trackinfodata = (
-      await pool.query(
-        `SELECT track_id
-         FROM submissions
-         WHERE primary_author = $1
-         OR $1 = ANY(co_authors);`,
-        [req.user.email]
-      )
-    ).rows;
-
-    const trackIds = [...new Set(trackinfodata.map(t => t.track_id).filter(Boolean))];
-
-    // 3. Get presentation track info
-    let presentationdatainfo = [];
-    if (trackIds.length > 0) {
-      presentationdatainfo = (
-        await pool.query(
-          `SELECT * FROM conference_tracks WHERE track_id = ANY($1);`,
-          [trackIds]
-        )
-      ).rows.map(track => ({
-        ...track,
-        presentation_date: formatDateISO(track.presentation_date)
-      }));
+    if (result.rows.length === 0) {
+      return res.redirect("/login/user");
     }
 
-    // 4. Get full submission data for the user
-    const submissiondata = (
-      await pool.query(
-        `SELECT * FROM submissions
-         WHERE primary_author = $1
-         OR $1 = ANY(co_authors);`,
-        [req.user.email]
-      )
-    ).rows;
+    // attach user to request
+    req.user = result.rows[0];
 
-    // 5. Map track_id → track_name
-    const trackMap = {};
-    presentationdatainfo.forEach(t => (trackMap[t.track_id] = t.track_name));
+    // move to next route handler
+    next();
+  } catch (err) {
+    return res.redirect("/login/user");
+  }
+}
 
-    // 6. Collect all author/co-author emails to fetch names
-    const allEmails = new Set();
-    submissiondata.forEach(sub => {
-      allEmails.add(sub.primary_author);
-      if (Array.isArray(sub.co_authors)) sub.co_authors.forEach(e => allEmails.add(e));
+async function fetchAllConference(){
+  const result = await pool.query("select * from conferences");
+  return result.rows;
+}
+async function fetchSubmissions(email){
+  const result = await pool.query(
+    "select * from submissions where primary_author=$1",[email]
+  );
+  return result.rows;
+}
+
+
+// app.get("/dashboard", checkAuth, async (req, res) => {
+//   const conferences = await fetchAllConference();
+//   const submissions = await fetchSubmissions(req.user.email);
+//   res.render("dashboard2", { user: req.user, conferences,submissions});
+// });
+
+// =====================
+// Utilities
+// =====================
+function formatDateISO(dateString) {
+  if (!dateString) return dateString;
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// =====================
+// Data Fetch Functions
+// =====================
+async function fetchAllConferences() {
+  const result = await pool.query("SELECT * FROM conferences");
+  return result.rows.map(c => ({
+    ...c,
+    conference_start_date: formatDateISO(c.conference_start_date),
+    conference_end_date: formatDateISO(c.conference_end_date),
+    full_paper_submission: formatDateISO(c.full_paper_submission),
+    acceptance_notification: formatDateISO(c.acceptance_notification),
+    camera_ready_paper_submission: formatDateISO(c.camera_ready_paper_submission),
+  }));
+}
+
+async function fetchUserSubmissions(email) {
+  const result = await pool.query(
+    `SELECT * FROM submissions
+     WHERE primary_author = $1
+     OR $1 = ANY(co_authors);`,
+    [email]
+  );
+  return result.rows;
+}
+
+async function fetchTrackIds(email) {
+  const result = await pool.query(
+    `SELECT track_id
+     FROM submissions
+     WHERE primary_author = $1
+     OR $1 = ANY(co_authors);`,
+    [email]
+  );
+  return [...new Set(result.rows.map(r => r.track_id).filter(Boolean))];
+}
+
+async function fetchPresentationTracks(trackIds) {
+  if (!trackIds.length) return [];
+  const result = await pool.query(
+    `SELECT * FROM conference_tracks WHERE track_id = ANY($1);`,
+    [trackIds]
+  );
+  return result.rows.map(t => ({
+    ...t,
+    presentation_date: formatDateISO(t.presentation_date),
+  }));
+}
+
+async function fetchUserNamesByEmails(emails) {
+  if (!emails.length) return {};
+  const result = await pool.query(
+    `SELECT email, name FROM users WHERE email = ANY($1);`,
+    [emails]
+  );
+  const map = {};
+  result.rows.forEach(u => (map[u.email] = u.name));
+  return map;
+}
+
+function enrichSubmissions(submissions, tracks, emailToNameMap) {
+  const trackMap = {};
+  tracks.forEach(t => (trackMap[t.track_id] = t.track_name));
+
+  const formatNameEmail = email => {
+    const name = emailToNameMap[email];
+    return name ? `${name} (${email})` : email;
+  };
+
+  return submissions.map(sub => ({
+    ...sub,
+    track_name: trackMap[sub.track_id] || "Track name not available",
+    primary_author_formatted: formatNameEmail(sub.primary_author),
+    co_authors_formatted: Array.isArray(sub.co_authors)
+      ? sub.co_authors.map(formatNameEmail).join(", ")
+      : "",
+  }));
+}
+
+async function fetchCoAuthorRequests(submissionIds) {
+  if (!submissionIds.length) return [];
+  const result = await pool.query(
+    `SELECT * FROM co_author_requests WHERE submission_id = ANY($1);`,
+    [submissionIds]
+  );
+  return result.rows;
+}
+
+async function fetchRevisedSubmissions(submissionIds) {
+  if (!submissionIds.length) return {};
+  const result = await pool.query(
+    `SELECT submission_id, file_url
+     FROM revised_submissions
+     WHERE submission_id = ANY($1);`,
+    [submissionIds]
+  );
+  const map = {};
+  result.rows.forEach(r => (map[r.submission_id] = r.file_url));
+  return map;
+}
+
+async function fetchPosterSessions(submissions) {
+  const conferenceIds = [
+    ...new Set(
+      submissions
+        .filter(s =>
+          s.submission_status === "Accepted for Poster Presentation" ||
+          s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation"
+        )
+        .map(s => s.conference_id)
+    ),
+  ];
+
+  if (!conferenceIds.length) return {};
+  const result = await pool.query(
+    `SELECT * FROM poster_session WHERE conference_id = ANY($1);`,
+    [conferenceIds]
+  );
+
+  const map = {};
+  result.rows.forEach(ps => (map[ps.conference_id] = ps));
+  return map;
+}
+
+function buildTrackDetailsMap(tracks) {
+  const map = {};
+  tracks.forEach(t => (map[t.track_id] = t));
+  return map;
+}
+
+// =====================
+// Dashboard Route
+// =====================
+app.get("/dashboard", checkAuth, async (req, res) => {
+  
+
+  try {
+    const conferences = await fetchAllConferences();
+    const submissions = await fetchUserSubmissions(req.user.email);
+    const trackIds = await fetchTrackIds(req.user.email);
+    const presentationTracks = await fetchPresentationTracks(trackIds);
+
+    const emailSet = new Set();
+    submissions.forEach(s => {
+      emailSet.add(s.primary_author);
+      if (Array.isArray(s.co_authors)) s.co_authors.forEach(e => emailSet.add(e));
     });
 
-    let emailArray = Array.from(allEmails);
-    let userData = [];
+    const emailToNameMap = await fetchUserNamesByEmails([...emailSet]);
+    const userSubmissions = enrichSubmissions(
+      submissions,
+      presentationTracks,
+      emailToNameMap
+    );
 
-    if (emailArray.length > 0) {
-      userData = (
-        await pool.query(
-          `SELECT email, name FROM users WHERE email = ANY($1);`,
-          [emailArray]
-        )
-      ).rows;
-    }
+    const primarySubmissionIds = submissions
+      .filter(s => s.primary_author === req.user.email)
+      .map(s => s.submission_id);
 
-    const emailToNameMap = {};
-    userData.forEach(u => (emailToNameMap[u.email] = u.name));
-
-    const formatNameEmail = (email) => {
-      const name = emailToNameMap[email];
-      return name ? `${name} (${email})` : email;
-    };
-
-    const submissionsWithTrackNames = submissiondata.map(sub => ({
-      ...sub,
-      track_name: trackMap[sub.track_id] || 'There was error fetching the track name for this submission.',
-      primary_author_formatted: formatNameEmail(sub.primary_author),
-      co_authors_formatted: Array.isArray(sub.co_authors)
-        ? sub.co_authors.map(formatNameEmail).join(", ")
-        : (sub.co_authors ? formatNameEmail(sub.co_authors) : "")
-    }));
-
-    // 7. Get user's submission_ids (only primary authored)
-    const userSubmissionIds = submissiondata
-      .filter(sub => sub.primary_author === req.user.email)
-      .map(sub => sub.submission_id);
-
-    // 8. Get co-author requests
-    let coAuthorRequests = [];
-    if (userSubmissionIds.length > 0) {
-      coAuthorRequests = (
-        await pool.query(
-          `SELECT * FROM co_author_requests WHERE submission_id = ANY($1);`,
-          [userSubmissionIds]
-        )
-      ).rows;
-    }
-
-    // 9. Get revised submissions
-    let revisedSubmissionsMap = {};
-    if (userSubmissionIds.length > 0) {
-      const revised = (
-        await pool.query(
-          `SELECT submission_id, file_url FROM revised_submissions WHERE submission_id = ANY($1);`,
-          [userSubmissionIds]
-        )
-      ).rows;
-
-      revised.forEach(r => (revisedSubmissionsMap[r.submission_id] = r.file_url));
-    }
-
-    // 10. Get poster sessions
-    const conferenceIds = [...new Set(
-      submissiondata
-        .filter(sub =>
-          sub.submission_status === "Accepted for Poster Presentation" ||
-          sub.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation"
-        )
-        .map(sub => sub.conference_id)
-    )];
-
-    let posterSessionsMap = {};
-    if (conferenceIds.length > 0) {
-      const posterSessions = (
-        await pool.query(
-          `SELECT * FROM poster_session WHERE conference_id = ANY($1);`,
-          [conferenceIds]
-        )
-      ).rows;
-
-      posterSessions.forEach(ps => (posterSessionsMap[ps.conference_id] = ps));
-    }
-
-    // 11. Track details map for oral presentations
-    const trackDetailsMap = {};
-    presentationdatainfo.forEach(track => {
-      trackDetailsMap[track.track_id] = track;
-    });
+    const coAuthorRequests = await fetchCoAuthorRequests(primarySubmissionIds);
+    const revisedSubmissionsMap = await fetchRevisedSubmissions(primarySubmissionIds);
+    const posterSessionsMap = await fetchPosterSessions(submissions);
+    const trackDetailsMap = buildTrackDetailsMap(presentationTracks);
 
     res.render("dashboard.ejs", {
       user: req.user,
-      conferences: conferencedata,
-      userSubmissions: submissionsWithTrackNames,
-      presentationdata: presentationdatainfo,
-      currentDate: (() => {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      })(),
-      message: req.query.message || null,
-      trackinfodata,
+      conferences,
+      userSubmissions,
+      presentationdata: presentationTracks,
       coAuthorRequests,
       revisedSubmissionsMap,
       posterSessionsMap,
       trackDetailsMap,
+      currentDate: formatDateISO(new Date()),
+      message: req.query.message || null,
     });
-
   } catch (err) {
     console.error(err);
-    return res.redirect(
-      "/?message=We are facing some issues in connecting to the database. Please try again later."
+    res.redirect(
+      "/?message=We are facing issues connecting to the database. Please try again later."
     );
   }
 });
+
 
 
 app.post("/publish/review-results", async (req, res) => {
@@ -1794,10 +1839,10 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
         try {
           await sendMail(
             panelistEmail,
-            `Panelist Assignment - ${track.track_name}`,
-            `You have been assigned as a panelist for the track "${track.track_name}".`,
-            `<p>Dear Panelist,</p>
-             <p>You have been assigned as a panelist for the following:</p>
+            `Session Chair Assignment - ${track.track_name}`,
+            `You have been assigned as a Session Chair for the track "${track.track_name}".`,
+            `<p>Dear Session Chair,</p>
+             <p>You have been assigned as a session chair for the following:</p>
              <p><strong>Track:</strong> ${track.track_name}</p>
              <p><strong>Presentation Date:</strong> ${session_date}</p>
              <p><strong>Time:</strong> ${session_start_time} to ${session_end_time}</p>
@@ -1818,6 +1863,60 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
     return res.status(500).send("Error managing sessions.");
   }
 });
+
+
+
+app.get("/login/user", async (req,res)=>{
+  res.render("login/user");
+})
+
+app.post("/user-login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // fetch user
+    const userResult = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).send("Invalid email or password");
+    }
+
+    const user = userResult.rows[0];
+
+    // compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).send("Invalid email or password");
+    }
+
+    // generate jwt
+    const token = jwt.sign(
+      { email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    // set cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000
+    });
+
+    // ✅ redirect instead of render
+    return res.redirect("/dashboard");
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error");
+  }
+});
+
 
 
 app.get("/chair/dashboard/invited-talks/:id", async (req, res) => {
@@ -1954,10 +2053,7 @@ app.post("/add-invitee", async (req, res) => {
     const htmlBody = `
       <p>Dear Invitee,</p>
       <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
-      <p>You may sign in using Google, or create a password for email login.</p>
-      <p>To set your password (valid 24 hours):</p>
-      <p><a href="${resetLink}">${resetLink}</a></p>
-      <p>After setting your password, log in using this email: <strong>${email}</strong>.</p>
+      <p>You may sign in (using Google) using this email: <strong>${email}</strong>.</p>
       <p>For support, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>
     `;
@@ -1965,7 +2061,7 @@ app.post("/add-invitee", async (req, res) => {
     try {
       await sendMail(
         email,
-        `Invited to Present at ${conferenceTitle} - Set Your Password`,
+        `Invited to Present at ${conferenceTitle}`,
         `You have been invited to present at ${conferenceTitle}. Set your password: ${resetLink}`,
         htmlBody
       );
@@ -2201,10 +2297,8 @@ app.get("/chair/dashboard/delete-conference/:id", async (req, res) => {
 
 
 
-app.get("/submission/co-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
+  
 
   try {
     // Helper function to format dates
@@ -2589,10 +2683,8 @@ app.get("/chair/create-new-conference", (req, res) => {
   });
 });
 
-app.get("/submission/primary-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
+  
 
   try {
     // Helper function to format dates
@@ -3719,10 +3811,8 @@ app.post("/edit-submission", (req, res) => {
 });
 
 
-app.get("/submission/delete/primary-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => {
+  
 
   try {
     await pool.query(
@@ -4187,13 +4277,14 @@ passport.deserializeUser((user, cb) => {
 
 
 app.get("/logout", (req, res) => {
-  req.logout(function (err) {
-    if (err) {
-      return next(err);
-    }
-    res.redirect("/");
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "strict",
   });
+
+  res.redirect("/?message=Logged out successfully");
 });
+
 
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);

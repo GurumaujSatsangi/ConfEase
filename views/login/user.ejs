@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon" />
+
+    <link rel="stylesheet" href="/styles.css" />
+    <title>DEI CMT</title>
+  </head>
+  <body>
+    <%- include('../partials/header copy') %>
+
+    <div class="container">
+
+
+        <div class="card">
+  <div class="card-header">
+<b>Author / Reviewer / Invitee Login</b>  </div>
+  <div class="card-body">
+      <form action="/user-login" method="post">
+  <div class="mb-3">
+    <label for="exampleInputEmail1" class="form-label">Email Address</label>
+    <input type="email" class="form-control" id="exampleInputEmail1" name="email" aria-describedby="emailHelp">
+  </div>
+  <div class="mb-3">
+    <label for="exampleInputPassword1" class="form-label">Password</label>
+    <input type="password" class="form-control" name="password" id="exampleInputPassword1">
+  </div>
+  <button type="submit" class="btn btn-primary">Login</button>
+</form>
+
+  </div>
+</div>
+
+
+    </div>
+    <%- include('../partials/footer') %>
+
+    <script src="/script.js"></script>
+  </body>
+</html>
