@@ -1849,6 +1849,35 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
   }
 });
 
+app.post("/user-registration", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // hash password (IMPORTANT: await)
+    const hashed_password = await bcrypt.hash(password, 10);
+
+    const check = await pool.query("select * from users where email = $1",[email]);
+    if(check.rows.length===0){
+        await pool.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3)",
+      [name, email, hashed_password]
+    );
+
+    return res.redirect("/login/user?message=Account created successfully. Please login.");
+
+    }
+    else{
+          return res.redirect("/registration/user?message=Account with this Email Address already exists.");
+
+
+    }
+
+  
+  } catch (err) {
+    // console.error(err);
+    return res.redirect("/registration/user?message=Something went wrong, please try again later.");
+  }
+});
 
 
 app.get("/login/user", async (req,res)=>{
