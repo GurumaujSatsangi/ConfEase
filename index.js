@@ -32,7 +32,10 @@ const app = express();
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const upload = multer({ dest: "uploads/" });
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
+});
 
 // Multer error handler middleware
 app.use((err, req, res, next) => {
@@ -526,7 +529,7 @@ async function checkAuth(req, res, next) {
   const token = req.cookies.token;
 
   if (!token) {
-    return res.redirect("/login/user");
+    return res.redirect("/login/user?message=Please Login with your credentials!");
   }
 
   try {
@@ -540,7 +543,7 @@ async function checkAuth(req, res, next) {
     );
 
     if (result.rows.length === 0) {
-      return res.redirect("/login/user");
+      return res.redirect("/login/user?message=Please Login with your credentials!");
     }
 
     // attach user to request
@@ -549,7 +552,7 @@ async function checkAuth(req, res, next) {
     // move to next route handler
     next();
   } catch (err) {
-    return res.redirect("/login/user");
+    return res.redirect("/login/user?message=Please Login with your credentials!");
   }
 }
 
@@ -734,6 +737,82 @@ else{
 }
 return result;
 }
+
+
+async function fetchConference(id){
+  const data = await pool.query("select * from conferences where conference_id =  $1",[id]);
+  return data;
+}
+
+
+app.get("/reviewer/:id", checkAuth, async(req,res)=>{
+  try {
+    const reviewerEmail = req.user.email;
+
+    // 1. Get tracks where this reviewer is assigned for this conference
+    const tracksResult = await pool.query(
+      `SELECT * FROM conference_tracks
+       WHERE conference_id = $1
+       AND track_reviewers @> ARRAY[$2];`,
+      [req.params.id, reviewerEmail]
+    );
+
+    const tracks = tracksResult.rows.map(track => ({
+      ...track,
+      presentation_date: formatDateISO(track.presentation_date)
+    }));
+
+    // 2. Fetch the conference
+    const conferenceResult = await pool.query(
+      `SELECT * FROM conferences WHERE conference_id = $1;`,
+      [req.params.id]
+    );
+    const conference = conferenceResult.rows[0];
+
+    // Attach conference info to each track
+    const tracksWithConferences = tracks.map(track => ({
+      ...track,
+      conference: conference || {}
+    }));
+
+    // 3. Fetch submissions for these tracks
+    const trackIds = tracks.map(t => t.track_id);
+    let userSubmissions = [];
+    if (trackIds.length > 0) {
+      const subResult = await pool.query(
+        `SELECT * FROM submissions WHERE track_id = ANY($1);`,
+        [trackIds]
+      );
+      userSubmissions = subResult.rows;
+    }
+
+    // 4. Fetch revised submissions for these tracks
+    let revisedSubmissions = [];
+    if (trackIds.length > 0) {
+      const revisedResult = await pool.query(
+        `SELECT * FROM submissions 
+         WHERE track_id = ANY($1)
+         AND submission_status = 'Submitted Revised Paper';`,
+        [trackIds]
+      );
+      revisedSubmissions = revisedResult.rows;
+    }
+
+    return res.render("reviewer_dashboard", {
+      user: req.user,
+      userSubmissions,
+      revisedSubmissions,
+      tracks: tracksWithConferences,
+    });
+
+  } catch (err) {
+    console.error("Reviewer Dashboard Error:", err);
+    return res.status(500).send("Error loading reviewer dashboard.");
+  }
+});
+
+
+
 
 
 
@@ -2414,10 +2493,8 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 });
 
 
-app.post("/join", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/join", checkAuth, async (req, res) => {
+ 
 
   const { paper_code, id } = req.body;
 
@@ -2467,11 +2544,11 @@ app.post("/join", async (req, res) => {
       return res.redirect("/dashboard?message=You have already sent a request to join this paper.");
     }
 
-    // 6. Insert new co-author request
+    // 6. Insert new co-author request (track primary author and set clear pending status)
     await pool.query(
-      `INSERT INTO co_author_requests (conference_id, submission_id, co_author, status)
-       VALUES ($1, $2, $3, $4);`,
-      [id, submission.submission_id, req.user.email, "Submitted For Review"]
+      `INSERT INTO co_author_requests (conference_id, submission_id, primary_author, co_author, status)
+       VALUES ($1, $2, $3, $4, $5);`,
+      [id, submission.submission_id, submission.primary_author, req.user.email, "Pending"]
     );
 
     // 7. Send notification email to primary author
@@ -2753,6 +2830,14 @@ app.get("/chair/create-new-conference", (req, res) => {
 
 app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
   
+  const isReviewerResult = await isReviewer(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isInviteeResult = await isInvitee(req.user.email);
+
+    if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
+      return res.redirect("/dashboard?message=Unauthorized Access!!! Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to join papers as co-authors. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+    }
+    
 
   try {
     // Helper function to format dates
@@ -2796,6 +2881,9 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
       ...track,
       presentation_date: formatDate(track.presentation_date)
     }));
+
+    
+
 
     res.render("submission.ejs", {
       user: req.user,
@@ -2879,10 +2967,8 @@ app.get("/submission/invited-talk/:id", ensureAuthenticatedOrToken, async (req, 
 });
 
 
-app.get("/submission/edit/primary-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/edit/primary-author/:id", checkAuth, async (req, res) => {
+
 
   try {
     // 1. Fetch the submission
@@ -3781,7 +3867,7 @@ app.post("/submit-revised-paper", (req, res, next) => {
 });
 
 
-app.post("/edit-submission", (req, res) => {
+app.post("/edit-submission", checkAuth, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     try {
       if (err instanceof multer.MulterError) {
@@ -3789,36 +3875,6 @@ app.post("/edit-submission", (req, res) => {
           ? "File size exceeds 4MB limit. Please upload a smaller file."
           : err.message;
         return res.redirect(`/dashboard?message=Error: ${message}`);
-      }
-
-      // Ensure authentication by session or token fallback
-      if (!(req.isAuthenticated && req.isAuthenticated())) {
-        const authHeader = req.headers?.authorization;
-        if (authHeader) {
-          const parts = authHeader.split(" ");
-          if (parts.length === 2 && parts[0] === "Bearer") {
-            try {
-              req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
-            } catch {
-              return res.redirect("/");
-            }
-          }
-        }
-
-        if (!req.user) {
-          const cookieHeader = req.headers?.cookie;
-          if (cookieHeader) {
-            const jwtCookie = cookieHeader.split(";").map(c => c.trim()).find(c => c.startsWith("jwt="));
-            if (jwtCookie) {
-              const token = jwtCookie.split("=")[1];
-              try {
-                req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
-              } catch {
-                return res.redirect("/");
-              }
-            }
-          }
-        }
       }
 
       let { title, abstract, areas, id } = req.body;
@@ -3915,8 +3971,9 @@ app.get("/submission/delete/invitee/:id", async (req, res) => {
   }
 });
 
+app.post("/submit", checkAuth, async(req, res) => {
 
-app.post("/submit", (req, res) => {
+  console.log("SUBMIT ROUTE CALLED !!!");
   upload.single("file")(req, res, async (err) => {
     try {
       if (err instanceof multer.MulterError) {
@@ -3926,21 +3983,50 @@ app.post("/submit", (req, res) => {
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
 
-      if (!req.isAuthenticated()) return res.redirect("/");
 
       if (!req.file) {
         return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
       }
 
       const { title, abstract, areas, id } = req.body;
+
+      // Server-side validation of required fields
+      if (!title || !abstract || !areas || !id) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required: Title, Abstract, Area and Conference."));
+      }
+
+      // Ensure Cloudinary is configured
+      if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("Upload service is not configured. Please contact the administrator."));
+      }
+
+      // Validate that the selected track belongs to the selected conference
+      try {
+        const trackCheck = await pool.query(
+          `SELECT 1 FROM conference_tracks WHERE track_id = $1 AND conference_id = $2 LIMIT 1;`,
+          [areas, id]
+        );
+        if (trackCheck.rows.length === 0) {
+          return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid track selection for the chosen conference."));
+        }
+      } catch (trackErr) {
+        console.error("Track validation error:", trackErr);
+        return res.redirect("/dashboard?message=" + encodeURIComponent("Unable to validate track selection right now."));
+      }
+
       const filePath = req.file.path;
 
       // Upload to Cloudinary
-      const uploadResult = await cloudinary.uploader.upload(filePath, {
-        resource_type: "auto",
-        folder: "submissions",
-        public_id: `${req.user.uid}-${Date.now()}`,
-      });
+      let uploadResult;
+      try {
+        uploadResult = await cloudinary.uploader.upload(filePath, {
+          resource_type: "auto",
+          folder: "submissions",
+          public_id: `${(req.user && (req.user.uid || req.user.email)) || "user"}-${Date.now()}`,
+        });
+      } finally {
+        try { await fs.unlink(filePath); } catch (e) { /* ignore cleanup errors */ }
+      }
 
       const paperCode = crypto.randomUUID();
 
@@ -3960,7 +4046,7 @@ app.post("/submit", (req, res) => {
         ]
       );
 
-      return res.redirect("/dashboard");
+      return res.redirect("/dashboard?message=Congratulations!!! Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
       console.error("Submit error:", error);
       return res.redirect("/dashboard?message=Something went wrong while submitting the paper.");

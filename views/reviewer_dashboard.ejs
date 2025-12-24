@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEI CMT</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <%- include('partials/dashboard/header') %>
+    <div class="container">
+        <h4>Welcome to Reviewer's Panel, <%= user.name %> (<%=user.email %>)</h4>
+
+      <h6>Assigned Tracks</h6><hr>
+      <% if (tracks && tracks.length > 0) { %>
+        <table class="table table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>Track Name</th>
+              <th>Conference Title</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% tracks.forEach(function(track) { %>
+            <tr>
+              <td><%= track.track_name %></td>
+              <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
+            </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <h6 class="text-muted">No Tracks have been assigned to you.</h6>
+      <% } %>
+
+      <h6>Review Submissions</h6>
+      <% // helper to find track name by id %>
+      <% const getTrackName = (id) => {
+           const t = (tracks || []).find(tr => tr.track_id === id);
+           return t ? t.track_name : 'Unknown Track';
+         } %>
+      <% if (userSubmissions && userSubmissions.length > 0) { %>
+        <div class="table-responsive">
+          <table class="table table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Paper Title</th>
+                <th>Track</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% userSubmissions.forEach(function(submission) { %>
+                <tr>
+                  <td><%= submission.title %></td>
+                  <td><%= getTrackName(submission.track_id) %></td>
+                  <td>
+                    <% if (submission.submission_status === 'Submitted for Review') { %>
+                      <a type="button" class="btn btn-success" href="/reviewer/dashboard/review/<%= submission.paper_code %>">
+                        <i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review
+                      </a>
+                    <% } else { %>
+                      <b><i class="bi bi-check-circle-fill"></i> <%= submission.submission_status %></b>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <h6>No Submissions Found</h6>
+      <% } %>
+
+      <hr>
+      <h6>Revised Submissions</h6>
+      <% if (revisedSubmissions && revisedSubmissions.length > 0) { %>
+        <div class="table-responsive">
+          <table class="table table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Paper Title</th>
+                <th>Track</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% revisedSubmissions.forEach(function(submission) { %>
+                <tr>
+                  <td><%= submission.title %></td>
+                  <td><%= getTrackName(submission.track_id) %></td>
+                  <td>
+                    <a type="button" class="btn btn-info" href="/reviewer/dashboard/re-review/<%= submission.paper_code %>">
+                      <i class="bi bi-box-arrow-in-right"></i> &nbsp; Review Revised Paper
+                    </a>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <p class="text-muted">No revised submissions at this time.</p>
+      <% } %>
+    </div>
+    <script src="/script.js"></script>
+    <%- include('partials/footer') %>
+  </body>
+</html>

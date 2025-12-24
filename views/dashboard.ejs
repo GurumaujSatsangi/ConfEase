@@ -30,11 +30,19 @@
         <% if (conferences && conferences.length > 0) { %> <%
         conferences.forEach(function(conference) { %>
 
-        <div class="card mb-3">
-          <div class="card-header">
-            <b><%= conference.title %></b> 
-            <!-- or whatever fields you have -->
-          </div>
+
+          <div class="accordion" id="accordion-<%= conference.conference_id %>">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="heading-<%= conference.conference_id %>">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= conference.conference_id %>" aria-expanded="false" aria-controls="collapse-<%= conference.conference_id %>">
+        <b><%= conference.title %></b>
+      </button>
+    </h2>
+    <div id="collapse-<%= conference.conference_id %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= conference.conference_id %>" data-bs-parent="#accordion-<%= conference.conference_id %>">
+      <div class="accordion-body">
+
+  <div class="card mb-3">
+         
           <div class="card-body">
             <table class="table table-bordered" border="1" style="width: 100%">
               <tr>
@@ -61,6 +69,16 @@
 </td>
       <% } else { %>              
         <td>  
+          <% if(isReviewerResult === true || isSessionChairResult===true || isInviteeResult === true) { %>
+ <a
+    href="/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in."
+    class="btn btn-outline-primary"
+    style="width: 350px"
+    role="button"
+    id="<%= conference.conference_id %>"
+    aria-disabled="true"
+  >Submit a Paper as Primary Author<br>(Not Allowed)</a>
+        <% } else { %>     
   <a
     href="/submission/primary-author/<%= conference.conference_id %>"
     class="btn btn-outline-primary"
@@ -68,20 +86,36 @@
     role="button"
     id="<%= conference.conference_id %>"
     aria-disabled="true"
-  >Submit a Paper as Primary Author</a>
+    
+  >Submit a Paper as Primary Author</a>  <% } %>
 
                </td>
-                  <td>    <a
-                        href="/submission/co-author/<%= conference.conference_id %>"
-                        class="btn btn-outline-primary"
-                        tabindex="-1"
-                        style="width: 350px"
-                        role="button"
-                        id="<%= conference.conference_id %>"
-                        aria-disabled="true"
-                        >Join a Paper as Co-Author</a
-                      >
-                    </td>
+
+                 <td>  
+          <% if(isReviewerResult === true || isSessionChairResult===true || isInviteeResult === true) { %>
+ <a
+    href="/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to join papers as co-authors. If you think this is an error, please reach out to us at multimedia@dei.ac.in."
+    class="btn btn-outline-primary"
+    style="width: 350px"
+    role="button"
+    id="<%= conference.conference_id %>"
+    aria-disabled="true"
+  >Join a Paper as Co-Author<br>(Not Allowed)</a>
+        <% } else { %>     
+  <a
+    href="/submission/co-author/<%= conference.conference_id %>"
+    class="btn btn-outline-primary"
+    style="width: 350px"
+    role="button"
+    id="<%= conference.conference_id %>"
+    aria-disabled="true"
+    
+  >Join a Paper as Co-Author</a>  <% } %>
+
+               </td>
+
+
+                  
                       <% } %>
                    
                 </td>
@@ -89,17 +123,32 @@
               <tr>
                 <td colspan="4"><% if(isReviewerResult === true) { %>
                 <center>
-            <a href="/" style="width:300px" class="btn btn-outline-success">Review Papers</a>
+                   <b>You have been invited as a Reviewer for this conference, please click on "Review Papers" to start the peer review process.</b>
+            <br>
+            <a href="/reviewer/<%=conference.conference_id%>" style="width:300px" class="btn btn-outline-success">Review Papers</a>
+
+
+
+            
+
+
+
+
+
+
                 </center>
               <% } %>
                 <% if(isInviteeResult === true) { %>
                     <center>
-            <a href="/" style="width:300px" class="btn btn-outline-success">Submit Paper for Invited Talk</a>
+                      <b>You have been invited as an Invited Spekaer for an Invited talk for this conference, please click on "Submit Paper for Invited Talk" to submit your paper.</b>
+            <br><a href="/" style="width:300px" class="btn btn-outline-success">Submit Paper for Invited Talk</a>
                 </center>
                <% } %>
 
                 <% if(isSessionChairResult === true) { %>
                     <center>
+                       <b>You have been invited as a Session Chair to score presentations of the <span id="track_name"></span> for this conference, please click on "Start Oral Presentation" to start the scoring process.</b>
+            <br>
             <a href="/" style="width:300px" class="btn btn-outline-success">Start Oral Presentation</a>
                 </center>
                <% } %>
@@ -109,7 +158,14 @@
             </table>
           </div>
         </div>
-        
+
+      </div>
+    </div>
+  </div>
+  
+ 
+</div>
+
         <% }); %> <% } else { %>
         <h6><i class="bi bi-emoji-frown-fill"></i> &nbsp;There are No Active Conferences at the moment.</h6>
         <% } %>
