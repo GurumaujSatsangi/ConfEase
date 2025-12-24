@@ -57,7 +57,7 @@
                   <td><%= getTrackName(submission.track_id) %></td>
                   <td>
                     <% if (submission.submission_status === 'Submitted for Review') { %>
-                      <a type="button" class="btn btn-success" href="/reviewer/dashboard/review/<%= submission.paper_code %>">
+                      <a type="button" class="btn btn-success" href="/review/<%= submission.paper_code %>">
                         <i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review
                       </a>
                     <% } else { %>

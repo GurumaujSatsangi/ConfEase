@@ -1583,10 +1583,8 @@ app.post("/start-session", async (req, res) => {
 });
 
 
-app.get("/reviewer/dashboard/review/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/review/:id", checkAuth, async (req, res) => {
+ 
 
   try {
     const paperCode = req.params.id;
