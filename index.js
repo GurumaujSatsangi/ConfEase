@@ -1589,6 +1589,12 @@ app.get("/review/:id", checkAuth, async (req, res) => {
   try {
     const paperCode = req.params.id;
 
+
+    await pool.query
+    ("insert into peer_review_vault(paper_id,status,locked_by) values ($1,$2,$3)",
+      [req.params.id,"locked",req.user.email]);
+
+
     //
     // 1. Fetch submission by paper_code
     //
@@ -1767,10 +1773,8 @@ app.get("/reviewer/dashboard/re-review/:id", async (req, res) => {
 });
 
 
-app.post("/mark-as-re-reviewed", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
+  
 
   const {
     submission_id,
@@ -2223,10 +2227,8 @@ app.post("/add-invitee", async (req, res) => {
 });
 
 
-app.post("/mark-as-reviewed", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
+  
 
   const {
     submission_id,
@@ -2361,7 +2363,7 @@ app.post("/mark-as-reviewed", async (req, res) => {
     //
     // 7. Re-render dashboard so reviewer sees updated list
     //
-    return res.redirect("/reviewer/dashboard?message=Submission has been successfully marked as reviewed.");
+    return res.redirect("/dashboard?message=Submission has been successfully marked as reviewed.");
 
   } catch (err) {
     console.error("Mark-as-reviewed error:", err);
