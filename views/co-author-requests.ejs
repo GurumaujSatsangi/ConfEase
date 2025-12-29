@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+            <%- include('partials/dashboard/header') %>
+
+    <div class="container">
+
+    <h4>
+        Co-Author Requests
+    </h4>
+    <h6>Submission Title: <%= submission.title %></h6><hr>
+<% if(result && result.length > 0) { %>
+    <table class="table">
+    <tr>
+        <td>
+<b>Co-Author</b>
+
+</td>
+<td><b>Action</b></td>
+    </tr>
+
+    <% result.forEach(function(result){ %>
+
+<tr>
+<td>
+    <%=result.co_author %>
+</td>
+<td>
+    <form method="POST" action="/co-author-request/accept/<%= result.request_id %>" style="display: inline;">
+                                <button type="submit" style="width:300px" class="btn btn-outline-success" title="Accept">
+                                 Accept Request <i class="bi bi-check-circle-fill"></i>
+                                </button>
+                                <br>
+                              </form>
+                               <form method="POST" action="/co-author-request/reject/<%= result.request_id %>" style="display: inline;">
+                                <button type="submit" style="width:300px" class="btn btn-outline-danger" title="Reject">
+                                  Reject Request <i class="bi bi-x-circle-fill"></i>
+                                </button>
+                              </form>
+</td>
+</tr>
+</table>
+
+    <% }) } else { %>
+<h6><i class="bi bi-emoji-frown-fill"></i> No one has requested to join your paper!</h6>
+        <% } %>
+
+            </div>
+
+                        <%- include('partials/footer') %>
+
+
+</body>
+
+<script src="/script.js"></script>
+</html>

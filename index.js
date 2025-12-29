@@ -744,6 +744,19 @@ async function fetchConference(id){
   return data;
 }
 
+app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
+
+  const submissions = await pool.query("select * from submissions where submission_id=$1",[req.params.id]);
+  const results = await pool.query("select * from co_author_requests where submission_id=$1 and primary_author=$2",[req.params.id,req.user.email]);
+
+  
+
+  return res.render("co-author-requests",{
+    result:results.rows,
+  submission: submissions.rows[0]
+});
+
+})
 
 app.get("/reviewer/:id", checkAuth, async(req,res)=>{
   try {
