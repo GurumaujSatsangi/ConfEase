@@ -2591,10 +2591,8 @@ app.post("/join", checkAuth, async (req, res) => {
 });
 
 
-app.post("/co-author-request/accept/:request_id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) => {
+ 
 
   const requestId = req.params.request_id;
 
@@ -2668,10 +2666,8 @@ app.post("/co-author-request/accept/:request_id", async (req, res) => {
     return res.redirect("/dashboard?message=Something went wrong.");
   }
 });
-app.post("/co-author-request/reject/:request_id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) => {
+ 
 
   const requestId = req.params.request_id;
 
