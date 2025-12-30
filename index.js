@@ -2070,6 +2070,8 @@ app.post("/user-login", async (req, res) => {
       maxAge: 15 * 60 * 1000
     });
 
+
+
     // ✅ redirect instead of render
     return res.redirect("/dashboard");
 
@@ -3383,7 +3385,7 @@ app.get("/chair/dashboard", async (req, res) => {
     });
   } catch (err) {
     console.error("Database error:", err);
-    return res.send("Database error!");
+    return res.redirect("/?message=We are facing some issues in connecting to the database. Please try again later. Apologies for the inconvinience.");
   }
 });
 
