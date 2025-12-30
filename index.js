@@ -525,6 +525,39 @@ app.get(
   }
 );
 
+
+async function checkChairAuth(req, res, next) {
+  const token = req.cookies.ChairToken;
+
+  if (!token) {
+    return res.redirect("/login/user?message=Please Login with your credentials!");
+  }
+
+  try {
+    // decode JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // fetch user using email from token
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [decoded.email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.redirect("/login/user?message=Please Login with your credentials!");
+    }
+
+    // attach user to request
+    req.user = result.rows[0];
+
+    // move to next route handler
+    next();
+  } catch (err) {
+    return res.redirect("/login/user?message=Please Login with your credentials!");
+  }
+}
+
+
 async function checkAuth(req, res, next) {
   const token = req.cookies.token;
 
@@ -2032,6 +2065,7 @@ app.get("/registration/user", async (req,res)=>{
 })
 
 
+
 app.post("/user-login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -2081,6 +2115,76 @@ app.post("/user-login", async (req, res) => {
   }
 });
 
+
+app.get("/admin", async(req,res)=>{
+res.render("admin");
+})
+
+app.post("/create-chair-credentials",async(req,res)=>{
+
+  const {name,email,contact_number, faculty, department, password} = req.body;
+
+  const hashed_password= await bcrypt.hash(password, 10);
+  const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password) values($1,$2,$3,$4,$5,$6)",[name,email,contact_number, faculty,department, hashed_password]);
+
+  if(!result){
+    res.send("Error");
+  }
+  else{
+    res.send("Chair Added & Credentials Created Succesfully !!!");
+  }
+
+});
+
+
+app.post("/chair-login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // fetch user
+    const userResult = await pool.query(
+      "SELECT * FROM chairs WHERE email = $1",
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.redirect("/login/user?message=Invalid email or password");
+    }
+
+    const user = userResult.rows[0];
+
+    // compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.redirect("/login/user?message=Invalid email or password");
+    }
+
+    // generate jwt
+    const ChairToken = jwt.sign(
+      { email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    // set cookie
+    res.cookie("ChairToken", ChairToken, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000
+    });
+
+
+
+    // ✅ redirect instead of render
+    return res.redirect("/chair/dashboard");
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send("Server error");
+  }
+});
 
 
 app.get("/chair/dashboard/invited-talks/:id", async (req, res) => {
@@ -3352,10 +3456,8 @@ app.get("/login" , async (req,res)=>{
   });
 });
 
-app.get("/chair/dashboard", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
+  
 
   try {
     // Helper function to format dates
