@@ -113,3 +113,15 @@ Swal.fire({
   imageAlt: "DEI CMT Process Flow"
 });
 }
+
+
+function showNewChairMessage(){
+
+       Swal.fire({
+        title: "Alert!",
+        text:
+          "If you want to host a conference on the DEI Conference Management Toolkit (DEI CMT), please send the following details from your registered DEI Email ID to multimedia@dei.ac.in (CC: cmt@dei.ac.in) - 1) Conference Title, 2) Date of Conference, 3) List of Invited Speakers (Name & Organization), 4) Expected Number of Participants, 5) Conference Chairs (Name, Organization & Email ID). Once sent, the login credentials will be sent within 48 hours. ",
+        icon: "info",
+      })
+
+}

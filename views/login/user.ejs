@@ -13,7 +13,11 @@
     <%- include('../partials/header copy') %>
 
     <div class="container">
-      <div class="card">
+
+      <table class="table">
+        <tr>
+          <td>
+<div class="card">
         <div class="card-header">
           <b>Author / Reviewer / Invitee Login</b>
         </div>
@@ -49,6 +53,48 @@
           </form>
         </div>
       </div>
+          </td>
+          <td>
+            <div class="card">
+        <div class="card-header">
+          <b>Chair Login</b>
+        </div>
+        <div class="card-body">
+          <form action="/chair-login" method="post">
+            <div class="mb-3">
+              <label for="exampleInputEmail1" class="form-label"
+                >Email Address</label
+              >
+              <input
+                type="email"
+                required
+                class="form-control"
+                id="exampleInputEmail1"
+                name="email"
+                aria-describedby="emailHelp"
+              />
+            </div>
+            <div class="mb-3">
+              <label for="exampleInputPassword1" class="form-label"
+                >Password</label
+              >
+              <input
+                type="password"
+                class="form-control"
+                name="password"
+                required
+                id="exampleInputPassword1"
+              />
+            </div>
+            <button type="submit" class="btn btn-primary">Login</button>
+            <a onclick="showNewChairMessage()" class="btn btn-outline-success">New Here? Create Account</a>
+          </form>
+        </div>
+      </div>
+          </td>
+        </tr>
+      </table>
+      
     </div>
     <%- include('../partials/footer') %>
 
