@@ -2546,7 +2546,7 @@ app.get("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res
     await pool.query(`DELETE FROM conference_tracks WHERE conference_id = $1;`, [req.params.id]);
     await pool.query(`DELETE FROM conferences WHERE conference_id = $1;`, [req.params.id]);
 
-    res.redirect("/chair/dashboard");
+    res.redirect("/chair/dashboard?message=Conference Deleted Succesfully.");
   } catch (err) {
     console.error("Error deleting conference:", err);
     res.status(500).send("Error deleting conference.");

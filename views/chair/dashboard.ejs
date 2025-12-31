@@ -24,7 +24,17 @@
       <hr />
       <% if (conferences && conferences.length > 0) { %> <%
       conferences.forEach(function(conference) { %>
-      <table class="table" border="1">
+
+        <div class="accordion" id="accordionExample">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="headingOne">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+<b><%= conference.title %></b>      </button>
+    </h2>
+    <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
+      <div class="accordion-body">
+
+           <table class="table" border="1">
         <tbody>
           <tr>
             <td rowspan="2"><b>Title</b></td>
@@ -48,45 +58,54 @@
             <td>
               <a
                 href="/chair/dashboard/view-submissions/<%= conference.conference_id %>"
-                class="btn btn-outline-primary btn-uniform"
+                class="btn btn-primary btn-uniform"
                 >View Submissions <i class="bi bi-eye-fill"></i
               ></a>
-              <br /><br />
+              <br />
               <a
                 href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>"
-                class="btn btn-outline-primary btn-uniform"
+                class="btn btn-primary btn-uniform"
                 >Oral Presentation <i class="bi bi-mic-fill"></i>
               </a>
-              <br /><br />
+              <br />
               <a
                 href="/chair/dashboard/manage-poster-sessions/<%= conference.conference_id %>"
-                class="btn btn-outline-primary btn-uniform"
+                class="btn btn-primary btn-uniform"
                 >Poster Presentation <i class="bi bi-easel-fill"></i
               ></a>
-              <br /><br />
+              <br />
               <a
                 href="/chair/dashboard/invited-talks/<%= conference.conference_id %>"
-                class="btn btn-outline-primary btn-uniform"
+                class="btn btn-primary btn-uniform"
                 >Invited Talks <i class="bi bi-envelope-plus-fill"></i></a>
-              <br /><br />
+              <br />
               <a
                 href="/chair/dashboard/edit-conference/<%= conference.conference_id %>"
-                class="btn btn-outline-primary btn-uniform"
+                class="btn btn-warning btn-uniform"
                 >Edit Conference <i class="bi bi-pencil-square"></i
               ></a>
 
-              <br /><br />
+              <br />
               <a
                 href="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
-                class="btn btn-outline-danger btn-uniform"
+                class="btn btn-danger btn-uniform"
                 >Delete Conference <i class="bi bi-trash3-fill"></i
               ></a>
             </td>
           </tr>
         </tbody>
       </table>
+
+      </div>
+    </div>
+  </div>
+  
+
+</div>
+
+
       <% }); %> <% } else { %>
-      <h6>No conferences to show.</h6>
+      <h6><i class="bi bi-emoji-frown-fill"></i> You have not initiated any conference!</h6>
       <% } %>
 
       <script src="/script.js"></script>
