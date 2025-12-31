@@ -1175,10 +1175,8 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   }
 });
 
-app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/manage-sessions/:id", checkChairAuth,async (req, res) => {
+
 
   try {
     // Helper function to format dates
@@ -1320,10 +1318,8 @@ app.get("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 });
 
 
-app.get("/chair/dashboard/manage-poster-sessions/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req, res) => {
+ 
 
   try {
     // Helper function to format dates for display (dd-mm-yyyy)
@@ -2187,10 +2183,8 @@ app.post("/chair-login", async (req, res) => {
 });
 
 
-app.get("/chair/dashboard/invited-talks/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) => {
+  
 
   try {
     // Helper function to format dates
@@ -2545,10 +2539,8 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
 
 
 
-app.get("/chair/dashboard/delete-conference/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res) => {
+  
 
   try {
     await pool.query(`DELETE FROM conference_tracks WHERE conference_id = $1;`, [req.params.id]);
@@ -2835,7 +2827,7 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
 });
 
 
-app.post("/create-new-conference", async (req, res) => {
+app.post("/create-new-conference", checkChairAuth,async (req, res) => {
   const {
     title,
     description,
@@ -2844,14 +2836,15 @@ app.post("/create-new-conference", async (req, res) => {
     full_paper_submission,
     acceptance_notification,
     camera_ready_paper_submission,
+    deadline_peer_review,
   } = req.body;
 
   try {
     // 1. Insert conference and return row
     const confResult = await pool.query(
       `INSERT INTO conferences
-      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8)
       RETURNING conference_id;`,
       [
         title,
@@ -2860,7 +2853,8 @@ app.post("/create-new-conference", async (req, res) => {
         conference_end_date,
         full_paper_submission,
         acceptance_notification,
-        camera_ready_paper_submission
+        camera_ready_paper_submission,
+        deadline_peer_review
       ]
     );
 
@@ -2873,70 +2867,19 @@ app.post("/create-new-conference", async (req, res) => {
       [conference_id]
     );
 
-    // 3. Collect tracks from request body
-    const tracks = [];
-    let i = 1;
-    while (req.body[`track_title_${i}`] && req.body[`track_reviewer_${i}`]) {
-      tracks.push({
-        conference_id,
-        track_name: req.body[`track_title_${i}`],
-        track_reviewers: [req.body[`track_reviewer_${i}`]], // -> TEXT[] in DB
-      });
-      i++;
-    }
 
-    // 4. Insert tracks into conference_tracks
-    if (tracks.length > 0) {
-      const trackValues = tracks.flatMap(t => [t.conference_id, t.track_name, t.track_reviewers]);
 
-      // Bulk insert
-      const valuePlaceholders = tracks
-        .map((_, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`)
-        .join(",");
-
-      await pool.query(
-        `INSERT INTO conference_tracks (conference_id, track_name, track_reviewers)
-         VALUES ${valuePlaceholders};`,
-        trackValues
-      );
-
-      // 5. Notify reviewers
-      for (const track of tracks) {
-        for (const reviewerEmail of track.track_reviewers) {
-          try {
-            await sendMail(
-              reviewerEmail,
-              `Reviewer Assignment - ${title}`,
-              `You have been assigned as a reviewer for the track "${track.track_name}" in the conference "${title}".`,
-              `<p>Dear Reviewer,</p>
-              <p>You have been assigned as a reviewer for:</p>
-              <p><strong>Conference:</strong> ${title}</p>
-              <p><strong>Track:</strong> ${track.track_name}</p>
-              <p><strong>Conference Dates:</strong> ${conference_start_date} to ${conference_end_date}</p>
-              <p>You may now log in with your email: <strong>${reviewerEmail}</strong></p>
-              <p>For help, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong></p>
-              <p>Regards,<br>DEI Conference Management Toolkit Team</p>`
-            );
-          } catch (emailError) {
-            console.error(`Error emailing reviewer ${reviewerEmail}:`, emailError);
-          }
-        }
-      }
-    }
-
-    res.redirect("/chair/dashboard");
+    res.redirect("/chair/dashboard?message=Congratulations!!! Conference Created Successfully. Now you can proceed with configuring the tracks for the conference, once this is done you will be able to schedule the oral and poster presentation sessions.");
 
   } catch (err) {
     console.error("Create conference error:", err);
-    return res.status(500).send("Error creating conference.");
+    return res.redirect("/chair/dashboard?message=Error creating conference.");
   }
 });
 
 
-app.get("/chair/create-new-conference", (req, res) => {
-   if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/create-new-conference", checkChairAuth,(req, res) => {
+  
   res.render("chair/create-new-conference.ejs" , {
     user: req.user,
     message: req.query.message || null,
@@ -3492,10 +3435,8 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
 });
 
 
-app.get("/chair/dashboard/edit-conference/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) => {
+  
 
   try {
     // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
@@ -3699,10 +3640,8 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
 });
 
 
-app.get("/chair/dashboard/view-submissions/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res) => {
+  
 
   try {
     // Helper function to format dates

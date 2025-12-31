@@ -42,7 +42,7 @@
 
         <table class="table">
           <tr>
-            <td>
+            <td colspan="2">
               <div class="form-group">
                 <label class="form-check-label" for="conference_start_date">
                   Conference Start Date
@@ -59,7 +59,7 @@
               </div>
             </td>
 
-            <td>
+            <td colspan="2">
               <div class="form-group">
                 <label class="form-check-label" for="conference_start_date">
                   Conference End Date
@@ -80,7 +80,7 @@
             <td>
               <div class="form-group">
                 <label class="form-check-label" for="full_paper_submission">
-                  Full Paper Submission
+                  Deadline for Full Paper Submission
                 </label>
                 <input
                   type="date"
@@ -96,7 +96,7 @@
             <td>
               <div class="form-group">
                 <label class="form-check-label" for="acceptance_notification">
-                  Acceptance Notification
+                  Deadline Acceptance Notification
                 </label>
                 <input
                   type="date"
@@ -115,7 +115,7 @@
                   class="form-check-label"
                   for="camera_ready_paper_submission"
                 >
-                  Final Camera Ready Paper Submission
+                  Deadline Final Camera Ready Paper Submission
                 </label>
                 <input
                   type="date"
@@ -128,37 +128,39 @@
                 />
               </div>
             </td>
+
+             <td>
+              <div class="form-group">
+                <label
+                  class="form-check-label"
+                  for="camera_ready_paper_submission"
+                >
+                  Deadline for Peer Review
+                </label>
+                <input
+                  type="date"
+                  class="form-control"
+                  id="exampleInputEmail1"
+                  name="deadline_peer_review"
+                  aria-describedby="emailHelp"
+                  placeholder="Conference Start Date"
+                  required
+                />
+              </div>
+            </td>
+
+
           </tr>
         </table>
 
-        <div class="form-group">
-          <label for="numTracks">Number of Tracks</label>
-          <input
-            type="number"
-            min="1"
-            max="20"
-            id="numTracks"
-            class="form-control"
-            value="1"
-          />
-        </div>
+      
 
-        <table class="table table-bordered">
-          <thead>
-            <tr>
-              <th>Track Title</th>
-              <th>Track Reviewer's Email ID</th>
-            </tr>
-          </thead>
-          <tbody id="tracksTableBody">
-            <!-- Rows will be inserted here -->
-          </tbody>
-        </table>
+     
 
         <div class="form-group">
           <input
             type="submit"
-            class="btn btn-outline-success"
+            class="btn btn-success"
             value="Create Conference"
           />
         </div>

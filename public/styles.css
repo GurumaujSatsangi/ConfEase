@@ -43,6 +43,10 @@ body {
   max-width: 100%;
 }
 
+.form-check-label{
+  font-weight: 500;
+}
+
 .navbar-brand span {
   font-size: 1rem;
   line-height: 1.2;
