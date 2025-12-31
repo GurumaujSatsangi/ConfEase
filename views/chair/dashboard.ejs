@@ -56,41 +56,42 @@
             <td><%= conference.acceptance_notification %></td>
             <td><%= conference.camera_ready_paper_submission %></td>
             <td>
+
+              <a
+                href="/chair/dashboard/manage-tracks/<%= conference.conference_id %>"
+                class="btn btn-primary btn-uniform"
+                >Manage Tracks</a><br>
               <a
                 href="/chair/dashboard/view-submissions/<%= conference.conference_id %>"
                 class="btn btn-primary btn-uniform"
-                >View Submissions <i class="bi bi-eye-fill"></i
-              ></a>
+                >View Submissions</a>
               <br />
               <a
                 href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>"
                 class="btn btn-primary btn-uniform"
-                >Oral Presentation <i class="bi bi-mic-fill"></i>
+                >Oral Presentation
               </a>
               <br />
               <a
                 href="/chair/dashboard/manage-poster-sessions/<%= conference.conference_id %>"
                 class="btn btn-primary btn-uniform"
-                >Poster Presentation <i class="bi bi-easel-fill"></i
-              ></a>
+                >Poster Presentation</a>
               <br />
               <a
                 href="/chair/dashboard/invited-talks/<%= conference.conference_id %>"
                 class="btn btn-primary btn-uniform"
-                >Invited Talks <i class="bi bi-envelope-plus-fill"></i></a>
+                >Invited Talks </a>
               <br />
               <a
                 href="/chair/dashboard/edit-conference/<%= conference.conference_id %>"
                 class="btn btn-warning btn-uniform"
-                >Edit Conference <i class="bi bi-pencil-square"></i
-              ></a>
+                >Edit Conference </a>
 
               <br />
               <a
                 href="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
                 class="btn btn-danger btn-uniform"
-                >Delete Conference <i class="bi bi-trash3-fill"></i
-              ></a>
+                >Delete Conference </a>
             </td>
           </tr>
         </tbody>
@@ -102,8 +103,6 @@
   
 
 </div>
-
-
       <% }); %> <% } else { %>
       <h6><i class="bi bi-emoji-frown-fill"></i> You have not initiated any conference!</h6>
       <% } %>
