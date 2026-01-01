@@ -2484,10 +2484,10 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/create-track", checkChairAuth,async(req,res)=>{
+app.post("/create-track/:id", checkChairAuth,async(req,res)=>{
 
-  const {track_title, reviewers} = req.body;
-  const result = await pool.query("insert into conference_tracks")
+  const {track_title, reviewers,session_date, session_start_time,session_end_time, session_chairs} = req.body;
+  const result = await pool.query("insert into conference_tracks (track_name,track_reviewers,presentation_date,presentation_start_time,presentation_end_time, panelists,conference_id) values ($1,array[$2],$3,$4,$5,array[$6],$7)",[track_title,reviewers,session_date,session_start_time,session_end_time,session_chairs,req.params.id])
 
 
 })

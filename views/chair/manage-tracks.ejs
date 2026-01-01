@@ -13,12 +13,40 @@
     <h6>Conference: <%= conference.title %></h6>
     <hr>
   
-    <form action="/create-track" method="post" clas="form-control">
+    <form action="/create-track/<%=conference.conference_id %>" method="post" clas="form-control">
         <div class="mb-3">
 
         <input class="form-control" type="text" name="track_title" placeholder="Title of the Track"></div>
         <div class="mb-3">
 <textarea class="form-control" name="reviewers" placeholder="Email IDs of the Reviewers"></textarea></div>
+
+<div class="mb-3">
+    <lable class="form-label">Session Date</lable>
+            <input class="form-control" type="date" name="session_date" placeholder="Session Date">
+
+</div>
+
+<div class="mb-3">
+        <lable class="form-label">Session Start Time</lable>
+
+            <input class="form-control" type="time" name="session_start_time" placeholder="Session Start Time">
+
+</div>
+
+<div class="mb-3">
+        <lable class="form-label">Session End Time</lable>
+
+            <input class="form-control" type="time" name="session_end_time" placeholder="Session End Time">
+
+</div>
+
+<div class="mb-3">
+<textarea class="form-control" name="session_chairs" placeholder="Email IDs of the Session Chairs"></textarea>
+
+</div>
+
+
+
 <div class="mb-3">
 <input class="btn btn-success" type="submit" value="Add Track"></div>
     </form>
@@ -27,6 +55,9 @@
         <tr>
             <td><b>Title of the Track</b></td>
             <td><b>Reviewers</b></td>
+                        <td colspan="3"><b>Session Schedule</b></td>
+            <td><b>Session Chair</b></td>
+
             <td><b>Action</b></td>
         </tr>
 
@@ -34,16 +65,34 @@
             <% tracks.forEach(function(tracks){ %>
                 <tr>
                     <td>
-<input type="text" name="track_title_updated">
+<input class="form-control" type="text" value="<%=tracks.track_name %>" name="track_title_updated">
                     </td>
                     <td>
-<textarea name="reviewers_updated"></textarea>
+<textarea class="form-control" value="<%=tracks.track_reviewers %>" name="reviewers_updated"></textarea>
 
                     </td>
+
                     <td>
-                        <a class="btn btn-warning" href="/chair/dashboard/update-track/<%=track.track_id%>">Update</a>
+<input type="date" class="form-control" value="<%=tracks.presentation_date %>" name="session_date_updated">
+                    </td>
+
+                    <td>
+<input type="time" class="form-control" value="<%=tracks.presentation_start_time %>" name="session_start_time_updated">
+                    </td>
+
+                    <td>
+<input type="time" class="form-control" value="<%=tracks.presentation_end_time %>" name="session_end_time_updated">
+                    </td>
+
+                    <td>
+<textarea class="form-control" value="<%=tracks.panelists %>" name="session_chairs_updated"></textarea>
+
+                    </td>
+                    
+                    <td>
+                        <a class="btn btn-warning" href="/chair/dashboard/update-track/<%=tracks.track_id%>">Update</a>
                         <br>
-                        <a class="btn btn-danger" href="/chair/dashboard/<%= track.track_id %>">Delete</a>
+                        <a class="btn btn-danger" href="/chair/dashboard/<%= tracks.track_id %>">Delete</a>
                     </td>
                 </tr>
             
