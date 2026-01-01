@@ -13,6 +13,7 @@
     <div class="container">
       
       <h4>Edit Conference</h4>
+      <h6>Conference: <%= conference.title %></h6>
       <hr />
       <form
         action="/chair/dashboard/update-conference/<%= conference.conference_id %>"
@@ -124,76 +125,33 @@
           />
         </div>
 
-        <hr />
+            <div class="form-group">
+          <label class="form-check-label" for="camera_ready_paper_submission">
+            Deadline for Peer Review
+          </label>
+          <input
+            type="date"
+            class="form-control"
+            id="exampleInputEmail1"
+            name="peer_review"
+            aria-describedby="emailHelp"
+            value="<%= conference.deadline_peer_review %>"
+            placeholder="Deadline for Peer Review"
+            required
+          />
+        </div>
+
 
         <!-- Add this above your table -->
         <!-- Tracks Section -->
         <!-- Tracks Section -->
-        <div class="form-group">
-          <label for="numTracks">Number of Tracks</label>
-          <input
-            type="number"
-            min="1"
-            max="20"
-            id="numTracks"
-            class="form-control"
-            value="<%= tracks.length %>"
-            readonly
-          />
-        </div>
-
-        <table class="table table-bordered">
-          <thead>
-            <tr>
-              <th>Track Title</th>
-              <th>Track Reviewer's Email ID</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="tracksTableBody">
-            <% tracks.forEach(function(track, idx) { %>
-            <tr>
-              <td>
-                <input
-                  type="text"
-                  class="form-control"
-                  name="track_title_<%= idx + 1 %>"
-                  value="<%= track.track_name %>"
-                  placeholder="Track Title <%= idx + 1 %>"
-                  required
-                />
-              </td>
-              <td>
-                <input
-                  type="email"
-                  class="form-control"
-                  name="track_reviewer_<%= idx + 1 %>"
-                  value="<%= Array.isArray(track.track_reviewers) ? track.track_reviewers[0] : track.track_reviewers %>"
-                  placeholder="Reviewer Email <%= idx + 1 %>"
-                  required
-                />
-              </td>
-              <td>
-                <button
-                  type="button"
-                  class="btn btn-danger btn-sm delete-track"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-            <% }); %>
-          </tbody>
-        </table>
-        <button type="button" class="btn btn-primary" id="addTrackBtn">
-          Add Track
-        </button>
+      
         <hr />
 
         <div class="form-group">
           <input
             type="submit"
-            class="btn btn-outline-primary"
+            class="btn btn-primary"
             value="Update Conference"
           />
         </div>

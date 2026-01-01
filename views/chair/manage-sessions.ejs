@@ -26,7 +26,7 @@
             <div class="card-body p-4">
               <div class="d-flex justify-content-between align-items-start mb-3">
                 <div class="flex-grow-1">
-                  <h5 class="card-title mb-0"><%= track.track_name %></h5>
+                  <h6 class="card-title mb-0"><%= track.track_name %></h6>
                 </div>
                 <span class="badge bg-info text-dark ms-2">
                   <i class="bi bi-file-earmark me-1"></i><%= trackCount %> Submissions
@@ -39,23 +39,22 @@
                 </a>
               </div>
               
-              <div class="mb-3">
-                <p class="mb-2"><small class="text-muted"><i class="bi bi-person-check me-1"></i>Reviewer</small></p>
-                <p class="mb-0"><% if (Array.isArray(track.track_reviewers)) { %><%= track.track_reviewers.join(", ") %><% } else { %><%= track.track_reviewers %><% } %></p>
-              </div>
+          
 
               <div class="table-responsive">
                 <table class="table table-sm table-hover mb-0">
                   <thead class="table-light">
                     <tr>
-                      <th scope="col"><i class="bi bi-calendar3 me-1"></i>Date</th>
-                      <th scope="col"><i class="bi bi-clock me-1"></i>Start Time</th>
-                      <th scope="col"><i class="bi bi-hourglass-end me-1"></i>End Time</th>
-                      <th scope="col"><i class="bi bi-people me-1"></i>Session Chair</th>
+                      <th scope="col">Reviewers</th>
+                      <th scope="col">Session Date</th>
+                      <th scope="col">Start Time</th>
+                      <th scope="col">End Time</th>
+                      <th scope="col">Session Chair</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
+                      <td><% if (Array.isArray(track.track_reviewers)) { %><%= track.track_reviewers.join(", ") %><% } else { %><%= track.track_reviewers %><% } %></td>
                       <td><%= track.presentation_date %></td>
                       <td><%= track.presentation_start_time %></td>
                       <td><%= track.presentation_end_time %></td>
@@ -95,11 +94,11 @@
                                   <td style="white-space: nowrap;">
                                     <% if (submission.rank) { %>
                                       <% if (submission.rank === 1) { %>
-                                        🥇 #<%= submission.rank %>
+                                         <i class="bi bi-1-circle-fill"></i>
                                       <% } else if (submission.rank === 2) { %>
-                                        🥈 #<%= submission.rank %>
+                                         <i class="bi bi-2-circle-fill"></i>
                                       <% } else if (submission.rank === 3) { %>
-                                        🥉 #<%= submission.rank %>
+                                         <i class="bi bi-3-circle-fill"></i>
                                       <% } else { %>
                                         #<%= submission.rank %>
                                       <% } %>
@@ -152,17 +151,12 @@
                 </div>
               </div>
 
-              <div class="mt-4">
-                <a href="/chair/dashboard/edit-sessions/<%= track.track_id %>"
-                  class="btn btn-warning btn-sm"
-                  role="button"
-                  ><i class="bi bi-pencil-square me-1"></i>Edit Session</a>
-              </div>
+            
             
             </div>
           </div>
           <% }); %> <% } else { %>
-          <h6>There are no tracks in this conference, please go back to the dashboard and click on 'Edit Conference' icon to add sessions.</h6>
+          <h6><i class="bi bi-emoji-frown-fill"></i> No tracks have been added for this conference, please go back to the dashboard and click on 'Manage Tracks' to add tracks!</h6>
           <% } %>
           <br />
           

@@ -96,6 +96,7 @@
     <%- include('../partials/dashboard/header') %>
     <div class="container">
       <h4>Manage Invited Talks</h4>
+      <h6>Conference: <%=conference.title %></h6>
       <hr />
       <form action="/add-invitee" method="POST">
         <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">

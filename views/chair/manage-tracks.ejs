@@ -53,57 +53,105 @@
 
   <hr>
 
-        <% if(tracks && tracks.length>0) { %>
-              <table class="table">
-        <tr>
-            <td><b>Title of the Track</b></td>
-            <td><b>Reviewers</b></td>
-                        <td colspan="3"><b>Session Schedule</b></td>
-            <td><b>Session Chair</b></td>
+       <% if (tracks && tracks.length > 0) { %>
+  <table class="table table-bordered">
+    <tr>
+      <th>Title of the Track</th>
+      <th>Reviewers</th>
+      <th colspan="3">Session Schedule</th>
+      <th>Session Chair</th>
+      <th>Action</th>
+    </tr>
 
-            <td><b>Action</b></td>
-        </tr>
-            <% tracks.forEach(function(tracks){ %>
-                <tr>
-                    <td>
-<input class="form-control" type="text" value="<%=tracks.track_name %>" name="track_title_updated">
-                    </td>
-                    <td>
-<textarea class="form-control"  name="reviewers_updated"><%=tracks.track_reviewers %></textarea>
+    <% tracks.forEach(function(track) { %>
+      <tr>
+        <form method="POST" action="/chair/dashboard/update-track/<%= track.track_id %>">
 
-                    </td>
+          <td>
+            <input
+              class="form-control"
+              type="text"
+              name="track_title"
+              value="<%= track.track_name %>"
+              required
+            >
+          </td>
 
-                    <td>
-<input type="date" class="form-control" value="<%=tracks.presentation_date ? new Date(tracks.presentation_date).toISOString().split('T')[0]
-    : '' %>" name="session_date_updated">
-                    </td>
+          <td>
+            <textarea
+              class="form-control"
+              name="reviewers"
+              placeholder="Comma separated emails"
+              required
+            ><%= track.track_reviewers %></textarea>
+          </td>
 
-                    <td>
-<input type="time" class="form-control" value="<%=tracks.presentation_start_time %>" name="session_start_time_updated">
-                    </td>
+          <td>
+            <input
+              type="date"
+              class="form-control"
+              name="session_date"
+              value="<%= track.presentation_date
+                ? new Date(track.presentation_date).toISOString().split('T')[0]
+                : '' %>"
+              required
+            >
+          </td>
 
-                    <td>
-<input type="time" class="form-control" value="<%=tracks.presentation_end_time %>" name="session_end_time_updated">
-                    </td>
+          <td>
+            <input
+              type="time"
+              class="form-control"
+              name="start_time"
+              value="<%= track.presentation_start_time %>"
+              required
+            >
+          </td>
 
-                    <td>
-<textarea class="form-control"  name="session_chairs_updated"><%=tracks.panelists %></textarea>
+          <td>
+            <input
+              type="time"
+              class="form-control"
+              name="end_time"
+              value="<%= track.presentation_end_time %>"
+              required
+            >
+          </td>
 
-                    </td>
-                    
-                    <td>
-                        <a class="btn btn-warning" href="/chair/dashboard/update-track/<%=tracks.track_id%>">Update</a>
-                        <br>
-                        <a class="btn btn-danger" href="/chair/dashboard/delete-track/<%= tracks.track_id %>">Delete</a>
-                    </td>
-                </tr>
-            
-            <% }) %>
-        
-        <% } else { %>
-<h6><i class="bi bi-emoji-frown-fill"></i> No Tracks have been created for this conference!</h6>
-        <% } %>
-    </table>
+          <td>
+            <textarea
+              class="form-control"
+              name="panelists"
+              placeholder="Comma separated names"
+              required
+            ><%= track.panelists %></textarea>
+          </td>
+
+          <td>
+            <button type="submit" class="btn btn-warning mb-1">
+              Update
+            </button>
+            <br>
+            <a
+              class="btn btn-danger"
+              href="/chair/dashboard/delete-track/<%= track.track_id %>"
+            >
+              Delete
+            </a>
+          </td>
+
+        </form>
+      </tr>
+    <% }) %>
+  </table>
+
+<% } else { %>
+  <h6>
+    <i class="bi bi-emoji-frown-fill"></i>
+    No Tracks have been created for this conference!
+  </h6>
+<% } %>
+
     </div>
 
     <%-include('../partials/footer') %>

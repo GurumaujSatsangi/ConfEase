@@ -1411,10 +1411,8 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
 });
 
 
-app.post("/chair/dashboard/set-poster-session/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, res) => {
+  
 
   const { session_date, start_time, end_time, conference_id } = req.body;
 
@@ -2174,13 +2172,58 @@ app.post("/chair-login", async (req, res) => {
 
 
     // ✅ redirect instead of render
-    return res.redirect("/chair/dashboard");
+    return res.redirect("/chair/dashboard?message=Welcome, "+ user.name+" !");
 
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error");
   }
 });
+
+app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
+  try {
+    const { trackId } = req.params;
+    const {
+      track_title,
+      reviewers,
+      session_date,
+      start_time,
+      end_time,
+      panelists
+    } = req.body;
+
+    // convert comma-separated values to arrays
+    const reviewersArray = reviewers.split(",").map(r => r.trim());
+    const panelistsArray = panelists.split(",").map(p => p.trim());
+
+    await pool.query(
+      `UPDATE conference_tracks
+       SET track_name = $1,
+           track_reviewers = $2,
+           presentation_date = $3,
+           presentation_start_time = $4,
+           presentation_end_time = $5,
+           panelists = $6
+       WHERE track_id = $7`,
+      [
+        track_title,
+        reviewersArray,
+        session_date,
+        start_time,
+        end_time,
+        panelistsArray,
+        trackId
+      ]
+    );
+
+    res.redirect("/chair/dashboard?message=Track updated successfully!");
+  } catch (err) {
+    console.error(err);
+    res.redirect("/chair/dashboard?message=Failed to update Track!");
+  }
+});
+
+
 
 
 app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) => {
