@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+    <title>DEI CMT</title>
+</head>
+<body>
+    <%-include('../partials/dashboard/header') %>
+    <div class="container">
+    <h4>Manage Tracks</h4>
+    <h6>Conference: </h6>
+    <hr>
+  
+    <form action="/create-track" method="post" clas="form-control">
+        <div class="mb-3">
+
+        <input class="form-control" type="text" placeholder="Title of the Track"></div>
+        <div class="mb-3">
+<textarea class="form-control" placeholder="Email IDs of the Reviewers"></textarea></div>
+<div class="mb-3">
+<input class="btn btn-success" type="submit" value="Add Track"></div>
+    </form>
+
+    <table class="table">
+        <tr>
+            <td><b>Title of the Track</b></td>
+            <td><b>Reviewers</b></td>
+        </tr>
+
+        <% if(tracks && tracks.length>0) { %>
+            <% tracks.forEach(function(tracks){ %>
+                <tr>
+                    <td>
+
+                    </td>
+                    <td>
+                        
+                    </td>
+                </tr>
+            
+            <% }) %>
+        
+        <% } %>
+    </table>
+    </div>
+
+    <%-include('../partials/footer') %>
+
+</body>
+<script src="/script.js"></script>
+</html>

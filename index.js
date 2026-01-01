@@ -2538,7 +2538,7 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
 });
 
 app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
-return res.render("manage-tracks");
+return res.render("chair/manage-tracks");
 })
 
 
