@@ -2546,7 +2546,14 @@ app.post("/mark-presentation-as-complete", async (req, res) => {
 });
 
 app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
-return res.render("chair/manage-tracks");
+
+  const conference = await fetchConference(req.params.id);
+  const tracks = await pool.query("select * from conference_tracks where conference_id = $1",[req.params.id]);
+  
+
+  return res.render("chair/manage-tracks",{tracks:tracks.rows,conference:conference.rows[0]});
+
+
 })
 
 
@@ -3431,7 +3438,8 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       conference_end_date: formatDate(conference.conference_end_date),
       full_paper_submission: formatDate(conference.full_paper_submission),
       acceptance_notification: formatDate(conference.acceptance_notification),
-      camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission)
+      camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
+      deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
     }));
 
     res.render("chair/dashboard.ejs", {

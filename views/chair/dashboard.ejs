@@ -34,14 +34,15 @@
     <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
       <div class="accordion-body">
 
-           <table class="table" border="1">
+           <table style="text-align: center;" class="table" border="1">
         <tbody>
           <tr>
-            <td rowspan="2"><b>Title</b></td>
             <td colspan="2"><b>Conference Timeline</b></td>
             <td rowspan="2"><b>Full Paper Submission</b></td>
             <td rowspan="2"><b>Acceptance Notification</b></td>
             <td rowspan="2"><b>Final Camera Ready Paper Submission</b></td>
+            <td rowspan="2"><b>Deadline for Peer Review</b></td>
+
             <td rowspan="2"><b>Action</b></td>
           </tr>
           <tr>
@@ -49,12 +50,12 @@
             <td><b>End Date</b></td>
           </tr>
           <tr>
-            <td><%= conference.title %></td>
             <td><%= conference.conference_start_date %></td>
             <td><%= conference.conference_end_date %></td>
             <td><%= conference.full_paper_submission %></td>
             <td><%= conference.acceptance_notification %></td>
             <td><%= conference.camera_ready_paper_submission %></td>
+            <td><%=conference.deadline_peer_review %></td>
             <td>
 
               <a
