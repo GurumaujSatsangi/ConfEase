@@ -51,7 +51,10 @@
 <input class="btn btn-success" type="submit" value="Add Track"></div>
     </form>
 
-    <table class="table">
+  <hr>
+
+        <% if(tracks && tracks.length>0) { %>
+              <table class="table">
         <tr>
             <td><b>Title of the Track</b></td>
             <td><b>Reviewers</b></td>
@@ -60,20 +63,19 @@
 
             <td><b>Action</b></td>
         </tr>
-
-        <% if(tracks && tracks.length>0) { %>
             <% tracks.forEach(function(tracks){ %>
                 <tr>
                     <td>
 <input class="form-control" type="text" value="<%=tracks.track_name %>" name="track_title_updated">
                     </td>
                     <td>
-<textarea class="form-control" value="<%=tracks.track_reviewers %>" name="reviewers_updated"></textarea>
+<textarea class="form-control"  name="reviewers_updated"><%=tracks.track_reviewers %></textarea>
 
                     </td>
 
                     <td>
-<input type="date" class="form-control" value="<%=tracks.presentation_date %>" name="session_date_updated">
+<input type="date" class="form-control" value="<%=tracks.presentation_date ? new Date(tracks.presentation_date).toISOString().split('T')[0]
+    : '' %>" name="session_date_updated">
                     </td>
 
                     <td>
@@ -85,19 +87,21 @@
                     </td>
 
                     <td>
-<textarea class="form-control" value="<%=tracks.panelists %>" name="session_chairs_updated"></textarea>
+<textarea class="form-control"  name="session_chairs_updated"><%=tracks.panelists %></textarea>
 
                     </td>
                     
                     <td>
                         <a class="btn btn-warning" href="/chair/dashboard/update-track/<%=tracks.track_id%>">Update</a>
                         <br>
-                        <a class="btn btn-danger" href="/chair/dashboard/<%= tracks.track_id %>">Delete</a>
+                        <a class="btn btn-danger" href="/chair/dashboard/delete-track/<%= tracks.track_id %>">Delete</a>
                     </td>
                 </tr>
             
             <% }) %>
         
+        <% } else { %>
+<h6><i class="bi bi-emoji-frown-fill"></i> No Tracks have been created for this conference!</h6>
         <% } %>
     </table>
     </div>
