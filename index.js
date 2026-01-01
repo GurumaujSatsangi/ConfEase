@@ -2484,6 +2484,14 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
   }
 });
 
+app.post("/create-track", checkChairAuth,async(req,res)=>{
+
+  const {track_title, reviewers} = req.body;
+  const result = await pool.query("insert into conference_tracks")
+
+
+})
+
 
 app.post("/mark-presentation-as-complete", async (req, res) => {
   const { paper_id, panelist_score, track_id } = req.body;

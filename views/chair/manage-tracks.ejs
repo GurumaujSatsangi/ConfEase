@@ -16,9 +16,9 @@
     <form action="/create-track" method="post" clas="form-control">
         <div class="mb-3">
 
-        <input class="form-control" type="text" placeholder="Title of the Track"></div>
+        <input class="form-control" type="text" name="track_title" placeholder="Title of the Track"></div>
         <div class="mb-3">
-<textarea class="form-control" placeholder="Email IDs of the Reviewers"></textarea></div>
+<textarea class="form-control" name="reviewers" placeholder="Email IDs of the Reviewers"></textarea></div>
 <div class="mb-3">
 <input class="btn btn-success" type="submit" value="Add Track"></div>
     </form>
@@ -27,16 +27,23 @@
         <tr>
             <td><b>Title of the Track</b></td>
             <td><b>Reviewers</b></td>
+            <td><b>Action</b></td>
         </tr>
 
         <% if(tracks && tracks.length>0) { %>
             <% tracks.forEach(function(tracks){ %>
                 <tr>
                     <td>
+<input type="text" name="track_title_updated">
+                    </td>
+                    <td>
+<textarea name="reviewers_updated"></textarea>
 
                     </td>
                     <td>
-                        
+                        <a class="btn btn-warning" href="/chair/dashboard/update-track/<%=track.track_id%>">Update</a>
+                        <br>
+                        <a class="btn btn-danger" href="/chair/dashboard/<%= track.track_id %>">Delete</a>
                     </td>
                 </tr>
             
