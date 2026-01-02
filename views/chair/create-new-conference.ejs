@@ -17,6 +17,11 @@
       <hr />
       <form action="/create-new-conference" method="POST">
         <div class="form-group">
+             <label
+                  class="form-check-label"
+                  for="co-chairs"
+                >
+Conference Title               </label>
           <input
             type="text"
             class="form-control"
@@ -29,12 +34,17 @@
         </div>
 
         <div class="form-group">
+             <label
+                  class="form-check-label"
+                  for="co-chairs"
+                >
+Conference Description                </label>
           <textarea
             class="form-control"
             id="exampleFormControlTextarea1"
             name="description"
             rows="3"
-            placeholder="Conference Description"
+            placeholder="A few lines about the conference..."
           ></textarea>
         </div>
 
@@ -149,6 +159,18 @@
               </div>
             </td>
 
+
+          </tr>
+          <tr>
+<td colspan="4">
+
+   <label
+                  class="form-check-label"
+                  for="co-chairs"
+                >
+Co-Chairs                </label>
+  <textarea class="form-control" required name="co_chairs" placeholder="Email IDs of the Co-Chairs (seperated by comma) - Co-Chairs do not have the privilege to Manage Tracks / Manage Oral & Poster Presentation Sessions / Publish Peer Review Results / Modify Conference / Delete Conference."></textarea>
+</td>
 
           </tr>
         </table>

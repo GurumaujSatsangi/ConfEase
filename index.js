@@ -2955,14 +2955,15 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
     acceptance_notification,
     camera_ready_paper_submission,
     deadline_peer_review,
+    co_chairs
   } = req.body;
 
   try {
     // 1. Insert conference and return row
     const confResult = await pool.query(
       `INSERT INTO conferences
-      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review)
-      VALUES ($1, $2, $3, $4, $5, $6, $7,$8)
+      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,co_chairs,created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,array[$9],$10)
       RETURNING conference_id;`,
       [
         title,
@@ -2972,7 +2973,9 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
         full_paper_submission,
         acceptance_notification,
         camera_ready_paper_submission,
-        deadline_peer_review
+        deadline_peer_review,
+        co_chairs,
+        req.user.email
       ]
     );
 
@@ -3531,7 +3534,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       return `${day}-${month}-${year}`;
     };
 
-    const result = await pool.query(`SELECT * FROM conferences;`);
+    const result = await pool.query("SELECT * FROM conferences where created_by = $1",[req.user.email]);
     const conferences = result.rows.map(conference => ({
       ...conference,
       conference_start_date: formatDate(conference.conference_start_date),

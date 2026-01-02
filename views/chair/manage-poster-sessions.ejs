@@ -59,6 +59,12 @@
                   required
                 />
               </div>
+
+              <div class="col-md-4 mb-3">
+                <label for="coordinators" class="form-label">Coordinators</label>
+               <textarea required name="coordinators" placeholder="Email IDs of the Coordinators (seperated by comma)" class="form-control"></textarea>
+              </div>
+
             </div>
             <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
             <button type="submit" class="btn btn-success">
@@ -76,6 +82,7 @@
                     <th scope="col">Date</th>
                     <th scope="col">Start Time</th>
                     <th scope="col">End Time</th>
+                    <th scope="col">Coordinators</th>
                   </tr>
                 </thead>
                 <tbody>
