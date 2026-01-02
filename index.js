@@ -1175,6 +1175,16 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   }
 });
 
+app.get("/virtual-poster-presentation/:id" , async(req,res)=>{
+ 
+    const posters = await pool.query("select * from submissions where conference_id=$1 and submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",[req.params.id]);
+    
+   
+    const conference = await fetchConference(posters.rows[0].conference_id);
+    return res.render("virtual-poster-presentation",{poster:posters.rows[0],conference:conference});
+
+});
+
 app.get(
   "/chair/dashboard/manage-sessions/:id",
   checkChairAuth,
@@ -1360,6 +1370,8 @@ app.get(
     }
   }
 );
+
+
 
 
 
