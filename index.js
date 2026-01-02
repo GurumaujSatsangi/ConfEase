@@ -1334,7 +1334,7 @@ app.get(
             [
               req.params.id,
               track.track_id,
-              "Submitted Final Camera Ready Paper (Accepted for Oral Presentation)",
+              "Submitted Final Camera Ready Paper for Oral Presentation",
             ]
           );
 
@@ -1418,6 +1418,93 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
     );
     const posterSubmissions = posterSubsResult.rows;
 
+    // ---------- leaderboard submissions (ONLY presentation completed) ----------
+    const leaderboardSubsResult = await pool.query(
+      `SELECT * FROM submissions
+       WHERE conference_id = $1
+       AND submission_status = $2`,
+      [req.params.id, "Presentation Completed"]
+    );
+    const leaderboardSubs = leaderboardSubsResult.rows;
+
+    // Build leaderboard with scores
+    const leaderboard = await Promise.all(
+      leaderboardSubs.map(async (sub) => {
+        // reviewer scores
+        const reviewResult = await pool.query(
+          `SELECT mean_score FROM peer_review WHERE submission_id = $1`,
+          [sub.submission_id]
+        );
+
+        let reviewerScore = null;
+        if (reviewResult.rows.length > 0) {
+          reviewerScore =
+            reviewResult.rows.reduce(
+              (sum, r) => sum + (r.mean_score || 0),
+              0
+            ) / reviewResult.rows.length;
+        }
+
+        // panelist score
+        const panelistResult = await pool.query(
+          `SELECT panelist_score
+           FROM final_camera_ready_submissions
+           WHERE submission_id = $1
+           LIMIT 1`,
+          [sub.submission_id]
+        );
+
+        const panelistScore =
+          panelistResult.rows[0]?.panelist_score ?? null;
+
+        // combined avg
+        let averageScore = null;
+        if (reviewerScore !== null && panelistScore !== null)
+          averageScore = (reviewerScore + panelistScore) / 2;
+        else averageScore = reviewerScore ?? panelistScore;
+
+        // author names
+        const emails = [
+          sub.primary_author,
+          ...(sub.co_authors || []),
+        ];
+        const usersResult = await pool.query(
+          `SELECT email, name FROM users WHERE email = ANY($1)`,
+          [emails]
+        );
+
+        const userMap = Object.fromEntries(
+          usersResult.rows.map((u) => [u.email, u.name])
+        );
+        const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
+
+        return {
+          ...sub,
+          reviewerScore:
+            reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+          panelistScore:
+            panelistScore !== null ? +panelistScore.toFixed(2) : null,
+          averageScore:
+            averageScore !== null ? +averageScore.toFixed(2) : null,
+          primary_author_formatted: fmt(sub.primary_author),
+          co_authors_formatted: (sub.co_authors || [])
+            .map(fmt)
+            .join(", "),
+        };
+      })
+    );
+
+    const ranked = leaderboard
+      .filter((l) => l.averageScore !== null)
+      .sort((a, b) => b.averageScore - a.averageScore)
+      .map((l, i) => ({ ...l, rank: i + 1 }));
+
+    const unranked = leaderboard
+      .filter((l) => l.averageScore === null)
+      .map((l) => ({ ...l, rank: null }));
+
+    const finalLeaderboard = [...ranked, ...unranked];
+
     const allEmails = new Set();
     posterSubmissions.forEach(sub => {
       allEmails.add(sub.primary_author);
@@ -1446,6 +1533,7 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
       conference,
       posterSession,
       submissions: posterSubmissionsFormatted,
+      leaderboard: finalLeaderboard,
       message: req.query.message || null,
     });
 
@@ -1459,17 +1547,18 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
 app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, res) => {
   
 
-  const { session_date, start_time, end_time, conference_id } = req.body;
+  const { session_date, start_time, end_time, conference_id,coordinators } = req.body;
+ try {
+  await pool.query(
+  `UPDATE poster_session
+   SET date = $1,
+       start_time = $2,
+       end_time = $3,
+       coodinators = ARRAY[$4]
+   WHERE conference_id = $5;`,
+  [session_date, start_time, end_time, coordinators, conference_id]
+);
 
-  try {
-    await pool.query(
-      `UPDATE poster_session
-       SET date = $1,
-           start_time = $2,
-           end_time = $3
-       WHERE conference_id = $4;`,
-      [session_date, start_time, end_time, conference_id]
-    );
 
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
@@ -3651,109 +3740,8 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
       ]
     );
 
-    //
-    // 2. Fetch existing tracks
-    //
-    const existingTracksResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1 ORDER BY track_id ASC;`,
-      [conferenceId]
-    );
-    const existingTracks = existingTracksResult.rows;
 
-    //
-    // 3. Collect updated track entries from form
-    //
-    const newTracks = [];
-    let i = 1;
-    while (req.body[`track_title_${i}`] && req.body[`track_reviewer_${i}`]) {
-      newTracks.push({
-        track_name: req.body[`track_title_${i}`],
-        track_reviewers: [req.body[`track_reviewer_${i}`]],
-      });
-      i++;
-    }
-
-    //
-    // 4. Update matching tracks
-    //
-    for (let idx = 0; idx < Math.min(existingTracks.length, newTracks.length); idx++) {
-      const oldTrack = existingTracks[idx];
-      const newTrack = newTracks[idx];
-
-      // Update track name & reviewers (keep session fields intact)
-      await pool.query(
-        `UPDATE conference_tracks
-         SET track_name = $1,
-             track_reviewers = $2
-         WHERE track_id = $3;`,
-        [newTrack.track_name, newTrack.track_reviewers, oldTrack.track_id]
-      );
-
-      // Notify newly added reviewers
-      const previousReviewers = oldTrack.track_reviewers || [];
-      const updatedReviewers = newTrack.track_reviewers || [];
-      const addedReviewers = updatedReviewers.filter(r => !previousReviewers.includes(r));
-
-      if (addedReviewers.length > 0) {
-        const confTitleResult = await pool.query(
-          `SELECT title FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-          [conferenceId]
-        );
-        const confTitle = confTitleResult.rows[0]?.title || "Conference";
-
-        for (const email of addedReviewers) {
-          try {
-            await sendMail(
-              email,
-              `Reviewer Assignment - ${confTitle}`,
-              `You have been assigned as a reviewer for the track "${newTrack.track_name}".`,
-              `<p>Dear Reviewer,</p>
-               <p>You have been assigned as a reviewer for <strong>${newTrack.track_name}</strong> in <strong>${confTitle}</strong>.</p>
-               <p>Please log in using this email address.</p>
-               <p>Regards,<br>Conference Management Toolkit Team</p>`
-            );
-          } catch (err) {
-            console.error("Email error:", err);
-          }
-        }
-      }
-    }
-
-    //
-    // 5. Insert additional tracks (if newTracks > existingTracks)
-    //
-    if (newTracks.length > existingTracks.length) {
-      const tracksToInsert = newTracks.slice(existingTracks.length).map(t => [
-        conferenceId,
-        t.track_name,
-        t.track_reviewers
-      ]);
-
-      const values = tracksToInsert.flat();
-      const placeholders = tracksToInsert
-        .map((_, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`)
-        .join(",");
-
-      await pool.query(
-        `INSERT INTO conference_tracks (conference_id, track_name, track_reviewers)
-         VALUES ${placeholders};`,
-        values
-      );
-    }
-
-    //
-    // 6. Delete extra tracks (if existingTracks > newTracks)
-    //
-    if (newTracks.length < existingTracks.length) {
-      const extraTrackIds = existingTracks.slice(newTracks.length).map(t => t.track_id);
-
-      await pool.query(
-        `DELETE FROM conference_tracks WHERE track_id = ANY($1);`,
-        [extraTrackIds]
-      );
-    }
-
-    return res.redirect("/chair/dashboard");
+    return res.redirect("/chair/dashboard?message=Conference Updated Successfully!");
 
   } catch (err) {
     console.error("Update conference error:", err);
