@@ -1175,147 +1175,192 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   }
 });
 
-app.get("/chair/dashboard/manage-sessions/:id", checkChairAuth,async (req, res) => {
+app.get(
+  "/chair/dashboard/manage-sessions/:id",
+  checkChairAuth,
+  async (req, res) => {
+    try {
+      // ---------- helper ----------
+      const formatDate = (dateString) => {
+        if (!dateString) return dateString;
+        const d = new Date(dateString);
+        return `${String(d.getDate()).padStart(2, "0")}-${String(
+          d.getMonth() + 1
+        ).padStart(2, "0")}-${d.getFullYear()}`;
+      };
 
+      // ---------- conference ----------
+      const confResult = await pool.query(
+        `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1`,
+        [req.params.id]
+      );
 
-  try {
-    // Helper function to format dates
-    const formatDate = (dateString) => {
-      if (!dateString) return dateString;
-      const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
-      return `${day}-${month}-${year}`;
-    };
+      const conferenceRaw = confResult.rows[0];
+      const conference = {
+        ...conferenceRaw,
+        conference_start_date: formatDate(conferenceRaw.conference_start_date),
+        conference_end_date: formatDate(conferenceRaw.conference_end_date),
+        full_paper_submission: formatDate(conferenceRaw.full_paper_submission),
+        acceptance_notification: formatDate(
+          conferenceRaw.acceptance_notification
+        ),
+        camera_ready_paper_submission: formatDate(
+          conferenceRaw.camera_ready_paper_submission
+        ),
+      };
 
-    // Tracks
-    const tracksResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1;`,
-      [req.params.id]
-    );
-    const tracks = tracksResult.rows.map(track => ({
-      ...track,
-      presentation_date: formatDate(track.presentation_date)
-    }));
+      // ---------- tracks ----------
+      const tracksResult = await pool.query(
+        `SELECT * FROM conference_tracks WHERE conference_id = $1`,
+        [req.params.id]
+      );
 
-    // Conference
-    const confResult = await pool.query(
-      `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-      [req.params.id]
-    );
-    const conferenceRaw = confResult.rows[0];
-    const conference = {
-      ...conferenceRaw,
-      conference_start_date: formatDate(conferenceRaw.conference_start_date),
-      conference_end_date: formatDate(conferenceRaw.conference_end_date),
-      full_paper_submission: formatDate(conferenceRaw.full_paper_submission),
-      acceptance_notification: formatDate(conferenceRaw.acceptance_notification),
-      camera_ready_paper_submission: formatDate(conferenceRaw.camera_ready_paper_submission)
-    };
+      const tracks = tracksResult.rows.map((t) => ({
+        ...t,
+        presentation_date: formatDate(t.presentation_date),
+      }));
 
-    // Submissions (Final Camera Ready or Completed)
-    const submissionsResult = await pool.query(
-      `SELECT * FROM submissions 
-       WHERE conference_id = $1
-       AND submission_status = ANY($2);`,
-      [req.params.id, [
-        "Submitted Final Camera Ready Paper",
-        "Presentation Completed"
-      ]]
-    );
-    const submissions = submissionsResult.rows;
+      // ---------- leaderboard submissions (ONLY presentation completed) ----------
+      const leaderboardSubsResult = await pool.query(
+        `SELECT * FROM submissions
+         WHERE conference_id = $1
+         AND submission_status = $2`,
+        [req.params.id, "Presentation Completed"]
+      );
+      const leaderboardSubs = leaderboardSubsResult.rows;
 
-    // Count submissions per track
-    const trackCounts = {};
-    submissions.forEach(sub => {
-      trackCounts[sub.track_id] = (trackCounts[sub.track_id] || 0) + 1;
-    });
+      // ---------- count per track ----------
+      const trackCounts = {};
+      leaderboardSubs.forEach((s) => {
+        trackCounts[s.track_id] = (trackCounts[s.track_id] || 0) + 1;
+      });
 
-    const count = tracks.map(track => ({
-      track_id: track.track_id,
-      track_name: track.track_name,
-      count: trackCounts[track.track_id] || 0,
-    }));
+      const count = tracks.map((t) => ({
+        track_id: t.track_id,
+        track_name: t.track_name,
+        count: trackCounts[t.track_id] || 0,
+      }));
 
-    // Build leaderboard per track
-    const tracksWithLeaderboard = await Promise.all(
-      tracks.map(async track => {
-        const trackSubs = submissions.filter(s => s.track_id === track.track_id);
+      // ---------- build per-track data ----------
+      const tracksWithData = await Promise.all(
+        tracks.map(async (track) => {
+          // ===== LEADERBOARD =====
+          const trackLeaderboardSubs = leaderboardSubs.filter(
+            (s) => s.track_id === track.track_id
+          );
 
-        const leaderboard = await Promise.all(
-          trackSubs.map(async sub => {
-            // Reviewer scores
-            const reviewResult = await pool.query(
-              `SELECT mean_score FROM peer_review WHERE submission_id = $1;`,
-              [sub.submission_id]
-            );
-            let reviewerScore = null;
-            if (reviewResult.rows.length > 0) {
-              reviewerScore = reviewResult.rows.reduce(
-                (sum, r) => sum + (r.mean_score || 0), 0
-              ) / reviewResult.rows.length;
-            }
+          const leaderboard = await Promise.all(
+            trackLeaderboardSubs.map(async (sub) => {
+              // reviewer scores
+              const reviewResult = await pool.query(
+                `SELECT mean_score FROM peer_review WHERE submission_id = $1`,
+                [sub.submission_id]
+              );
 
-            // Panelist score
-            const panelistResult = await pool.query(
-              `SELECT panelist_score FROM final_camera_ready_submissions
-               WHERE submission_id = $1 LIMIT 1;`,
-              [sub.submission_id]
-            );
-            const panelistScore = panelistResult.rows[0]?.panelist_score || null;
+              let reviewerScore = null;
+              if (reviewResult.rows.length > 0) {
+                reviewerScore =
+                  reviewResult.rows.reduce(
+                    (sum, r) => sum + (r.mean_score || 0),
+                    0
+                  ) / reviewResult.rows.length;
+              }
 
-            // Combined score
-            let avg = null;
-            if (reviewerScore !== null && panelistScore !== null) avg = (reviewerScore + panelistScore) / 2;
-            else avg = reviewerScore !== null ? reviewerScore : panelistScore;
+              // panelist score
+              const panelistResult = await pool.query(
+                `SELECT panelist_score
+                 FROM final_camera_ready_submissions
+                 WHERE submission_id = $1
+                 LIMIT 1`,
+                [sub.submission_id]
+              );
 
-            // Author names
-            const emails = [sub.primary_author, ...(sub.co_authors || [])];
-            const userResult = await pool.query(
-              `SELECT email, name FROM users WHERE email = ANY($1);`,
-              [emails]
-            );
-            const map = Object.fromEntries(userResult.rows.map(u => [u.email, u.name]));
-            const fmt = e => map[e] ? `${map[e]} (${e})` : e;
+              const panelistScore =
+                panelistResult.rows[0]?.panelist_score ?? null;
 
-            return {
-              ...sub,
-              reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-              panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
-              averageScore: avg !== null ? +avg.toFixed(2) : null,
-              primary_author_formatted: fmt(sub.primary_author),
-              co_authors_formatted: (sub.co_authors || []).map(fmt).join(", ")
-            };
-          })
-        );
+              // combined avg
+              let averageScore = null;
+              if (reviewerScore !== null && panelistScore !== null)
+                averageScore = (reviewerScore + panelistScore) / 2;
+              else averageScore = reviewerScore ?? panelistScore;
 
-        const ranked = leaderboard
-          .filter(s => s.averageScore !== null)
-          .sort((a, b) => b.averageScore - a.averageScore)
-          .map((item, i) => ({ ...item, rank: i + 1 }));
+              // author names
+              const emails = [
+                sub.primary_author,
+                ...(sub.co_authors || []),
+              ];
+              const usersResult = await pool.query(
+                `SELECT email, name FROM users WHERE email = ANY($1)`,
+                [emails]
+              );
 
-        const unranked = leaderboard
-          .filter(s => s.averageScore === null)
-          .map(s => ({ ...s, rank: null }));
+              const userMap = Object.fromEntries(
+                usersResult.rows.map((u) => [u.email, u.name])
+              );
+              const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
 
-        return { ...track, leaderboard: [...ranked, ...unranked] };
-      })
-    );
+              return {
+                ...sub,
+                reviewerScore:
+                  reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+                panelistScore:
+                  panelistScore !== null ? +panelistScore.toFixed(2) : null,
+                averageScore:
+                  averageScore !== null ? +averageScore.toFixed(2) : null,
+                primary_author_formatted: fmt(sub.primary_author),
+                co_authors_formatted: (sub.co_authors || [])
+                  .map(fmt)
+                  .join(", "),
+              };
+            })
+          );
 
-    res.render("chair/manage-sessions.ejs", {
-      user: req.user,
-      tracks: tracksWithLeaderboard,
-      conference,
-      count,
-      message: req.query.message || null,
-    });
+          const ranked = leaderboard
+            .filter((l) => l.averageScore !== null)
+            .sort((a, b) => b.averageScore - a.averageScore)
+            .map((l, i) => ({ ...l, rank: i + 1 }));
 
-  } catch (err) {
-    console.error("manage-sessions error:", err);
-    return res.status(500).send("Error fetching data.");
+          const unranked = leaderboard
+            .filter((l) => l.averageScore === null)
+            .map((l) => ({ ...l, rank: null }));
+
+          // ===== FINAL CAMERA READY TABLE =====
+          const finalCameraReadyResult = await pool.query(
+            `SELECT *
+             FROM submissions
+             WHERE conference_id = $1
+             AND track_id = $2
+             AND submission_status = $3`,
+            [
+              req.params.id,
+              track.track_id,
+              "Submitted Final Camera Ready Paper (Accepted for Oral Presentation)",
+            ]
+          );
+
+          return {
+            ...track,
+            leaderboard: [...ranked, ...unranked],
+            finalCameraReadyPapers: finalCameraReadyResult.rows,
+          };
+        })
+      );
+
+      // ---------- render ----------
+      res.render("chair/manage-sessions.ejs", {
+        user: req.user,
+        tracks: tracksWithData,
+        conference,
+        count,
+        message: req.query.message || null,
+      });
+    } catch (err) {
+      console.error("manage-sessions error:", err);
+      res.status(500).send("Error fetching data");
+    }
   }
-});
+);
+
 
 
 app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req, res) => {
@@ -2311,10 +2356,15 @@ app.get("/privacy-policy",async(req,res)=>{
   res.render("privacy-policy");
 })
 
-app.post("/add-invitee", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+async function fetchInviteeNamebyEmail(email){
+
+  const result = await pool.query("select name from users where email = $1",[email]);
+  return result.rows[0];
+
+}
+
+app.post("/add-invitee", checkChairAuth,async (req, res) => {
+  
 
   const { email, conference_id } = req.body;
   if (!email || !conference_id) {
@@ -2328,6 +2378,11 @@ app.post("/add-invitee", async (req, res) => {
        VALUES ($1, $2);`,
       [conference_id, email]
     );
+
+ 
+
+  
+
   } catch (err) {
     console.error("Error adding invitee:", err);
     return res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Error adding invitee.`);
@@ -2335,28 +2390,19 @@ app.post("/add-invitee", async (req, res) => {
 
   try {
     // 2. Generate setup token (valid 24 hours)
-    const setupToken = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // Timestamp, not string
-
-    await pool.query(
-      `UPDATE invitees
-       SET password_reset_token = $1,
-           password_reset_expires = $2
-       WHERE conference_id = $3 AND email = $4;`,
-      [setupToken, expiresAt, conference_id, email]
-    );
-
+   
     // 3. Fetch conference title for email
     const confResult = await pool.query(
       `SELECT title FROM conferences WHERE conference_id = $1 LIMIT 1;`,
       [conference_id]
     );
     const conferenceTitle = confResult.rows[0]?.title || "the conference";
-
-    const resetLink = `${APP_URL}/invitee/reset-password?token=${encodeURIComponent(setupToken)}`;
+    const result = await fetchInviteeNamebyEmail(email);
+    const invitee_name = result.name || "Invitee";
 
     const htmlBody = `
-      <p>Dear Invitee,</p>
+      <p>Dear ${invitee_name}</p>
+      <p>Hope you are doing well!</p>
       <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
       <p>You may sign in (using Google) using this email: <strong>${email}</strong>.</p>
       <p>For support, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
@@ -2367,7 +2413,7 @@ app.post("/add-invitee", async (req, res) => {
       await sendMail(
         email,
         `Invited to Present at ${conferenceTitle}`,
-        `You have been invited to present at ${conferenceTitle}. Set your password: ${resetLink}`,
+        `You have been invited to present at ${conferenceTitle}`,
         htmlBody
       );
     } catch (emailErr) {

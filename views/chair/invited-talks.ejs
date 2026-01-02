@@ -111,7 +111,7 @@
         <input
           type="submit"
           value="Add Invitee"
-          class="btn btn-outline-primary"
+          class="btn btn-primary"
         />
       </form>
 
@@ -153,19 +153,13 @@
                 <% } %>
               </div>
               <div>
-                <% if (invitee.hasLoggedIn) { %>
-                  <span class="login-status status-logged-in">Logged In</span>
-                <% } else { %>
-                  <span class="login-status status-not-logged-in">Never Logged In</span>
-                <% } %>
+              
               </div>
             </div>
           <% }); %>
         </div>
       <% } else { %>
-        <div class="alert alert-info" role="alert" style="margin-top: 20px;">
-          No invitees added yet.
-        </div>
+       <hr><h6><i class="bi bi-emoji-frown-fill"></i> No invites have been sent for this conference!</h6>
       <% } %>
     </div>
     <script src="/script.js"></script>

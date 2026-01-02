@@ -33,12 +33,7 @@
                 </span>
               </div>
               
-              <div class="mb-3">
-                <a href="/panelist/active-session/<%= track.track_id %>" target="_blank" class="btn btn-sm btn-outline-primary">
-                  <i class="bi bi-box-arrow-up-right me-1"></i>Session Link
-                </a>
-              </div>
-              
+                      
           
 
               <div class="table-responsive">
@@ -143,7 +138,7 @@
                       <% } else { %>
                         <div class="text-center text-muted p-4">
                           <i class="bi bi-inbox display-4"></i>
-                          <p class="mt-2">No submissions found for this track</p>
+                          <p class="mt-2"><b>No submissions have been marked as "Completed"!</b></p>
                         </div>
                       <% } %>
                     </div>
@@ -155,6 +150,65 @@
             
             </div>
           </div>
+
+    <!-- Final Camera Ready Papers -->
+<div class="mt-4">
+  <h5>Final Camera Ready Papers (Accepted for Oral Presentation)</h5>
+  <hr />
+
+  <% if (track.finalCameraReadyPapers && track.finalCameraReadyPapers.length > 0) { %>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>Title</th>
+            <th>Primary Author</th>
+            <th>Co-Authors</th>
+            <th>Mean Score (Peer Review)</th>
+            <th>View Paper</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% track.finalCameraReadyPapers.forEach(function(paper) { %>
+            <tr>
+              <td class="fw-bold"><%= paper.title %></td>
+              <td><%= paper.primary_author %></td>
+              <td>
+                <% if (paper.co_authors && paper.co_authors.length > 0) { %>
+                  <%= paper.co_authors.join(", ") %>
+                <% } else { %>
+                  <span class="text-muted">—</span>
+                <% } %>
+              </td>
+              <td class="text-center">
+                <% if (paper.mean_score) { %>
+                  <span class="badge bg-primary"><%= paper.mean_score %>/5</span>
+                <% } else { %>
+                  <span class="badge bg-secondary">N/A</span>
+                <% } %>
+              </td>
+              <td>
+                <% if (paper.paper_url) { %>
+                  <a href="<%= paper.paper_url %>" target="_blank" class="btn btn-sm btn-outline-primary">
+                    View
+                  </a>
+                <% } else { %>
+                  <span class="text-muted">Not uploaded</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+<h6>      <i class="bi bi-emoji-frown-fill me-1"></i>
+      No Final Camera Ready Papers have been submitted!
+</h6>
+  <% } %>
+</div>
+
+
           <% }); %> <% } else { %>
           <h6><i class="bi bi-emoji-frown-fill"></i> No tracks have been added for this conference, please go back to the dashboard and click on 'Manage Tracks' to add tracks!</h6>
           <% } %>
