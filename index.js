@@ -1181,7 +1181,7 @@ app.get("/virtual-poster-presentation/:id" , async(req,res)=>{
     
    
     const conference = await fetchConference(posters.rows[0].conference_id);
-    return res.render("virtual-poster-presentation",{poster:posters.rows[0],conference:conference});
+    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference});
 
 });
 
