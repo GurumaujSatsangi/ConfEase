@@ -99,8 +99,20 @@
       <h6>Conference: <%=conference.title %></h6>
       <hr />
       <form action="/add-invitee" method="POST">
-        <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
-        <input
+        <table class="table table-striped">
+          <tr>
+            <td>
+  <input
+          type="text"
+          id="invited_talk_name"
+          class="form-control"
+          name="name"
+          aria-describedby="passwordHelpInline"
+          placeholder="Name of the Invitee"
+        />
+            </td>
+            <td>
+ <input
           type="email"
           id="invited_talk_email"
           class="form-control"
@@ -108,11 +120,21 @@
           aria-describedby="passwordHelpInline"
           placeholder="Enter Email ID of the Invitee"
         />
-        <input
+            </td>
+            <td>
+ <input
           type="submit"
           value="Add Invitee"
           class="btn btn-primary"
         />
+            </td>
+          </tr>
+        </table>
+        <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
+      
+       
+       
+       
       </form>
 
       <%# Display invitees list %>

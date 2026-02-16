@@ -34,19 +34,76 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
-// Show loading modal on form submission (only add if loadingModal exists)
+// Show loading modal on form submission (auto-creates modal if not present)
 document.addEventListener("DOMContentLoaded", function () {
   const forms = document.querySelectorAll("form");
-  const loadingModal = document.getElementById("loadingModal");
-  
-  if (loadingModal && forms.length > 0) {
-    forms.forEach(form => {
-      form.addEventListener("submit", function () {
-        var modal = new bootstrap.Modal(loadingModal);
-        modal.show();
-      });
-    });
+  if (forms.length === 0) return;
+
+  // Create the loading modal dynamically if it doesn't exist on the page
+  let loadingModalEl = document.getElementById("loadingModal");
+  if (!loadingModalEl) {
+    loadingModalEl = document.createElement("div");
+    loadingModalEl.className = "modal fade";
+    loadingModalEl.id = "loadingModal";
+    loadingModalEl.setAttribute("tabindex", "-1");
+    loadingModalEl.setAttribute("aria-hidden", "true");
+    loadingModalEl.setAttribute("data-bs-backdrop", "static");
+    loadingModalEl.setAttribute("data-bs-keyboard", "false");
+    loadingModalEl.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+          <div class="modal-body text-center py-4 px-4">
+            <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <h5 class="mb-3" style="color: #333;">Please Wait... Loading</h5>
+            <div class="progress" style="height: 6px; border-radius: 3px;">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                   role="progressbar" style="width: 100%;" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <p class="text-muted mt-2 mb-0" style="font-size: 0.85em;">This may take a moment. Please do not close or refresh the page.</p>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(loadingModalEl);
+  } else {
+    // Update existing modal content to include progress bar and message
+    const modalContent = loadingModalEl.querySelector(".modal-content");
+    if (modalContent) {
+      modalContent.className = "modal-content border-0 shadow";
+      modalContent.style.borderRadius = "12px";
+      modalContent.innerHTML = `
+        <div class="modal-body text-center py-4 px-4">
+          <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <h5 class="mb-3" style="color: #333;">Please Wait... Loading</h5>
+          <div class="progress" style="height: 6px; border-radius: 3px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                 role="progressbar" style="width: 100%;" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <p class="text-muted mt-2 mb-0" style="font-size: 0.85em;">This may take a moment. Please do not close or refresh the page.</p>
+        </div>`;
+    }
   }
+
+  const loadingModal = new bootstrap.Modal(loadingModalEl);
+
+  forms.forEach(form => {
+    form.addEventListener("submit", function () {
+      // Small delay so the browser initiates the form POST before Bootstrap locks the body
+      setTimeout(function () {
+        try { loadingModal.show(); } catch (e) { /* ignore */ }
+      }, 50);
+    });
+  });
+
+  // Hide modal when navigating back to the page (e.g. browser back button)
+  window.addEventListener("pageshow", function (event) {
+    if (event.persisted) {
+      try { loadingModal.hide(); } catch (e) { /* ignore */ }
+    }
+  });
 });
 
 // Track management functionality for create-new-conference page only

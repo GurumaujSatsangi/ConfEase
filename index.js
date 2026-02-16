@@ -539,7 +539,7 @@ async function checkChairAuth(req, res, next) {
 
     // fetch user using email from token
     const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
+      "SELECT * FROM chairs WHERE email = $1",
       [decoded.email]
     );
 
@@ -2467,7 +2467,7 @@ async function fetchInviteeNamebyEmail(email){
 app.post("/add-invitee", checkChairAuth,async (req, res) => {
   
 
-  const { email, conference_id } = req.body;
+  const { email, conference_id,name } = req.body;
   if (!email || !conference_id) {
     return res.status(400).send("Email and conference ID are required.");
   }
@@ -2475,9 +2475,15 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
   try {
     // 1. Insert invitee row
     await pool.query(
-      `INSERT INTO invitees (conference_id, email)
-       VALUES ($1, $2);`,
-      [conference_id, email]
+      `INSERT INTO invitees (conference_id, name, email)
+       VALUES ($1, $2, $3);`,
+      [conference_id, name, email]
+    );
+
+     await pool.query(
+      `INSERT INTO users (name, email,password)
+       VALUES ($1, $2, $3);`,
+      [name, email,"Invited User"]
     );
 
  
@@ -2528,6 +2534,30 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
 
   res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Invitee added successfully.`);
 });
+
+
+app.get("/invited-user/password-update/:email",async(req,res)=>{
+
+  const email = req.params.email;
+
+  const result = await pool.query('select * from users where email=$1 and password=$2',[email,"Invited User"]);
+  
+     if (result.rows.length === 0) {
+      return res.redirect("/?message=Not Eligible!");
+    }
+
+    else{ 
+
+       res.render("invited-user-password-update.ejs", {
+      user: email
+    });
+
+    }
+
+   
+
+
+})
 
 
 app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
