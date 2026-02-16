@@ -407,7 +407,7 @@ app.get("/error", (req, res) => {
   res.render("error.ejs", { message });
 });
 
-app.get("/panelist/dashboard", (req, res) => {
+app.get("/panelist/dashboard", checkAuth, (req, res) => {
   res.render("panelist/dashboard.ejs", { message: req.query.message || null });
 });
 
@@ -4193,10 +4193,10 @@ app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
       [req.params.id]
     );
 
-    return res.redirect("/invitee/dashboard?message=Submission deleted successfully!");
+    return res.redirect("/dashboard?message=Submission deleted successfully!");
   } catch (err) {
     console.error("Error deleting invited talk submission:", err);
-    return res.redirect("/invitee/dashboard?message=Error deleting submission.");
+    return res.redirect("/?message=Error deleting submission.");
   }
 });
 
@@ -4292,19 +4292,19 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
       const message = err.code === 'LIMIT_FILE_SIZE' 
         ? 'File size exceeds 4MB limit. Please upload a smaller file.'
         : err.message;
-      return res.redirect(`/invitee/dashboard?message=Error: ${message}`);
+      return res.redirect(`/dashboard?message=Error: ${message}`);
     }
 
     (async () => {
     
 
       if (!req.file) {
-        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
+        return res.redirect("/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
       }
 
       const { title, abstract, areas, conference_id } = req.body;
       if (!title || !abstract || !areas) {
-        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("All fields are required"));
+        return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required"));
       }
 
       const filePath = req.file.path;
@@ -4333,10 +4333,10 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         );
       } catch (dbErr) {
         console.error("Error inserting submission:", dbErr);
-        return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Submission failed."));
+        return res.redirect("/dashboard?message=" + encodeURIComponent("Submission failed."));
       }
 
-      return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Submission saved successfully"));
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Submission saved successfully"));
     })().catch(next);
   });
 });
