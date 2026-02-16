@@ -123,7 +123,6 @@
               <tr>
                 <td colspan="4"><% if(isReviewerResult === true) { %>
                 <center>
-                   <b>You have been invited as a Reviewer for this conference, please click on "Review Papers" to start the peer review process.</b>
             <br>
             <a href="/reviewer/<%=conference.conference_id%>" style="width:300px" class="btn btn-outline-success">Review Papers</a>
 
@@ -140,8 +139,7 @@
               <% } %>
                 <% if(isInviteeResult === true) { %>
                     <center>
-                      <b>You have been invited as an Invited Spekaer for an Invited talk for this conference, please click on "Submit Paper for Invited Talk" to submit your paper.</b>
-            <br><a href="/" style="width:300px" class="btn btn-outline-success">Submit Paper for Invited Talk</a>
+            <br><a href="/invitee/dashboard" style="width:300px" class="btn btn-outline-success">Submit Paper for Invited Talk</a>
                 </center>
                <% } %>
 
@@ -171,9 +169,22 @@
         <% } %>
 
         <hr />
+
+        <% if(typeof invitedTalkSubmissions !== 'undefined' && invitedTalkSubmissions && invitedTalkSubmissions.length > 0){ %>
+        <h4>Invited Talk Submissions</h4>
+        <ul>
+      
+                  <% invitedTalkSubmissions.forEach(function(talk) { %>
+                 <li>
+
+                 <a href="<%=talk.file_url%>" target="_blank"> <%= talk.title %> </a>
+                 </li>
+                  <% }); %>
+</ul>
+        <% } %>
         <h4>My Submissions</h4>
-        <% if (userSubmissions && userSubmissions.length > 0) { %> <%
-        userSubmissions.forEach(function(submission) { %>
+        <% if (userSubmissions && userSubmissions.length > 0) { %> 
+          <% userSubmissions.forEach(function(submission) { %>
         <div class="card mb-3">
           <div class="card-header">
             <strong><%= submission.title %></strong>

@@ -411,10 +411,8 @@ app.get("/panelist/dashboard", (req, res) => {
   res.render("panelist/dashboard.ejs", { message: req.query.message || null });
 });
 
-app.get("/invitee/dashboard", ensureAuthenticatedOrToken, async (req, res) => {
-  if (!req.user || req.user.role !== "invitee") {
-    return res.redirect("/?message=You are not authorized to access this page.");
-  }
+app.get("/invitee/dashboard", checkAuth, async (req, res) => {
+ 
 
   try {
     // Helper function to format dates
@@ -428,57 +426,70 @@ app.get("/invitee/dashboard", ensureAuthenticatedOrToken, async (req, res) => {
     };
 
     //
+    // 0. Look up conference_id from the invitees table
+    //
+    const inviteeResult = await pool.query(
+      `SELECT conference_id FROM invitees WHERE email = $1 LIMIT 1`,
+      [req.user.email]
+    );
+    const conferenceId = inviteeResult.rows[0]?.conference_id || null;
+
+    //
     // 1. Fetch conference details
     //
-    const conferenceResult = await pool.query(
-      `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1`,
-      [req.user.conference_id]
-    );
-    const conference = conferenceResult.rows[0];
-
-    if (!conference) {
-      return res.status(500).send("Error fetching conference details.");
+    let conference = null;
+    if (conferenceId) {
+      const conferenceResult = await pool.query(
+        `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1`,
+        [conferenceId]
+      );
+      conference = conferenceResult.rows[0] || null;
     }
 
-    // Format conference dates
-    conference.conference_start_date = formatDate(conference.conference_start_date);
-    conference.conference_end_date = formatDate(conference.conference_end_date);
-    conference.full_paper_submission = formatDate(conference.full_paper_submission);
-    conference.acceptance_notification = formatDate(conference.acceptance_notification);
-    conference.camera_ready_paper_submission = formatDate(conference.camera_ready_paper_submission);
+    if (conference) {
+      // Format conference dates
+      conference.conference_start_date = formatDate(conference.conference_start_date);
+      conference.conference_end_date = formatDate(conference.conference_end_date);
+      conference.full_paper_submission = formatDate(conference.full_paper_submission);
+      conference.acceptance_notification = formatDate(conference.acceptance_notification);
+      conference.camera_ready_paper_submission = formatDate(conference.camera_ready_paper_submission);
+    }
 
     //
     // 2. Fetch invitee's submissions
     //
-    const submissionsResult = await pool.query(
-      `SELECT * FROM invited_talk_submissions 
-       WHERE conference_id = $1 AND invitee_email = $2`,
-      [req.user.conference_id, req.user.email]
-    );
-    const submissions = submissionsResult.rows;
+    let submissionsWithTrackNames = [];
+    if (conferenceId) {
+      const submissionsResult = await pool.query(
+        `SELECT * FROM invited_talk_submissions 
+         WHERE conference_id = $1 AND invitee_email = $2`,
+        [conferenceId, req.user.email]
+      );
+      const submissions = submissionsResult.rows;
 
-    //
-    // 3. Fetch tracks for this conference
-    //
-    const tracksResult = await pool.query(
-      `SELECT track_id, track_name
-       FROM conference_tracks
-       WHERE conference_id = $1`,
-      [req.user.conference_id]
-    );
-    const tracks = tracksResult.rows;
+      //
+      // 3. Fetch tracks for this conference
+      //
+      const tracksResult = await pool.query(
+        `SELECT track_id, track_name
+         FROM conference_tracks
+         WHERE conference_id = $1`,
+        [conferenceId]
+      );
+      const tracks = tracksResult.rows;
 
-    // Create a map of track_id → track_name
-    const trackMap = {};
-    tracks.forEach(track => {
-      trackMap[track.track_id] = track.track_name;
-    });
+      // Create a map of track_id → track_name
+      const trackMap = {};
+      tracks.forEach(track => {
+        trackMap[track.track_id] = track.track_name;
+      });
 
-    // Enrich submissions with track names
-    const submissionsWithTrackNames = submissions.map(submission => ({
-      ...submission,
-      track_name: trackMap[submission.track_id] || submission.track_id || "N/A",
-    }));
+      // Enrich submissions with track names
+      submissionsWithTrackNames = submissions.map(submission => ({
+        ...submission,
+        track_name: trackMap[submission.track_id] || submission.track_id || "N/A",
+      }));
+    }
 
     //
     // 4. Render dashboard
@@ -877,6 +888,9 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const trackIds = await fetchTrackIds(req.user.email);
     const presentationTracks = await fetchPresentationTracks(trackIds);
 
+    const result = await pool.query("select * from invited_talk_submissions where invitee_email = $1",[req.user.email]);
+
+
     const emailSet = new Set();
     submissions.forEach(s => {
       emailSet.add(s.primary_author);
@@ -904,6 +918,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       conferences,
       userSubmissions,
       isReviewerResult,
+      invitedTalkSubmissions: result.rows,
       isSessionChairResult,
       isInviteeResult,
       presentationdata: presentationTracks,
@@ -3222,10 +3237,8 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
   }
 });
 
-app.get("/submission/invited-talk/:id", ensureAuthenticatedOrToken, async (req, res) => {
-  if (!req.user || req.user.role !== "invitee") {
-    return res.redirect("/?message=You are not authorized to access this page.");
-  }
+app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
+ 
 
   try {
     const conferenceId = req.params.id;
@@ -4171,10 +4184,8 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
 
 
 
-app.get("/submission/delete/invitee/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "invitee") {
-    return res.redirect("/");
-  }
+app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
+
 
   try {
     await pool.query(
@@ -4275,7 +4286,7 @@ app.post("/submit", checkAuth, async(req, res) => {
 
 
 
-app.post("/submit-invited-talk", (req, res, next) => {
+app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       const message = err.code === 'LIMIT_FILE_SIZE' 
@@ -4285,15 +4296,13 @@ app.post("/submit-invited-talk", (req, res, next) => {
     }
 
     (async () => {
-      if (!req.user || req.user.role !== "invitee") {
-        return res.redirect("/?message=Unauthorized");
-      }
+    
 
       if (!req.file) {
         return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
       }
 
-      const { title, abstract, areas } = req.body;
+      const { title, abstract, areas, conference_id } = req.body;
       if (!title || !abstract || !areas) {
         return res.redirect("/invitee/dashboard?message=" + encodeURIComponent("All fields are required"));
       }
@@ -4313,7 +4322,7 @@ app.post("/submit-invited-talk", (req, res, next) => {
            (conference_id, invitee_email, title, abstract, track_id, file_url, paper_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
-            req.user.conference_id,
+            conference_id,
             req.user.email,
             title,
             abstract,
