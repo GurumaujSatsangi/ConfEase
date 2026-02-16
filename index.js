@@ -2559,6 +2559,20 @@ app.get("/invited-user/password-update/:email",async(req,res)=>{
 
 })
 
+app.post("/update-invited-user-password",async(req,res)=>{
+
+  const { email, password } = req.body;
+
+  const hashed_password = await bcrypt.hash(password, 10);
+
+  const result = await pool.query("update users set password = $1 where email = $2",[hashed_password,email]);
+
+  if(result){
+    return res.redirect("/login/user?message=Password for your account has been updated. Please login with the login credentials.");
+  }
+
+})
+
 
 app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
   
