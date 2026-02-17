@@ -16,8 +16,17 @@
       
 
       <div class="container">
-        <h4>Session Chair's Dashboard</h4>
-        <h6><%= trackinfo.track_name %></h6>
+        <h4>Welcome to Session Chair's Dashboard, <%= user.name %> (<%=user.email %>)!</h4>
+        <h6>Tracks Assigned:</h6>
+        <% if(trackinfo && trackinfo.length>0){ %>
+          <ul>
+          <% trackinfo.forEach(function(trackinfo){ %>
+            <li><%= trackinfo.track_name %></li>
+          
+          <% }) %>
+          </ul>
+        <% } %>
+        
         <% if (session_end_iso) { %>
           <div class="alert alert-info" id="sessionTimerContainer">
             Session ends in: <span id="sessionTimer">--:--:--</span>

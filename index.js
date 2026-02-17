@@ -1634,17 +1634,17 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 });
 
 
-app.get("/panelist/active-session/:id", async (req, res) => {
+app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
   try {
     // 1. Fetch track info
     const trackResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE track_id = $1`,
-      [req.params.id]
+      `SELECT * FROM conference_tracks WHERE conference_id = $1 and $2=any(panelists)`,
+      [req.params.id,req.user.email]
     );
     const trackinfo = trackResult.rows[0];
 
     if (!trackinfo) {
-      return res.redirect("/panelist/dashboard?message=Track not found.");
+      return res.redirect("/dashboard?message=Track not found.");
     }
 
     // 2. Session time enforcement
@@ -1656,9 +1656,14 @@ app.get("/panelist/active-session/:id", async (req, res) => {
         trackinfo.presentation_end_time
       ) {
         const istOffset = 5.5 * 60 * 60 * 1000;
-        const [y, mo, d] = trackinfo.presentation_date.split("-").map(Number);
-        const [sh, sm] = trackinfo.presentation_start_time.split(":").map(Number);
-        const [eh, em] = trackinfo.presentation_end_time.split(":").map(Number);
+        const dateStr = trackinfo.presentation_date instanceof Date
+          ? trackinfo.presentation_date.toISOString().slice(0, 10)
+          : String(trackinfo.presentation_date);
+        const [y, mo, d] = dateStr.split("-").map(Number);
+        const startTimeStr = String(trackinfo.presentation_start_time);
+        const endTimeStr = String(trackinfo.presentation_end_time);
+        const [sh, sm] = startTimeStr.split(":").map(Number);
+        const [eh, em] = endTimeStr.split(":").map(Number);
 
         const startUtcMs = Date.UTC(y, mo - 1, d, sh, sm) - istOffset;
         const endUtcMs = Date.UTC(y, mo - 1, d, eh, em) - istOffset;
@@ -1719,6 +1724,7 @@ app.get("/panelist/active-session/:id", async (req, res) => {
 
     // 5. Render
     return res.render("panelist/active-session.ejs", {
+      user:req.user,
       session,
       trackinfo,
       message: req.query.message || null,
@@ -3238,10 +3244,20 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
 });
 
 app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
+
+
  
 
   try {
     const conferenceId = req.params.id;
+
+    const data = await pool.query("select * from invitees where conference_id=$1 and email=$2",[conferenceId,req.user.email]);
+    const result = data.rows[0];
+
+    if(!result){
+      return res.redirect("/dashboard?message=We could not find your Email ID in the list of Invited Speakers. If you think this is an error, please reach out to the conference chairs.")
+    }
+
 
     // Helper function to format dates
     const formatDate = (dateString) => {
