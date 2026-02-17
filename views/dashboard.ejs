@@ -35,7 +35,7 @@
   <div class="accordion-item">
     <h2 class="accordion-header" id="heading-<%= conference.conference_id %>">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= conference.conference_id %>" aria-expanded="false" aria-controls="collapse-<%= conference.conference_id %>">
-        <b><%= conference.title %></b>
+        <b><%= conference.title %> </b>
       </button>
     </h2>
     <div id="collapse-<%= conference.conference_id %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= conference.conference_id %>" data-bs-parent="#accordion-<%= conference.conference_id %>">
@@ -45,6 +45,36 @@
          
           <div class="card-body">
             <table class="table table-bordered" border="1" style="width: 100%">
+              <tr>
+                  <center> <button style="width:300px" class="btn btn-primary" onclick="showConferenceAnnouncements()"><i class="bi bi-bell-fill"></i>&nbsp;View Conference Announcements</button></center>
+
+                  <script>
+                    function showConferenceAnnouncements(){
+                      Swal.fire({
+  title: "Conference Announcements",
+  icon: "info",
+  html: `
+    <% if(announcements && announcements.length>0) { %>
+    <ul>
+
+    <% announcements.forEach(function(announcements){ %>
+    <li> <b><%= announcements.title%></b> - <%=announcements.body %> </li>
+    <% }) %>
+    </ul>
+    
+    <% } else { %>
+    <h6>No Announcements!</h6>
+
+    <% } %>
+  `,
+  showCloseButton: true,
+
+
+});
+
+                    }
+                  </script>
+              </tr>
               <tr>
                 <td colspan="3"><p align="justify"><%= conference.description %></p></td>
               </tr>
@@ -360,7 +390,6 @@
 <hr>
 
   
-
 
 
 

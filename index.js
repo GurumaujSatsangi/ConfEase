@@ -889,7 +889,8 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const presentationTracks = await fetchPresentationTracks(trackIds);
 
     const result = await pool.query("select * from invited_talk_submissions where invitee_email = $1",[req.user.email]);
-
+    
+    const announcements = await pool.query("select * from announcements");
 
     const emailSet = new Set();
     submissions.forEach(s => {
@@ -916,6 +917,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     res.render("dashboard.ejs", {
       user: req.user,
       conferences,
+      announcements,
       userSubmissions,
       isReviewerResult,
       invitedTalkSubmissions: result.rows,
