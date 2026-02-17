@@ -890,10 +890,10 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
     const result = await pool.query("select * from invited_talk_submissions where invitee_email = $1",[req.user.email]);
     
-    const announcements = await pool.query("select * from announcements");
-
+    
+    
     const emailSet = new Set();
-    submissions.forEach(s => {
+    submissions.forEach(s => {  
       emailSet.add(s.primary_author);
       if (Array.isArray(s.co_authors)) s.co_authors.forEach(e => emailSet.add(e));
     });
@@ -917,7 +917,6 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     res.render("dashboard.ejs", {
       user: req.user,
       conferences,
-      announcements,
       userSubmissions,
       isReviewerResult,
       invitedTalkSubmissions: result.rows,
@@ -938,6 +937,12 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     );
   }
 });
+
+app.get("/announcements", checkAuth, async(req,res)=>{
+  const data = await pool.query("select * from announcements");
+
+  res.render("announcements.ejs",{user:req.user,announcements:data.rows})
+})
 
 
 
@@ -1673,11 +1678,11 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
         const bufferMs = 5 * 60 * 1000;
 
         if (nowUtcMs < (startUtcMs - bufferMs)) {
-          return res.redirect('/?message=Session not started yet.');
+          return res.redirect('/dashboard?message=Session not started yet.');
         }
 
         if (nowUtcMs > endUtcMs) {
-          return res.redirect('/?message=Session has ended.');
+          return res.redirect('/dashboard?message=Session has ended.');
         }
 
         session_end_iso = new Date(endUtcMs).toISOString();

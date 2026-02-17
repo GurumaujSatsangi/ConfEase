@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+    <title>DEI CMT</title>
+</head>
+<body>
+    <%- include('partials/dashboard/header') %>
+
+
+    <div class="container">
+        <h4>Announcements</h4><hr>
+
+
+    <% if(announcements && announcements.length>0){ %>
+        <% announcements.forEach(function(announcements){ %>
+
+<div class="card">
+  <div class="card-header">
+   <b><%= announcements.title %></b>
+  </div>
+  <div class="card-body">
+    <p class="card-text"><%= announcements.body %></p>
+  </div>
+</div>        
+        <% }) %>
+    
+
+    <% } %>
+
+        </div>
+<%- include('partials/footer') %>
+</body>
+</html>
