@@ -6,6 +6,12 @@ import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import pool from "./config/db.js";
+import {PDFParse} from 'pdf-parse';
+import {
+  detectAIText,
+  isAIGenerated,
+  getConfidenceScore,
+} from "ai-text-detector";
 
 import { Strategy as LocalStrategy } from "passport-local";
 import jwt from "jsonwebtoken";
@@ -4280,7 +4286,6 @@ app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
 
 app.post("/submit", checkAuth, async(req, res) => {
 
-  console.log("SUBMIT ROUTE CALLED !!!");
   upload.single("file")(req, res, async (err) => {
     try {
       if (err instanceof multer.MulterError) {
@@ -4337,11 +4342,20 @@ app.post("/submit", checkAuth, async(req, res) => {
 
       const paperCode = crypto.randomUUID();
 
+      const parser = new PDFParse({ url: uploadResult.secure_url });
+      const result = await parser.getText();
+	    console.log(result.text);
+
+const aidetection = detectAIText(result.text);
+console.log(aidetection.isAIGenerated);
+const confidence = getConfidenceScore(result.text);
+console.log(confidence);
+
       // Insert into PostgreSQL
       await pool.query(
         `INSERT INTO submissions 
-         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code)
-         VALUES ($1, $2, $3, $4, $5, $6, $7);`,
+         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai)
+         VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9);`,
         [
           id,
           req.user.email,
@@ -4349,9 +4363,17 @@ app.post("/submit", checkAuth, async(req, res) => {
           abstract,
           areas,
           uploadResult.secure_url,
-          paperCode
+          paperCode,
+          confidence,
+          aidetection.isAIGenerated
+        
+
         ]
       );
+
+    	
+
+
 
       return res.redirect("/dashboard?message=Congratulations!!! Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
