@@ -952,10 +952,8 @@ app.get("/announcements", checkAuth, async(req,res)=>{
 
 
 
-app.post("/publish/review-results", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
+app.post("/publish/review-results", checkChairAuth, async (req, res) => {
+ 
 
   const { conference_id } = req.body;
 
@@ -1957,10 +1955,8 @@ app.get("/review/:id", checkAuth, async (req, res) => {
 });
 
 
-app.get("/reviewer/dashboard/re-review/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
+
 
   try {
     //
@@ -3457,10 +3453,8 @@ app.get("/submission/edit/primary-author/:id", checkAuth, async (req, res) => {
 });
 
 
-app.get("/submission/revised/primary-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/revised/primary-author/:id", checkAuth, async (req, res) => {
+ 
 
   try {
     const submissionId = req.params.id;
@@ -3531,10 +3525,8 @@ app.get("/submission/revised/primary-author/:id", async (req, res) => {
 });
 
 
-app.get("/submission/final-camera-ready/primary-author/:id", async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.redirect("/");
-  }
+app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (req, res) => {
+ 
 
   try {
     // 1. Fetch submission
@@ -4074,7 +4066,7 @@ app.post('/chair/dashboard/delete-submission/:id', async (req, res) => {
 });
 
 
-app.post("/submit-revised-paper", (req, res, next) => {
+app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err instanceof multer.MulterError) {
       const message = err.code === 'LIMIT_FILE_SIZE'
@@ -4084,29 +4076,7 @@ app.post("/submit-revised-paper", (req, res, next) => {
     }
 
     (async () => {
-      // Accept either session / Bearer / jwt cookie (unchanged logic)
-      if (!(req.isAuthenticated && req.isAuthenticated())) {
-        const authHeader = req.headers?.authorization;
-        if (authHeader) {
-          const parts = authHeader.split(" ");
-          if (parts.length === 2 && parts[0] === "Bearer") {
-            try { req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret"); }
-            catch { return res.redirect("/"); }
-          }
-        }
-
-        if (!req.user) {
-          const cookieHeader = req.headers?.cookie;
-          if (cookieHeader) {
-            const jwtCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('jwt='));
-            if (jwtCookie) {
-              const token = jwtCookie.split('=')[1];
-              try { req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret"); }
-              catch { return res.redirect("/"); }
-            }
-          }
-        }
-      }
+    
 
       const { submission_id } = req.body;
 
