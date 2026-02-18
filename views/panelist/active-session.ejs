@@ -9,15 +9,12 @@
     
   </head>
   <body>
-    <%- include('../partials/header copy.ejs') %>
+    <%- include('../partials/dashboard/header.ejs') %>
      
-
-    
       
 
       <div class="container">
         <h4>Welcome to Session Chair's Dashboard, <%= user.name %> (<%=user.email %>)!</h4>
-        <h6>Tracks Assigned:</h6>
         <% if(trackinfo && trackinfo.length>0){ %>
           <ul>
           <% trackinfo.forEach(function(trackinfo){ %>
@@ -28,8 +25,8 @@
         <% } %>
         
         <% if (session_end_iso) { %>
-          <div class="alert alert-info" id="sessionTimerContainer">
-            Session ends in: <span id="sessionTimer">--:--:--</span>
+          <div class="alert alert-warning" id="sessionTimerContainer">
+            <b>Session ends in: <span id="sessionTimer">--:--:--</span></b>
           </div>
         <% } %>
         
@@ -40,6 +37,7 @@
           <tr>
             <td><b>Paper Title</b></td>
             <td><b>Mean Score awarded by Reviewer</b></td>
+            <td><b>AI Generated Content Detection Score & Verdict</b></td>
             <td><b>View Paper</b></td>
             <td><b>Panelist Score</b></td>
           </tr>
@@ -58,8 +56,9 @@
                 <span class="badge bg-secondary">Not Reviewed</span>
               <% } %>
             </td>
+                        <td>Score: <%= session.ai_score %> | Verdict: <%=session.is_ai %></td>
+
             <td><a href="<%= session.file_url%>" target="_blank"><i class="bi bi-cloud-arrow-down-fill"></i></a></td>
-            
             <% if (session.presentation_status === 'Completed' || session.submission_status === 'Presentation Completed') { %>
             <td>
               <span class="badge bg-success">
@@ -85,7 +84,7 @@
         <% }); %>
         </table>
 <% } else { %>
-        <h2>No Submissions Found</h2>
+        <h6><i class="bi bi-emoji-frown-fill"></i> No Submissions Found with status "Submitted Final Camera Ready Paper for Oral Presentation"</h6>
 <% } %>
 
  

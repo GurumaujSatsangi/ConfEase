@@ -959,22 +959,23 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 });
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
-  res.render("new-announcement.ejs")
+  res.render("chair/new-announcement.ejs")
 })
 
 app.post("/publish-announcement",checkChairAuth,async(req,res)=>{
   const {title, body} = req.body;
+  const user=req.user;
 
-  const result = await pool.query("insert into announcements values($1,$2)",[title,body]);
+  const result = await pool.query("insert into announcements values($1,$2,$3)",[title,body,user.name]);
   if(result){
     res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
   }
 })
 
-app.get("/announcements", checkAuth, async(req,res)=>{
+app.get("/announcements", async(req,res)=>{
   const data = await pool.query("select * from announcements");
 
-  res.render("announcements.ejs",{user:req.user,announcements:data.rows})
+  res.render("announcements.ejs",{announcements:data.rows})
 })
 
 
@@ -1890,9 +1891,9 @@ app.get("/review/:id", checkAuth, async (req, res) => {
     const paperCode = req.params.id;
 
 
-    await pool.query
-    ("insert into peer_review_vault(paper_id,status,locked_by) values ($1,$2,$3)",
-      [req.params.id,"locked",req.user.email]);
+    // await pool.query
+    // ("insert into peer_review_vault(paper_id,status,locked_by) values ($1,$2,$3)",
+    //   [req.params.id,"locked",req.user.email]);
 
 
     //
@@ -2850,7 +2851,7 @@ app.get("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   }
 })
 
-app.post("/mark-presentation-as-complete", async (req, res) => {
+app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
   const { paper_id, panelist_score, track_id } = req.body;
 
   if (!paper_id || !track_id) {
