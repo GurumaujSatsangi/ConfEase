@@ -24,9 +24,34 @@
                 <td colspan="5"><%= userSubmissions.abstract %></td>
               </tr>
 
+
               <tr>
-                <td>View Paper <i>(Opens in a new tab)</i></td>
-                <td colspan="5"><iframe style="border:4px solid blue" width="1000px" height="800px" src="<%= userSubmissions.file_url %>" target="_blank"></iframe></td>
+                <td>View Paper</td>
+                <td colspan="5">
+                  <div class="accordion" id="accordionExample">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="headingOne">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+        View Paper
+      </button>
+    </h2>
+    <div id="collapseOne" class="accordion-collapse collapse hide" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
+      <div class="accordion-body">
+                  <iframe style="border:4px solid blue" width="1000px" height="800px" src="<%= userSubmissions.file_url %>" target="_blank"></iframe></td>
+      </div>
+    </div>
+  </div>
+
+                  
+              </tr>
+              <tr>
+                <td>AI Generated Content Detection Score & Verdict</td>
+                <td colspan="5">Score: <%=userSubmissions.ai_score %> | Verdict: <%=userSubmissions.is_ai %>
+                                <% if (userSubmissions.is_ai === "true") { %>
+
+                                  <p class="small">(<b>This submission has been marked as AI generated. Please review carefully. </b>)</p>
+<% } %>
+                </td>
               </tr>
 
              <tr>

@@ -227,12 +227,14 @@
                 <td><%= submission.paper_code %></td>
                 <td>Score: <%= submission.ai_score %> | Verdict: <%= submission.is_ai %>
                 <% if (submission.is_ai === "true") { %>
-                  <p class="small">(Your submission has been marked as AI generated. However, it will still be reviewed by the reviewers. Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision.)</p>
+                  <p class="small">(<b>Your submission has been marked as AI generated.</b> However, it will still be reviewed by the reviewers. Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision. If you think this is an error, please reach out to the conference chairs.)</p>
                 
                 <% } else { %>
-                  <p class="small">(Your submission has NOT been marked as AI generated. Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision.)</p>
+                  <p class="small">(<b>Your submission has NOT been marked as AI generated.</b> Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision.)</p>
 
                 <% } %> </td>
+
+              
 
                 <td><%= submission.submission_status %></td>
                <td>
