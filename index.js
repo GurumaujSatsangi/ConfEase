@@ -1744,7 +1744,62 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
   }
 });
 
+app.post("/send-password-reset-link",async(req,res)=>{
 
+  const {email} = req.body;
+
+  const userResult = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
+
+
+
+    const user = userResult.rows[0];
+    const token = crypto.randomBytes(32).toString("hex");
+
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 15);
+
+    await pool.query(
+        `INSERT INTO password_resets (email, token, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.email, token, expiresAt]
+    );
+
+    const resetLink = `http://localhost:3000/reset-password/${token}`;
+
+    console.log(resetLink);
+
+    return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
+    
+
+
+
+})
+
+app.get("/reset-password/:token", async (req, res) => {
+    const { token } = req.params;
+
+    const result = await pool.query(
+        `SELECT * FROM password_resets
+         WHERE token=$1 AND expires_at > NOW()`,
+        [token]
+    );
+
+    if (result.rows.length === 0) {
+        return res.status(400).send("Invalid or expired token");
+    }
+
+    res.render("login/reset-password.ejs", { token });
+});
+
+
+
+
+app.get("/password-reset", async(req,res)=>{
+
+  res.render("login/password-reset");
+})
 
 app.post("/start-session", async (req, res) => {
   const { session_code } = req.body;
