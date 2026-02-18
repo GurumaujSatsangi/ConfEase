@@ -196,9 +196,9 @@ app.get("/", async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -263,9 +263,9 @@ app.get("/reviewer/dashboard", async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -425,9 +425,9 @@ app.get("/invitee/dashboard", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -614,10 +614,24 @@ async function checkAuth(req, res, next) {
 // =====================
 function formatDateISO(dateString) {
   if (!dateString) return dateString;
+  // DB dates are already 'YYYY-MM-DD' strings thanks to pg type parser
+  if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+    return dateString.slice(0, 10);
+  }
+  // Fallback for Date objects (e.g. new Date())
   const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentDateIST() {
+  const now = new Date();
+  const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istTime.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -933,7 +947,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       revisedSubmissionsMap,
       posterSessionsMap,
       trackDetailsMap,
-      currentDate: formatDateISO(new Date()),
+      currentDate: getCurrentDateIST(),
       message: req.query.message || null,
     });
   } catch (err) {
@@ -1051,9 +1065,9 @@ app.get("/reviewer/dashboard", async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -1166,9 +1180,9 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
     const formatDateForInput = (dateString) => {
       if (!dateString) return '';
       const date = new Date(dateString);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
 
@@ -1220,9 +1234,9 @@ app.get(
       const formatDate = (dateString) => {
         if (!dateString) return dateString;
         const d = new Date(dateString);
-        return `${String(d.getDate()).padStart(2, "0")}-${String(
-          d.getMonth() + 1
-        ).padStart(2, "0")}-${d.getFullYear()}`;
+        return `${String(d.getUTCDate()).padStart(2, "0")}-${String(
+          d.getUTCMonth() + 1
+        ).padStart(2, "0")}-${d.getUTCFullYear()}`;
       };
 
       // ---------- conference ----------
@@ -1409,9 +1423,9 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -1419,9 +1433,9 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
     const formatDateForInput = (dateString) => {
       if (!dateString) return '';
       const date = new Date(dateString);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
 
@@ -1828,7 +1842,7 @@ app.post("/start-session", async (req, res) => {
     const currentDate = istTime.toISOString().split("T")[0];
     const currentTime = istTime.toISOString().split("T")[1].slice(0, 5);
 
-    if (track.presentation_date == currentDate) {
+    if (formatDateISO(track.presentation_date) === currentDate) {
       if (currentTime < track.presentation_start_time) {
         return res.redirect("/panelist/dashboard?message=Session not started yet.");
       } else if (currentTime > track.presentation_end_time) {
@@ -1907,9 +1921,9 @@ app.get("/review/:id", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -1988,9 +2002,9 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -2465,9 +2479,9 @@ app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) =>
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -2911,9 +2925,9 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -3253,9 +3267,9 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -3327,9 +3341,9 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -3583,21 +3597,8 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
 
     // 6. Deadline check (IST date conversion)
     if (conferenceInfo && conferenceInfo.camera_ready_paper_submission) {
-      const now = new Date();
-      const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000)); // IST
-      
-      // Get current date in yyyy-mm-dd format
-      const currentYear = istTime.getFullYear();
-      const currentMonth = String(istTime.getMonth() + 1).padStart(2, '0');
-      const currentDay = String(istTime.getDate()).padStart(2, '0');
-      const currentDate = `${currentYear}-${currentMonth}-${currentDay}`;
-      
-      // Get deadline date in yyyy-mm-dd format
-      const deadlineDate = new Date(conferenceInfo.camera_ready_paper_submission);
-      const deadlineYear = deadlineDate.getFullYear();
-      const deadlineMonth = String(deadlineDate.getMonth() + 1).padStart(2, '0');
-      const deadlineDay = String(deadlineDate.getDate()).padStart(2, '0');
-      const deadline = `${deadlineYear}-${deadlineMonth}-${deadlineDay}`;
+      const currentDate = getCurrentDateIST();
+      const deadline = formatDateISO(conferenceInfo.camera_ready_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
       if (currentDate > deadline) {
@@ -3632,7 +3633,7 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
 });
 
 
-app.post("/final-camera-ready-submission", (req, res) => {
+app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     try {
       if (err instanceof multer.MulterError) {
@@ -3642,7 +3643,6 @@ app.post("/final-camera-ready-submission", (req, res) => {
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
 
-      if (!req.isAuthenticated()) return res.redirect("/");
 
       if (!req.file) {
         return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
@@ -3662,21 +3662,8 @@ app.post("/final-camera-ready-submission", (req, res) => {
         const confRow = confResult.rows[0];
 
         if (confRow && confRow.camera_ready_paper_submission) {
-          const now = new Date();
-          const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000)); // IST
-          
-          // Get current date in yyyy-mm-dd format
-          const currentYear = istTime.getFullYear();
-          const currentMonth = String(istTime.getMonth() + 1).padStart(2, '0');
-          const currentDay = String(istTime.getDate()).padStart(2, '0');
-          const currentDate = `${currentYear}-${currentMonth}-${currentDay}`;
-          
-          // Get deadline date in yyyy-mm-dd format
-          const deadlineDate = new Date(confRow.camera_ready_paper_submission);
-          const deadlineYear = deadlineDate.getFullYear();
-          const deadlineMonth = String(deadlineDate.getMonth() + 1).padStart(2, '0');
-          const deadlineDay = String(deadlineDate.getDate()).padStart(2, '0');
-          const deadline = `${deadlineYear}-${deadlineMonth}-${deadlineDay}`;
+          const currentDate = getCurrentDateIST();
+          const deadline = formatDateISO(confRow.camera_ready_paper_submission);
 
           // Check if current date is AFTER the deadline (not on the deadline day)
           if (currentDate > deadline) {
@@ -3762,9 +3749,9 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 
@@ -3799,9 +3786,9 @@ app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) 
     const formatDateForInput = (dateString) => {
       if (!dateString) return '';
       const date = new Date(dateString);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
 
@@ -3903,9 +3890,9 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res)
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
       const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
 

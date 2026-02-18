@@ -91,9 +91,7 @@
               type="date"
               class="form-control"
               name="session_date"
-              value="<%= track.presentation_date
-                ? new Date(track.presentation_date).toISOString().split('T')[0]
-                : '' %>"
+              value="<%= track.presentation_date || '' %>"
               required
             >
           </td>

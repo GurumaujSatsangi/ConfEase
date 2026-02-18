@@ -328,7 +328,7 @@
         const submissionConference = conferences.find(c => c.id == submission.conference_id);
         let isDeadlinePassed = false;
         if (submissionConference) {
-            isDeadlinePassed = currentDate > new Date(submissionConference.full_paper_submission);
+            isDeadlinePassed = currentDate > submissionConference.full_paper_submission;
         }
     %>
 
