@@ -958,6 +958,19 @@ app.get("/dashboard", checkAuth, async (req, res) => {
   }
 });
 
+app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
+  res.render("new-announcement.ejs")
+})
+
+app.post("/publish-announcement",checkChairAuth,async(req,res)=>{
+  const {title, body} = req.body;
+
+  const result = await pool.query("insert into announcements values($1,$2)",[title,body]);
+  if(result){
+    res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
+  }
+})
+
 app.get("/announcements", checkAuth, async(req,res)=>{
   const data = await pool.query("select * from announcements");
 
