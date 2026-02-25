@@ -36,8 +36,7 @@
         <table class="table">
           <tr>
             <td><b>Paper Title</b></td>
-            <td><b>Mean Score awarded by Reviewer</b></td>
-            <td><b>AI Generated Content Detection Score & Verdict</b></td>
+            <td><b>Primary/Co-Authors</b></td>
             <td><b>View Paper</b></td>
             <td><b>Panelist Score</b></td>
           </tr>
@@ -49,14 +48,8 @@
 
 
             <td><%= session.title %></td>
-            <td>
-              <% if (session.mean_score !== null && session.mean_score !== undefined) { %>
-                <span class="badge bg-primary"><%= session.mean_score %></span>
-              <% } else { %>
-                <span class="badge bg-secondary">Not Reviewed</span>
-              <% } %>
-            </td>
-                        <td>Score: <%= session.ai_score %> | Verdict: <%=session.is_ai %></td>
+            <td>Primary Author: <%=session.primary_author_formatted%> | Co-Authors: <%=session.co_authors_formatted || 'None' %> </td>
+           
 
             <td><a href="<%= session.file_url%>" target="_blank"><i class="bi bi-cloud-arrow-down-fill"></i></a></td>
             <% if (session.presentation_status === 'Completed' || session.submission_status === 'Presentation Completed') { %>

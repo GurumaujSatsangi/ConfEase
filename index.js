@@ -978,8 +978,6 @@ app.get("/announcements", async(req,res)=>{
   res.render("announcements.ejs",{announcements:data.rows})
 })
 
-
-
 app.post("/publish/review-results", checkChairAuth, async (req, res) => {
  
 
@@ -1067,7 +1065,6 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     return res.status(500).send("Error publishing review results.");
   }
 });
-
 
 app.get("/reviewer/dashboard", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "reviewer") {
@@ -1182,7 +1179,6 @@ app.get("/reviewer/dashboard", async (req, res) => {
     return res.status(500).send("Error loading reviewer dashboard.");
   }
 });
-
 
 app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
@@ -1402,10 +1398,19 @@ app.get(
             ]
           );
 
+          // Format author names for final camera ready papers
+          const finalCameraReadyFormatted = finalCameraReadyResult.rows.map(paper => ({
+            ...paper,
+            primary_author_formatted: fmt(paper.primary_author),
+            co_authors_formatted: (paper.co_authors || [])
+              .map(fmt)
+              .join(", ")
+          }));
+
           return {
             ...track,
             leaderboard: [...ranked, ...unranked],
-            finalCameraReadyPapers: finalCameraReadyResult.rows,
+            finalCameraReadyPapers: finalCameraReadyFormatted,
           };
         })
       );
@@ -1457,6 +1462,7 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
       `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1;`,
       [req.params.id]
     );
+
     const conference = {
       ...confRaw.rows[0],
       conference_start_date: formatDate(confRaw.rows[0].conference_start_date),
@@ -1733,6 +1739,24 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
     );
     const session = sessionResult.rows;
 
+    // Get all unique emails for name lookup
+    const allEmails = new Set();
+    session.forEach(s => {
+      allEmails.add(s.primary_author);
+      (s.co_authors || []).forEach(e => allEmails.add(e));
+    });
+
+    let usersMap = {};
+    if (allEmails.size > 0) {
+      const userResult = await pool.query(
+        `SELECT email, name FROM users WHERE email = ANY($1);`,
+        [Array.from(allEmails)]
+      );
+      usersMap = Object.fromEntries(userResult.rows.map(u => [u.email, u.name]));
+    }
+
+    const formatNameEmail = (email) => usersMap[email] ? `${usersMap[email]} (${email})` : email;
+
     // 4. For each submission, fetch reviewer mean score and panelist score
     for (const paper of session) {
       // Reviewer scores
@@ -1759,6 +1783,12 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
       const finalRow = panelResult.rows[0];
       paper.panelist_score = finalRow?.panelist_score || null;
       paper.presentation_status = finalRow?.status || null;
+
+      // Add formatted author info
+      paper.primary_author_formatted = formatNameEmail(paper.primary_author);
+      paper.co_authors_formatted = (paper.co_authors || [])
+        .map(formatNameEmail)
+        .join(", ");
     }
 
     // 5. Render
@@ -2138,13 +2168,15 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     );
 
     //
-    // 4. Update submissions table status
+    // 4. Update submissions table status, mean_score, and remarks
     //
     await pool.query(
       `UPDATE submissions
-       SET submission_status = $1
-       WHERE submission_id = $2;`,
-      [status, submission_id]
+       SET submission_status = $1,
+           mean_score = $2,
+           remarks = $3
+       WHERE submission_id = $4;`,
+      [status, mean_score, remarks, submission_id]
     );
 
     //
@@ -2187,7 +2219,7 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
       console.error("Email send error (ignored):", emailError);
     }
 
-    return res.redirect("/reviewer/dashboard?message=Revised paper review submitted successfully.");
+    return res.redirect("/reviewer/"+conference_id+"?message=Revised paper review submitted successfully.");
 
   } catch (err) {
     console.error("Error during re-review:", err);
@@ -2874,6 +2906,20 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
   }
 
   try {
+    // Fetch submission to get conference_id
+    const submissionResult = await pool.query(
+      `SELECT conference_id FROM submissions WHERE submission_id = $1`,
+      [paper_id]
+    );
+
+    if (submissionResult.rows.length === 0) {
+      return res.render("error.ejs", {
+        message: "Submission not found.",
+      });
+    }
+
+    const conference_id = submissionResult.rows[0].conference_id;
+
     // Update submissions table
     await pool.query(
       `UPDATE submissions
@@ -2892,7 +2938,7 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
     );
 
     return res.redirect(
-      `/panelist/active-session/${track_id}?message=Submission has been successfully marked as completed.`
+      `/panelist/active-session/${conference_id}?message=Submission has been successfully marked as completed.`
     );
   } catch (err) {
     console.error("Error updating submission:", err);

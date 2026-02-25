@@ -161,7 +161,6 @@
             <th>Title</th>
             <th>Primary Author</th>
             <th>Co-Authors</th>
-            <th>Mean Score (Peer Review)</th>
             <th>View Paper</th>
           </tr>
         </thead>
@@ -169,21 +168,15 @@
           <% track.finalCameraReadyPapers.forEach(function(paper) { %>
             <tr>
               <td class="fw-bold"><%= paper.title %></td>
-              <td><%= paper.primary_author %></td>
+              <td><%= paper.primary_author_formatted %></td>
               <td>
-                <% if (paper.co_authors && paper.co_authors.length > 0) { %>
-                  <%= paper.co_authors.join(", ") %>
+                <% if (paper.co_authors_formatted) { %>
+                  <%= paper.co_authors_formatted %>
                 <% } else { %>
                   <span class="text-muted">—</span>
                 <% } %>
               </td>
-              <td class="text-center">
-                <% if (paper.mean_score) { %>
-                  <span class="badge bg-primary"><%= paper.mean_score %>/5</span>
-                <% } else { %>
-                  <span class="badge bg-secondary">N/A</span>
-                <% } %>
-              </td>
+            
               <td>
                 <% if (paper.file_url) { %>
                   <a href="<%= paper.file_url %>" target="_blank" class="btn btn-sm btn-outline-primary">

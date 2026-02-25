@@ -27,10 +27,14 @@
   const now = new Date();
   const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
   const istTime = new Date(now.getTime() + istOffset);
-  const currentDate = istTime.toISOString().split("T")[0];
+  const currentDateISO = istTime.toISOString().split("T")[0];
   
-  // Simple string comparison (works for YYYY-MM-DD format)
-  const isNotificationDateReached = currentDate >= confdata.acceptance_notification;
+  // Parse DD-MM-YYYY format from confdata.acceptance_notification
+  const [day, month, year] = confdata.acceptance_notification.split('-');
+  const acceptanceDateISO = `${year}-${month}-${day}`;
+  
+  // Compare ISO date strings (YYYY-MM-DD format works correctly)
+  const isNotificationDateReached = currentDateISO >= acceptanceDateISO;
 %>
 
 
