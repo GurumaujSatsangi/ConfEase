@@ -934,6 +934,8 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const posterSessionsMap = await fetchPosterSessions(submissions);
     const trackDetailsMap = buildTrackDetailsMap(presentationTracks);
 
+  
+
     res.render("dashboard.ejs", {
       user: req.user,
       conferences,
@@ -1621,14 +1623,19 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
 
   const { session_date, start_time, end_time, conference_id,coordinators } = req.body;
  try {
+  // Split comma-separated coordinators into an array
+  const coordinatorArray = coordinators
+    ? coordinators.split(',').map(e => e.trim()).filter(e => e !== '')
+    : [];
+
   await pool.query(
   `UPDATE poster_session
    SET date = $1,
        start_time = $2,
        end_time = $3,
-       coodinators = ARRAY[$4]
+       coodinators = $4
    WHERE conference_id = $5;`,
-  [session_date, start_time, end_time, coordinators, conference_id]
+  [session_date, start_time, end_time, coordinatorArray, conference_id]
 );
 
 
@@ -2170,13 +2177,13 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     //
     // 4. Update submissions table status, mean_score, and remarks
     //
-    await pool.query(
+   
+
+     await pool.query(
       `UPDATE submissions
-       SET submission_status = $1,
-           mean_score = $2,
-           remarks = $3
-       WHERE submission_id = $4;`,
-      [status, mean_score, remarks, submission_id]
+       SET submission_status = $1
+       WHERE submission_id = $2;`,
+      [status,submission_id]
     );
 
     //
@@ -3287,8 +3294,8 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
 
     // 2. Insert poster session placeholder row
     await pool.query(
-      `INSERT INTO poster_session (conference_id, date, start_time, end_time)
-       VALUES ($1, null, null, null);`,
+      `INSERT INTO poster_session (conference_id, date, start_time, end_time, coodinators)
+       VALUES ($1, null, null, null, ARRAY[]::text[]);`,
       [conference_id]
     );
 
