@@ -802,6 +802,27 @@ else{
 return result;
 }
 
+app.get("/score-posters/:id",checkAuth,async(req,res)=>{
+
+  const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
+ const  result = data.rows[0];
+  res.render("score-posters.ejs",{result, user:req.user})
+
+})
+
+
+async function isPosterCoordinator(email){
+const data = await pool.query("select * from poster_session where coodinators LIKE '%' || $1 || '%'",[email]);
+let result;
+if(data.rows.length>0){
+  result = true;
+}
+else{
+  result = false;
+}
+return result;
+}
+
 
 async function fetchConference(id){
   const data = await pool.query("select * from conferences where conference_id =  $1",[id]);
@@ -903,6 +924,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const isSessionChairResult = await isSessionChair(req.user.email);
     const isInviteeResult = await isInvitee(req.user.email);
     const isReviewerResult = await isReviewer(req.user.email);
+    const isPosterCoordinatorResult = await isPosterCoordinator(req.user.email);
     const conferences = await fetchAllConferences();
     const submissions = await fetchUserSubmissions(req.user.email);
     const trackIds = await fetchTrackIds(req.user.email);
@@ -944,6 +966,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       invitedTalkSubmissions: result.rows,
       isSessionChairResult,
       isInviteeResult,
+      isPosterCoordinatorResult,
       presentationdata: presentationTracks,
       coAuthorRequests,
       revisedSubmissionsMap,
@@ -2459,11 +2482,12 @@ app.post("/chair-login", async (req, res) => {
       { expiresIn: "15m" }
     );
 
-    // set cookie
+    // set cookie with consistent options
     res.cookie("ChairToken", ChairToken, {
       httpOnly: true,
       secure: false, // true in production
       sameSite: "strict",
+      path: "/",
       maxAge: 15 * 60 * 1000
     });
 
@@ -4080,33 +4104,50 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res)
 });
 
 
-app.post('/chair/dashboard/delete-submission/:id', async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== 'chair') {
-    return res.redirect('/');
+app.get('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
+  
+  const submissionId = req.params.id;
+  const conferenceId = req.query.conference_id;
+
+  console.log('Delete submission request:', { submissionId, conferenceId, query: req.query });
+
+  if (!conferenceId) {
+    console.error('Conference ID is missing');
+    return res.redirect('/chair/dashboard?message=Error: Conference ID is required.');
   }
 
-  const submissionId = req.params.id;
-  const conferenceId = req.query.conference_id || req.body.conference_id;
-
   try {
-    // 1. Delete related peer reviews
+    // 1. Delete co-author requests
+    await pool.query(
+      `DELETE FROM co_author_requests WHERE submission_id = $1;`,
+      [submissionId]
+    );
+
+    // 2. Delete revised submissions
+    await pool.query(
+      `DELETE FROM revised_submissions WHERE submission_id = $1;`,
+      [submissionId]
+    );
+
+    // 3. Delete related peer reviews
     await pool.query(
       `DELETE FROM peer_review WHERE submission_id = $1;`,
       [submissionId]
     );
 
-    // 2. Delete any final camera-ready submission entry
+    // 4. Delete any final camera-ready submission entry
     await pool.query(
       `DELETE FROM final_camera_ready_submissions WHERE submission_id = $1;`,
       [submissionId]
     );
 
-    // 3. Delete submission itself
+    // 5. Delete submission itself
     await pool.query(
       `DELETE FROM submissions WHERE submission_id = $1;`,
       [submissionId]
     );
 
+    console.log('Submission deleted successfully:', submissionId);
     return res.redirect(
       `/chair/dashboard/view-submissions/${conferenceId}?message=Submission deleted successfully.`
     );
@@ -4782,12 +4823,21 @@ passport.deserializeUser((user, cb) => {
 
 
 app.get("/logout", (req, res) => {
-  res.clearCookie("token", {
+  // Explicitly delete cookies by setting maxAge to 0 and expires to past date
+  const cookieOptions = {
     httpOnly: true,
     sameSite: "strict",
-  });
+    secure: false,
+    path: "/",
+    maxAge: 0,
+    expires: new Date(0)
+  };
 
-  res.redirect("/?message=Logged out successfully");
+  res.cookie("token", "", cookieOptions);
+  res.cookie("ChairToken", "", cookieOptions);
+
+  console.log("Clearing cookies: token and ChairToken");
+  return res.redirect("/?message=Logged out successfully");
 });
 
 
