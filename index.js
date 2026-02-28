@@ -102,6 +102,68 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Middleware functions for authentication
+function checkAuth(req, res, next) {
+  try {
+    const token = req.cookies.token;
+    if (!token) {
+      return res.redirect("/login");
+    }
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+      req.user = decoded;
+      next();
+    } catch (err) {
+      return res.redirect("/login");
+    }
+  } catch (err) {
+    console.error("checkAuth error:", err);
+    return res.redirect("/login");
+  }
+}
+
+function checkChairAuth(req, res, next) {
+  try {
+    const chairToken = req.cookies.ChairToken;
+    if (!chairToken) {
+      return res.redirect("/login");
+    }
+    try {
+      const decoded = jwt.verify(chairToken, process.env.JWT_SECRET || "dev_jwt_secret");
+      req.user = decoded;
+      next();
+    } catch (err) {
+      return res.redirect("/login");
+    }
+  } catch (err) {
+    console.error("checkChairAuth error:", err);
+    return res.redirect("/login");
+  }
+}
+
+function checkAuthOrChair(req, res, next) {
+  try {
+    const token = req.cookies.token;
+    const chairToken = req.cookies.ChairToken;
+    
+    if (!token && !chairToken) {
+      return res.redirect("/login");
+    }
+    
+    const tokenToUse = token || chairToken;
+    try {
+      const decoded = jwt.verify(tokenToUse, process.env.JWT_SECRET || "dev_jwt_secret");
+      req.user = decoded;
+      next();
+    } catch (err) {
+      return res.redirect("/login");
+    }
+  } catch (err) {
+    console.error("checkAuthOrChair error:", err);
+    return res.redirect("/login");
+  }
+}
+
 // Middleware: accept either Passport session or a JWT (Authorization header or jwt cookie)
 function ensureAuthenticatedOrToken(req, res, next) {
   try {
@@ -541,113 +603,6 @@ app.get(
     res.redirect("/invitee/dashboard");
   }
 );
-
-
-async function checkChairAuth(req, res, next) {
-  const token = req.cookies.ChairToken;
-
-  if (!token) {
-    return res.redirect("/login/user?message=Please Login with your credentials!");
-  }
-
-  try {
-    // decode JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // fetch user using email from token
-    const result = await pool.query(
-      "SELECT * FROM chairs WHERE email = $1",
-      [decoded.email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.redirect("/login/user?message=Please Login with your credentials!");
-    }
-
-    // attach user to request
-    req.user = result.rows[0];
-
-    // move to next route handler
-    next();
-  } catch (err) {
-    return res.redirect("/login/user?message=Please Login with your credentials!");
-  }
-}
-
-
-async function checkAuth(req, res, next) {
-  const token = req.cookies.token;
-
-  if (!token) {
-    return res.redirect("/login/user?message=Please Login with your credentials!");
-  }
-
-  try {
-    // decode JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // fetch user using email from token
-    const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [decoded.email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.redirect("/login/user?message=Please Login with your credentials!");
-    }
-
-    // attach user to request
-    req.user = result.rows[0];
-
-    // move to next route handler
-    next();
-  } catch (err) {
-    return res.redirect("/login/user?message=Please Login with your credentials!");
-  }
-}
-
-
-async function checkAuthOrChair(req, res, next) {
-  // Try checkChairAuth first
-  const chairToken = req.cookies.ChairToken;
-  if (chairToken) {
-    try {
-      const decoded = jwt.verify(chairToken, process.env.JWT_SECRET);
-      const result = await pool.query(
-        "SELECT * FROM chairs WHERE email = $1",
-        [decoded.email]
-      );
-      if (result.rows.length > 0) {
-        req.user = result.rows[0];
-        return next();
-      }
-    } catch (err) {
-      // Fall through to checkAuth
-    }
-  }
-
-  // Try checkAuth
-  const token = req.cookies.token;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const result = await pool.query(
-        "SELECT * FROM users WHERE email = $1",
-        [decoded.email]
-      );
-      if (result.rows.length > 0) {
-        req.user = result.rows[0];
-        return next();
-      }
-    } catch (err) {
-      // Both failed
-    }
-  }
-
-  // Neither token valid
-  return res.redirect("/login/user?message=Please Login with your credentials!");
-}
-
 
 // =====================
 // Utilities
@@ -4906,7 +4861,6 @@ app.get("/logout", (req, res) => {
   console.log("Clearing cookies: token and ChairToken");
   return res.redirect("/?message=Logged out successfully");
 });
-
 
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
