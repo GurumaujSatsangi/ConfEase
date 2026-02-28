@@ -12,7 +12,33 @@
 
     <h4>Welcome to Poster Presentation Coordinator's Dashboard, <%=user.name %> (<%= user.email %>)!</h4>
 <hr>
-    
+    <% if(result && result.length>0) { %>
+        <table class="table">
+            <tr>
+                <th>Title</th>
+                <th>Authors</th>
+                <th>Score</th>
+                <th>Action</th>
+            </tr>
+        <% result.forEach(function(result){ %>
+<tr>
+    <td><%= result.title %></td>
+    <td>Primary Author: <%= result.primary_author %> | Co-Author: <%= result.co_authors %> </td>
+   <form action="/submit-poster-score/<%=result.conference_id %>/<%=result.submission_id%>"  method="POST">
+    <td><input type="number" name="score" class="form-control" required placeholder="Enter Score"></td>
+    <td><input type="submit" value="Submit Score" class="btn btn-primary"></td>
+    </form>
+</tr>
+
+        
+        
+        <% }) %>
+    </table>
+    <% } %>
+
 </div>
+
+    <%- include('partials/footer') %>
+
 </body>
 </html>

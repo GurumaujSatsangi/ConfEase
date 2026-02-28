@@ -12,7 +12,7 @@
         <h4>Publish New Announcement</h4><hr>
         <form action="/publish-announcement" method="post">
             <input name="title" type="text"  class="form-control" placeholder="Title of Announcement" required>
-           <br> <textarea name="body" class="form-control" placeholder="Body of Announcement" required></textarea>
+           <br> <textarea name="body" maxlength="400" class="form-control" placeholder="Body of Announcement" required></textarea>
             <br><input type="submit" class="btn btn-primary" value="Publish">
         </form>
 

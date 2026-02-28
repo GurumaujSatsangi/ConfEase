@@ -607,6 +607,46 @@ async function checkAuth(req, res, next) {
 }
 
 
+async function checkAuthOrChair(req, res, next) {
+  // Try checkChairAuth first
+  const chairToken = req.cookies.ChairToken;
+  if (chairToken) {
+    try {
+      const decoded = jwt.verify(chairToken, process.env.JWT_SECRET);
+      const result = await pool.query(
+        "SELECT * FROM chairs WHERE email = $1",
+        [decoded.email]
+      );
+      if (result.rows.length > 0) {
+        req.user = result.rows[0];
+        return next();
+      }
+    } catch (err) {
+      // Fall through to checkAuth
+    }
+  }
+
+  // Try checkAuth
+  const token = req.cookies.token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const result = await pool.query(
+        "SELECT * FROM users WHERE email = $1",
+        [decoded.email]
+      );
+      if (result.rows.length > 0) {
+        req.user = result.rows[0];
+        return next();
+      }
+    } catch (err) {
+      // Both failed
+    }
+  }
+
+  // Neither token valid
+  return res.redirect("/login/user?message=Please Login with your credentials!");
+}
 
 
 // =====================
@@ -805,10 +845,35 @@ return result;
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
   const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
- const  result = data.rows[0];
+ const  result = data.rows;
   res.render("score-posters.ejs",{result, user:req.user})
 
 })
+
+app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(req,res)=>{
+
+  const score = Number.parseInt(req.body.score, 10);
+  const conference_id = req.params.conference_id;
+  const submission_id = req.params.submission_id;
+
+  if (!Number.isInteger(score)) {
+    return res.redirect("/score-posters/" + conference_id + "?message=Invalid score value.");
+  }
+
+  await pool.query(
+    "update submissions set submission_status=$1 where conference_id=$2 and submission_id=$3",
+    ["Poster Scored", conference_id, submission_id]
+  );
+  await pool.query(
+    "insert into poster_presentation_scores values ($1,$2,$3,$4)",
+    [conference_id, submission_id, score, req.user.email]
+  );
+
+  return res.redirect("/score-posters/"+conference_id+"?message=Poster has been scored succesfully!");
+
+
+
+});
 
 
 async function isPosterCoordinator(email){
@@ -991,14 +1056,16 @@ app.post("/publish-announcement",checkChairAuth,async(req,res)=>{
   const {title, body} = req.body;
   const user=req.user;
 
-  const result = await pool.query("insert into announcements values($1,$2,$3)",[title,body,user.name]);
+  const result = await pool.query("insert into announcements values($1,$2,$3)",[title,body,user.email]);
   if(result){
     res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
   }
 })
 
-app.get("/announcements", async(req,res)=>{
+
+app.get("/announcements", checkAuthOrChair, async(req,res)=>{
   const data = await pool.query("select * from announcements");
+
 
   res.render("announcements.ejs",{announcements:data.rows})
 })
@@ -1520,7 +1587,7 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
       `SELECT * FROM submissions
        WHERE conference_id = $1
        AND submission_status = $2`,
-      [req.params.id, "Presentation Completed"]
+      [req.params.id, "Poster Scored"]
     );
     const leaderboardSubs = leaderboardSubsResult.rows;
 
