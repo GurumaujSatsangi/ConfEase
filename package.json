@@ -25,6 +25,7 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "googleapis": "^150.0.1",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.0",
     "macaddress": "^0.5.3",
     "mdb-ui-kit": "^9.0.0",

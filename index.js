@@ -34,7 +34,6 @@ const app = express();
 
 
 
-
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2184,11 +2183,16 @@ app.post("/user-registration", async (req, res) => {
     const check = await pool.query("select * from users where email = $1",[email]);
     if(check.rows.length===0){
         await pool.query(
-      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3)",
-      [name, email, hashed_password]
+      "INSERT INTO users (name, email, password, status) VALUES ($1, $2, $3,$4)",
+      [name, email, hashed_password,"ACTIVATION PENDING"]
     );
 
-    return res.redirect("/login/user?message=Account created successfully. Please login.");
+    const activation_code = crypto.randomUUID();
+    console.log(activation_code);
+    await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
+
+
+    return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for the account activation code.");
 
     }
     else{
@@ -2201,6 +2205,52 @@ app.post("/user-registration", async (req, res) => {
   } catch (err) {
     // console.error(err);
     return res.redirect("/registration/user?message=Something went wrong, please try again later.");
+  }
+});
+
+app.get("/account-activation", async (req, res) => {
+  res.render("login/activation.ejs");
+});
+
+app.post("/activate-account", async (req, res) => {
+  try {
+    const { activation_code } = req.body;
+
+    // Check if activation code exists
+    const data = await pool.query(
+      "SELECT * FROM activation_requests WHERE activation_code = $1",
+      [activation_code]
+    );
+
+    if (!data.rows.length) {
+      return res.redirect("/login/user?message=Invalid or expired activation code.");
+    }
+
+    const email = data.rows[0].email;
+
+    // Update user status
+    const data2 = await pool.query(
+      "UPDATE users SET status = $1 WHERE email = $2 RETURNING *",
+      ["ACCOUNT ACTIVATED", email]
+    );
+
+    if (!data2.rows.length) {
+      return res.redirect("/login/user?message=User not found.");
+    }
+
+    // Delete activation request
+    await pool.query(
+      "DELETE FROM activation_requests WHERE activation_code = $1",
+      [activation_code]
+    );
+
+    return res.redirect(
+      "/login/user?message=Account Activated Successfully! Please login."
+    );
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).send("Server Error");
   }
 });
 
@@ -2236,6 +2286,9 @@ app.post("/user-login", async (req, res) => {
       [email]
     );
 
+    if (userResult.rows[0].status == "ACTIVATION PENDING") {
+      return res.redirect("/login/user?message=Account associated with this Email Address has not yet been Activated. Please check your inbox for the Instructions.");
+    }
     if (userResult.rows.length === 0) {
       return res.redirect("/login/user?message=Invalid email or password");
     }

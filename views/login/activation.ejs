@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Activation</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <%- include('../partials/header') %>
+    <div class="container">
+
+        <form action="/activate-account" method="post">
+            <input type="text" name="activation_code" required class="form-control">
+            <input type="submit" class="btn btn-primary" value="Activate Account">
+        </form>
+
+    </div>
+    <%- include('../partials/footer') %>
+    
+</body>
+</html>
