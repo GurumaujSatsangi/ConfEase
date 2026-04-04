@@ -147,7 +147,7 @@ function checkAuthOrChair(req, res, next) {
     const chairToken = req.cookies.ChairToken;
     
     if (!token && !chairToken) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
     
     const tokenToUse = token || chairToken;
@@ -156,95 +156,16 @@ function checkAuthOrChair(req, res, next) {
       req.user = decoded;
       next();
     } catch (err) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
   } catch (err) {
     console.error("checkAuthOrChair error:", err);
-    return res.redirect("/login");
-  }
-}
-
-// Middleware: accept either Passport session or a JWT (Authorization header or jwt cookie)
-function ensureAuthenticatedOrToken(req, res, next) {
-  try {
-    if (req.isAuthenticated && req.isAuthenticated()) {
-      return next();
-    }
-
-    // Try Authorization: Bearer <token>
-    const authHeader = req.headers && req.headers.authorization;
-    if (authHeader) {
-      const parts = authHeader.split(" ");
-      if (parts.length === 2 && parts[0] === "Bearer") {
-        try {
-          req.user = jwt.verify(parts[1], process.env.JWT_SECRET || "dev_jwt_secret");
-          return next();
-        } catch (err) {
-          // invalid token
-          return res.redirect("/");
-        }
-      }
-    }
-
-    // Try jwt cookie from header (no cookie-parser dependency required)
-    const cookieHeader = req.headers && req.headers.cookie;
-    if (cookieHeader) {
-      const jwtCookie = cookieHeader.split(";").map((c) => c.trim()).find((c) => c.startsWith("jwt="));
-      if (jwtCookie) {
-        const token = jwtCookie.split("=")[1];
-        try {
-          req.user = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
-          return next();
-        } catch (err) {
-          return res.redirect("/");
-        }
-      }
-    }
-
-    return res.redirect("/");
-  } catch (err) {
-    console.error("ensureAuthenticatedOrToken error:", err);
-    return res.redirect("/");
+    return res.redirect("/login/user");
   }
 }
 
 
 
-// Login: use passport local strategy and return JWT
-app.get('/auth4/google/dashboard4', (req, res, next) => {
-  passport.authenticate('google4', (err, user, info) => {
-    if (err) return next(err);
-    if (!user) {
-      const msg = info && info.message ? info.message : 'Authentication failed';
-      return res.redirect('/?message=' + encodeURIComponent(msg));
-    }
-    req.logIn(user, (err) => {
-      if (err) return next(err);
-      return res.redirect('/invitee/dashboard');
-    });
-  })(req, res, next);
-});
-
-
-// Health check endpoint for Docker
-app.get("/health", async (req, res) => {
-  try {
-    // Check database connection
-    await pool.query("SELECT 1");
-    res.status(200).json({ 
-      status: "healthy", 
-      timestamp: new Date().toISOString(),
-      database: "connected"
-    });
-  } catch (error) {
-    res.status(503).json({ 
-      status: "unhealthy", 
-      timestamp: new Date().toISOString(),
-      database: "disconnected",
-      error: error.message
-    });
-  }
-});
 
 
 app.get("/", async (req, res) => {
@@ -277,43 +198,7 @@ app.get("/", async (req, res) => {
   res.render("home.ejs", { conferences: formattedData, message: message });
 });
 
-app.get(
-  "/auth/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"],
-  })
-);
 
-app.get(
-  "/auth2/google",
-  passport.authenticate("google2", {
-    scope: ["profile", "email"],
-  })
-);
-
-app.get(
-  "/auth3/google",
-  passport.authenticate("google3", {
-    scope: ["profile", "email"],
-  })
-);
-
-app.get(
-  "/auth4/google",
-  passport.authenticate("google4", {
-    scope: ["profile", "email"],
-  })
-);
-
-
-app.get(
-  "/auth2/google/dashboard2",
-  passport.authenticate("google2", {
-    failureRedirect:
-      "/?message=You have not been assigned any tracks. Please contact the conference organizers for more information.",
-    successRedirect: "/reviewer/dashboard",
-  })
-);
 
 app.get("/reviewer/dashboard", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "reviewer") {
@@ -415,60 +300,6 @@ app.get("/reviewer/dashboard", async (req, res) => {
 });
 
 
-app.get(
-  "/auth3/google/dashboard3",
-  passport.authenticate("google3", {
-    failureRedirect: "/?message=You are not authorized to access this page.",
-    successRedirect: "/chair/dashboard",
-  }),
-  async (req, res) => {
-    if (!req.isAuthenticated()) return res.redirect("/");
-
-    try {
-      // Fetch all tracks
-      const trackResult = await pool.query(`SELECT * FROM conference_tracks`);
-      const tracks = trackResult.rows;
-
-      // Filter reviewer tracks
-      const reviewerTracks = tracks.filter(
-        (track) =>
-          Array.isArray(track.track_reviewers) &&
-          track.track_reviewers.includes(req.user.email)
-      );
-
-      if (reviewerTracks.length === 0) {
-        return res.render("error.ejs", {
-          message:
-            "You are not assigned to any tracks. Please contact the conference organizers for more information.",
-        });
-      }
-
-      // Get all track IDs assigned to the reviewer
-      const trackIds = reviewerTracks.map((t) => t.track_id);
-
-      // Fetch submissions for these tracks
-      let submissiondata = [];
-      if (trackIds.length > 0) {
-        const placeholders = trackIds.map((_, i) => `$${i + 1}`).join(",");
-        const submissionQuery = `SELECT * FROM submissions WHERE track_id IN (${placeholders})`;
-        const submissionResult = await pool.query(submissionQuery, trackIds);
-        submissiondata = submissionResult.rows;
-      }
-
-      return res.render("reviewer/dashboard", {
-        user: req.user,
-        tracks: reviewerTracks,
-        userSubmissions: submissiondata,
-      });
-    } catch (err) {
-      console.error("Error loading chair-backed reviewer dashboard:", err);
-      return res.render("error.ejs", {
-        message:
-          "We are facing some issues in fetching your assigned tracks. Please try again later.",
-      });
-    }
-  }
-);
 
 
 app.get("/error", (req, res) => {
@@ -576,33 +407,8 @@ app.get("/invitee/dashboard", checkAuth, async (req, res) => {
 });
 
 
-app.get('/auth/google/dashboard', (req, res, next) => {
-  passport.authenticate('google', (err, user, info) => {
-    if (err) return next(err);
-    if (!user) {
-      const msg = info && info.message ? info.message : 'Authentication failed';
-      return res.redirect('/?message=' + encodeURIComponent(msg));
-    }
-    req.logIn(user, (err) => {
-      if (err) return next(err);
-      return res.redirect('/dashboard');
-    });
-  })(req, res, next);
-});
 
 
-
-app.get(
-  "/auth4/google/dashboard4",
-  passport.authenticate("google4", {
-    failureRedirect: "/?message=You are not authorized as an invited speaker.",
-    successRedirect: "/invitee/dashboard",
-  }),
-  (req, res) => {
-    // This handler will be called after successful login
-    res.redirect("/invitee/dashboard");
-  }
-);
 
 // =====================
 // Utilities
