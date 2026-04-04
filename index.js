@@ -126,18 +126,18 @@ function checkChairAuth(req, res, next) {
   try {
     const chairToken = req.cookies.ChairToken;
     if (!chairToken) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
     try {
       const decoded = jwt.verify(chairToken, process.env.JWT_SECRET || "dev_jwt_secret");
       req.user = decoded;
       next();
     } catch (err) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
   } catch (err) {
     console.error("checkChairAuth error:", err);
-    return res.redirect("/login");
+    return res.redirect("/login/user");
   }
 }
 
@@ -2502,7 +2502,6 @@ async function fetchInviteeNamebyEmail(email){
 
 app.post("/add-invitee", checkChairAuth,async (req, res) => {
   
-
   const { email, conference_id,name } = req.body;
   if (!email || !conference_id) {
     return res.status(400).send("Email and conference ID are required.");
@@ -2510,7 +2509,25 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
 
   try {
     // 1. Insert invitee row
-    await pool.query(
+    const data2= await pool.query("select * from invitees where conference_id=$1 and email=$2",[conference_id,email]);
+
+    const data = await pool.query("select * from users where email=$1",[email]);
+    if(data.rows[0] && !data2.rows[0]){
+      await pool.query(
+      `INSERT INTO invitees (conference_id, name, email)
+       VALUES ($1, $2, $3);`,
+      [conference_id, name, email]
+    );
+
+    return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
+    }
+    else if (data.rows[0] && data2.rows[0]){
+
+    return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=The Email you are trying to add already has been invited as an Invited Speaker for this conference and has an account on CMT.");
+    
+    }
+    else {
+await pool.query(
       `INSERT INTO invitees (conference_id, name, email)
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
@@ -2521,10 +2538,11 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [name, email,"Invited User"]
     );
+        return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
- 
+    }
+    
 
-  
 
   } catch (err) {
     console.error("Error adding invitee:", err);
@@ -2589,9 +2607,6 @@ app.get("/invited-user/password-update/:email",async(req,res)=>{
     });
 
     }
-
-   
-
 
 })
 
