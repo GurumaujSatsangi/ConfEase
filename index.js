@@ -107,18 +107,18 @@ function checkAuth(req, res, next) {
   try {
     const token = req.cookies.token;
     if (!token) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
       req.user = decoded;
       next();
     } catch (err) {
-      return res.redirect("/login");
+      return res.redirect("/login/user");
     }
   } catch (err) {
     console.error("checkAuth error:", err);
-    return res.redirect("/login");
+    return res.redirect("/login/user");
   }
 }
 
@@ -2400,6 +2400,15 @@ app.post("/user-registration", async (req, res) => {
 
 
 app.get("/login/user", async (req,res)=>{
+
+  const token = req.cookies['token'];
+  if(token){
+    return res.redirect("/dashboard");
+  }
+  const chairtoken = req.cookies['ChairToken'];
+  if(chairtoken){
+   return  res.redirect("/chair/dashboard");
+  }
   const message = req.query.message || null;
   res.render("login/user", { message });
 })
