@@ -1870,14 +1870,19 @@ app.post("/send-password-reset-link",async(req,res)=>{
 
 
     const user = userResult.rows[0];
-    const token = crypto.randomBytes(32).toString("hex");
+
+    if(!user){
+      res.redirect("/login/user?message=Account does not exists!");
+    }
+    else {
+          const token = crypto.randomBytes(32).toString("hex");
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 15);
 
     await pool.query(
         `INSERT INTO password_resets (email, token, expires_at)
          VALUES ($1, $2, $3)`,
-        [user.email, token, expiresAt]
+        [email, token, expiresAt]
     );
 
     const resetLink = `http://localhost:3000/reset-password/${token}`;
@@ -1885,6 +1890,9 @@ app.post("/send-password-reset-link",async(req,res)=>{
     console.log(resetLink);
 
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
+
+    }
+
     
 
 
@@ -1901,10 +1909,10 @@ app.get("/reset-password/:token", async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-        return res.status(400).send("Invalid or expired token");
+        return res.redirect("/login/user?message=This password reset link has expired. Please try again.");
     }
 
-    res.render("login/reset-password.ejs", { token });
+    res.render("login/reset-password.ejs", { result: result.rows[0] });
 });
 
 
@@ -2523,6 +2531,21 @@ app.post("/chair-login", async (req, res) => {
     return res.status(500).send("Server error");
   }
 });
+
+app.post("/update-password", async(req,res)=>{
+  const {new_password,email,token}=req.body;
+const hashed_new_password = await bcrypt.hash(new_password, 10);
+  const data = await pool.query("update users set password=$1 where email=$2 RETURNING *",[hashed_new_password,email]);
+  const data2 = await pool.query("delete from password_resets where token=$1 RETURNING *",[token]);
+
+  const result = data.rows[0];
+  const result2 = data2.rows[0];
+
+  if(result2){
+    return res.redirect("/login/user?message=Password Updated, Please login with your updated credentials.")
+  }
+
+})
 
 app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
   try {
