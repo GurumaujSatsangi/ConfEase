@@ -2978,6 +2978,13 @@ app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
 
 })
 
+app.post("/send-email-alert",async(req,res)=>{
+
+  const data = await pool.query("SELECT email FROM users WHERE email NOT IN ( SELECT primary_author FROM submissions);");
+  console.log(data.rows[0]);
+
+})
+
 
 app.get("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res) => {
   
