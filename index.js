@@ -3130,19 +3130,7 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
     );
 
     // 7. Send email to co-author
-    try {
-      await sendMail(
-        coAuthorRequest.co_author,
-        `Co-Author Request Accepted - ${submission.title}`,
-        `Your co-author request for "${submission.title}" has been accepted.`,
-        `<p>Dear Co-Author,</p>
-         <p>Your request to join the paper titled <strong>"${submission.title}"</strong> has been <strong>accepted</strong>.</p>
-         <p>You are now listed as a co-author. View in your dashboard.</p>
-         <p>Regards,<br>DEI Conference Management Toolkit Team</p>`
-      );
-    } catch (emailErr) {
-      console.error("Email sending error:", emailErr);
-    }
+   await sendMail(coAuthorRequest.co_author,+"Co-Author Request Approved | "+submission.title,"Hi, your request to join the paper titled "+ submission.title+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.",submission.primary_author);
 
     return res.redirect("/dashboard?message=Co-author request accepted successfully.");
 
@@ -3191,19 +3179,8 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
     );
 
     // 5. Notify via email
-    try {
-      await sendMail(
-        coAuthorRequest.co_author,
-        `Co-Author Request Rejected - ${submission.title}`,
-        `Your co-author request for "${submission.title}" has been rejected.`,
-        `<p>Dear Co-Author,</p>
-         <p>Your request to join the paper <strong>"${submission.title}"</strong> was <strong>rejected</strong>.</p>
-         <p>Please contact the primary author if needed.</p>
-         <p>Regards,<br>DEI Conference Management Toolkit Team</p>`
-      );
-    } catch (emailErr) {
-      console.error("Email sending error:", emailErr);
-    }
+       await sendMail(coAuthorRequest.co_author,+"Co-Author Request Rejected | "+submission.title,"Hi, your request to join the paper titled "+ submission.title+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.",submission.primary_author);
+
 
     return res.redirect("/dashboard?message=Co-author request rejected successfully.");
 
@@ -4372,7 +4349,7 @@ console.log(confidence);
 
     	
 
-
+      await sendMail(req.user.email,"Paper Submitted | "+title,"Hi, Your paper titled "+title+" has been submitted succesfully and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
 
       return res.redirect("/dashboard?message=Congratulations!!! Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
