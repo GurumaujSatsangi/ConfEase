@@ -1490,6 +1490,8 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
 );
 
 
+await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned","Hi, You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT (Session Details are as follows - Date: "+session_date+" | Timings: "+start_time+" - "+end_time+"). If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
     );
