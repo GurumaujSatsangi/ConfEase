@@ -2828,14 +2828,67 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/create-track/:id", checkChairAuth,async(req,res)=>{
+// ...existing code...
+app.post("/create-track/:id", checkChairAuth, async (req, res) => {
+  try {
+    const {
+      track_title,
+      reviewers,
+      session_date,
+      session_start_time,
+      session_end_time,
+      session_chairs
+    } = req.body;
 
-  const {track_title, reviewers,session_date, session_start_time,session_end_time, session_chairs} = req.body;
-  const result = await pool.query("insert into conference_tracks (track_name,track_reviewers,presentation_date,presentation_start_time,presentation_end_time, panelists,conference_id) values ($1,array[$2],$3,$4,$5,array[$6],$7)",[track_title,reviewers,session_date,session_start_time,session_end_time,session_chairs,req.params.id])
+    const normalizeEmails = (value) => {
+      if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);
+      return String(value || "")
+        .split(",")
+        .map(v => v.trim())
+        .filter(Boolean);
+    };
 
-  return res.redirect("/chair/dashboard?message=Track Added Succesfully!")
+    const reviewersArray = normalizeEmails(reviewers);
+    const sessionChairsArray = normalizeEmails(session_chairs);
 
-})
+    await pool.query(
+      `INSERT INTO conference_tracks
+       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        track_title,
+        reviewersArray,
+        session_date,
+        session_start_time,
+        session_end_time,
+        sessionChairsArray,
+        req.params.id
+      ]
+    );
+
+    for (const reviewerEmail of reviewersArray) {
+      await sendMail(
+        reviewerEmail,
+        "Reviewer Role Assigned",
+        "Hi, You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+      );
+    }
+
+    for (const chairEmail of sessionChairsArray) {
+      await sendMail(
+        chairEmail,
+        "Session Chair Role Assigned",
+        "Hi, You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+      );
+    }
+
+    return res.redirect("/chair/dashboard?message=Track Added Succesfully!");
+  } catch (err) {
+    console.error("create-track error:", err);
+    return res.redirect("/chair/dashboard?message=Error creating track.");
+  }
+});
+// ...existing code...
 
 app.get("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
