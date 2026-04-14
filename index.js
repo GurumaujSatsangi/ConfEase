@@ -26,6 +26,7 @@ import { name } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "./mailer.js"
 import events from 'events';
+// import { send } from "process";
 // Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
 events.defaultMaxListeners = 20;
 
@@ -1690,10 +1691,9 @@ app.post("/send-password-reset-link",async(req,res)=>{
         [email, token, expiresAt]
     );
 
-    const resetLink = `http://localhost:3000/reset-password/${token}`;
+    const resetLink = `http://cmt.dei.ac.in/reset-password/${token}`;
 
-    console.log(resetLink);
-
+    await sendMail(email,"Password Reset Link","Hi, Please click on this link to update your password for your DEI CMT account: "+resetLink+" If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
 
     }
@@ -2190,9 +2190,9 @@ app.post("/user-registration", async (req, res) => {
     const activation_code = crypto.randomUUID();
     console.log(activation_code);
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
+     sendMail(email,"Welcome to DEI CMT!","Dear "+name+"! Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.dei.ac.in/account-activation and enter your Account Activation Code which is "+activation_code+" Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
 
-
-    return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for the account activation code.");
+    return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
     }
     else{
@@ -2243,6 +2243,8 @@ app.post("/activate-account", async (req, res) => {
       "DELETE FROM activation_requests WHERE activation_code = $1",
       [activation_code]
     );
+
+    await sendMail(email,"Account Activated","Hi, Your DEI CMT account linked to this Email Address has been ACTIVATED. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
 
     return res.redirect(
       "/login/user?message=Account Activated Successfully! Please login."
@@ -2410,6 +2412,7 @@ const hashed_new_password = await bcrypt.hash(new_password, 10);
   const result2 = data2.rows[0];
 
   if(result2){
+    await sendMail(email,"Password Updated",+"Hi, The password for your DEI CMT account linked to this Email ID was succesfully updated. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     return res.redirect("/login/user?message=Password Updated, Please login with your updated credentials.")
   }
 
@@ -2571,7 +2574,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-
+     await sendMail(email,name+", You are invited!","Dear "+name+" Greetings from DEI CMT! You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.dei.ac.in/registration/user to create your account and submit your paper for the Invited Talk. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
     else if (data.rows[0] && data2.rows[0]){
