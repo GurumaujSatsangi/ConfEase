@@ -2345,7 +2345,10 @@ app.post("/create-chair-credentials",async(req,res)=>{
   if(!result){
     res.send("Error");
   }
+
+
   else{
+    await sendMail(email,"DEI CMT Chair Portal Credentials","Dear "+name+" You have been granted DEI CMT - CHAIR PORTAL access. Please use the given credentials to access the portal. Email ID: "+email+" Password: "+password+" Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     res.send("Chair Added & Credentials Created Succesfully !!!");
   }
 
