@@ -7,6 +7,8 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import pool from "./config/db.js";
 import {PDFParse} from 'pdf-parse';
+import passwordValidator from 'password-validator';
+
 import {
   detectAIText,
   isAIGenerated,
@@ -42,6 +44,9 @@ const upload = multer({
   dest: "uploads/",
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
 });
+
+
+const schema = new passwordValidator();
 
 // Multer error handler middleware
 app.use((err, req, res, next) => {
@@ -2183,8 +2188,23 @@ app.post("/user-registration", async (req, res) => {
     const hashed_password = await bcrypt.hash(password, 10);
 
     const check = await pool.query("select * from users where email = $1",[email]);
+
     if(check.rows.length===0){
-        await pool.query(
+
+      schema
+.is().min(8)                                    // Minimum length 8
+.is().max(100)                                  // Maximum length 100
+.has().uppercase()                              // Must have uppercase letters
+.has().lowercase()                              // Must have lowercase letters
+.has().digits(2)                                // Must have at least 2 digits
+.has().not().spaces()                           // Should not have spaces
+.is().not().oneOf(['Passw0rd', 'Password123']);
+
+const result = schema.validate(password);
+
+if(result==true){
+
+ await pool.query(
       "INSERT INTO users (name, email, password, status) VALUES ($1, $2, $3,$4)",
       [name, email, hashed_password,"ACTIVATION PENDING"]
     );
@@ -2195,6 +2215,17 @@ app.post("/user-registration", async (req, res) => {
      sendMail(email,"Welcome to DEI CMT!","Dear "+name+"! Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.dei.ac.in/account-activation and enter your Account Activation Code which is "+activation_code+" Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
+
+
+}
+else{
+  return res.redirect("/login/user?message=Your password does not match our Password Policy. Please make a strong password with atleast 1 Upper Case/Lower Case/Number/Special Character.")
+}
+
+
+
+
+       
 
     }
     else{
