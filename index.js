@@ -1250,6 +1250,9 @@ app.get(
       // ---------- build per-track data ----------
       const tracksWithData = await Promise.all(
         tracks.map(async (track) => {
+          const formatAuthor = (email, emailToNameMap = {}) =>
+            emailToNameMap[email] ? `${emailToNameMap[email]} (${email})` : email;
+
           // ===== LEADERBOARD =====
           const trackLeaderboardSubs = leaderboardSubs.filter(
             (s) => s.track_id === track.track_id
@@ -1303,7 +1306,6 @@ app.get(
               const userMap = Object.fromEntries(
                 usersResult.rows.map((u) => [u.email, u.name])
               );
-              const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
 
               return {
                 ...sub,
@@ -1313,9 +1315,9 @@ app.get(
                   panelistScore !== null ? +panelistScore.toFixed(2) : null,
                 averageScore:
                   averageScore !== null ? +averageScore.toFixed(2) : null,
-                primary_author_formatted: fmt(sub.primary_author),
+                primary_author_formatted: formatAuthor(sub.primary_author, userMap),
                 co_authors_formatted: (sub.co_authors || [])
-                  .map(fmt)
+                  .map((email) => formatAuthor(email, userMap))
                   .join(", "),
               };
             })
@@ -1347,9 +1349,9 @@ app.get(
           // Format author names for final camera ready papers
           const finalCameraReadyFormatted = finalCameraReadyResult.rows.map(paper => ({
             ...paper,
-            primary_author_formatted: fmt(paper.primary_author),
+            primary_author_formatted: formatAuthor(paper.primary_author),
             co_authors_formatted: (paper.co_authors || [])
-              .map(fmt)
+              .map((email) => formatAuthor(email))
               .join(", ")
           }));
 
@@ -1634,32 +1636,39 @@ app.post("/chair/dashboard/set-session/:id", async (req, res) => {
 
 app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
   try {
-    // 1. Fetch track info
+    // 1. Fetch the tracks assigned to this panelist for the conference
     const trackResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1 and $2=any(panelists)`,
-      [req.params.id,req.user.email]
+      `SELECT * FROM conference_tracks
+       WHERE conference_id = $1
+       AND $2 = ANY(panelists)`,
+      [req.params.id, req.user.email]
     );
-    const trackinfo = trackResult.rows[0];
+    const trackinfo = trackResult.rows;
 
-    if (!trackinfo) {
+    if (trackinfo.length === 0) {
       return res.redirect("/dashboard?message=Track not found.");
     }
+
+    const trackIds = trackinfo.map((track) => track.track_id);
 
     // 2. Session time enforcement
     let session_end_iso = null;
     try {
-      if (
-        trackinfo.presentation_date &&
-        trackinfo.presentation_start_time &&
-        trackinfo.presentation_end_time
-      ) {
+      const activeTrack = trackinfo.find(
+        (track) =>
+          track.presentation_date &&
+          track.presentation_start_time &&
+          track.presentation_end_time
+      );
+
+      if (activeTrack) {
         const istOffset = 5.5 * 60 * 60 * 1000;
-        const dateStr = trackinfo.presentation_date instanceof Date
-          ? trackinfo.presentation_date.toISOString().slice(0, 10)
-          : String(trackinfo.presentation_date);
+        const dateStr = activeTrack.presentation_date instanceof Date
+          ? activeTrack.presentation_date.toISOString().slice(0, 10)
+          : String(activeTrack.presentation_date);
         const [y, mo, d] = dateStr.split("-").map(Number);
-        const startTimeStr = String(trackinfo.presentation_start_time);
-        const endTimeStr = String(trackinfo.presentation_end_time);
+        const startTimeStr = String(activeTrack.presentation_start_time);
+        const endTimeStr = String(activeTrack.presentation_end_time);
         const [sh, sm] = startTimeStr.split(":").map(Number);
         const [eh, em] = endTimeStr.split(":").map(Number);
 
@@ -1683,12 +1692,12 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
       session_end_iso = null;
     }
 
-    // 3. Fetch approved ORAL presentation submissions
+    // 3. Fetch approved oral presentation submissions for only the assigned tracks
     const sessionResult = await pool.query(
       `SELECT * FROM submissions
-       WHERE track_id = $1
+       WHERE track_id = ANY($1)
        AND submission_status = 'Submitted Final Camera Ready Paper for Oral Presentation'`,
-      [trackinfo.track_id]
+      [trackIds]
     );
     const session = sessionResult.rows;
 
@@ -2659,7 +2668,7 @@ app.post("/chair-login", async (req, res) => {
 
     // generate jwt
     const chairAccessToken = jwt.sign(
-      { email: user.email, name: user.name },
+      { email: user.email, name: user.name, user_id: user.user_id },
       process.env.JWT_ACCESS_TOKEN_SECRET,
       { expiresIn: "15m" }
     );
@@ -2681,59 +2690,19 @@ app.post("/chair-login", async (req, res) => {
       .update(chairRefreshToken)
       .digest("hex");
 
-    // sessions.user_id must come from chairs.user_id for chair logins.
-    let chairUserId = null;
-    try {
-      const chairIdResult = await pool.query(
-        `SELECT user_id, name, email FROM chairs WHERE email = $1 LIMIT 1`,
-        [user.email]
-      );
-
-      const chairRow = chairIdResult.rows[0];
-      chairUserId = chairRow && chairRow.user_id;
-
-      if (chairUserId) {
-        const chairUserResult = await pool.query(
-          `SELECT id FROM users WHERE id = $1 LIMIT 1`,
-          [chairUserId]
-        );
-
-        if (chairUserResult.rows.length === 0) {
-          await pool.query(
-            `
-            INSERT INTO users (id, name, email, password, status)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (email)
-            DO UPDATE SET
-              id = EXCLUDED.id,
-              name = EXCLUDED.name,
-              password = EXCLUDED.password,
-              status = EXCLUDED.status
-            `,
-            [
-              chairUserId,
-              chairRow.name,
-              chairRow.email,
-              crypto.randomBytes(32).toString("hex"),
-              "ACTIVATED"
-            ]
-          );
-        }
-      }
-    } catch (e) {
-      console.error("Error fetching chair user_id:", e);
-    }
+    const chairUserId = user.user_id || null;
 
     if (chairUserId) {
       await pool.query(
         `
-        INSERT INTO sessions (
-          user_id,
+        INSERT INTO chair_sessions (
+          chair_id,
           refresh_token_hash,
           ip_address,
           user_agent,
           expires_at,
-          role_type
+          is_revoked
+        
         )
         VALUES (
           $1,
@@ -2742,9 +2711,10 @@ app.post("/chair-login", async (req, res) => {
           $4,
           NOW() + INTERVAL '7 days',
           $5
+        
         )
         `,
-        [chairUserId, hashed_chair_refresh_token, req.ip, req.headers["user-agent"], "chair"]
+        [chairUserId, hashed_chair_refresh_token, req.ip, req.headers["user-agent"],false]
       );
     } else {
       console.error("Could not determine chair user id; skipping session insert for chair.");
@@ -2775,13 +2745,13 @@ async function handleChairRefresh(req, res) {
     // CHECK SESSION FOR CHAIR
     const sessionResult = await pool.query(
       `
-      SELECT * FROM sessions
+      SELECT * FROM chair_sessions
       WHERE refresh_token_hash = $1
       AND is_revoked = FALSE
       AND expires_at > NOW()
-      AND role_type = $2
+    
       `,
-      [refreshTokenHash, "chair"]
+      [refreshTokenHash]
     );
 
     const session = sessionResult.rows[0];
@@ -3460,9 +3430,9 @@ app.post("/join", checkAuth, async (req, res) => {
     // 5. Check if join request already exists
     const existingReqResult = await pool.query(
       `SELECT * FROM co_author_requests
-       WHERE submission_id = $1 AND co_author = $2
+       WHERE submission_id = $1 AND co_author = $2 AND status!=$3
        LIMIT 1;`,
-      [submission.submission_id, req.user.email]
+      [submission.submission_id, req.user.email,"Rejected"]
     );
 
     if (existingReqResult.rows.length > 0) {
@@ -4884,7 +4854,7 @@ async function handleLogout(req, res) {
 
       await pool.query(
         `
-        UPDATE sessions
+        UPDATE chair_sessions
         SET is_revoked = TRUE
         WHERE refresh_token_hash = $1
         `,

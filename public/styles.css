@@ -43,6 +43,16 @@ body {
   text-transform: uppercase;
 }
 
+.badge-review{
+  color:orange;
+  text-transform: uppercase;
+}
+
+.badge-success{
+  color:green;
+  text-transform: uppercase;
+}
+
 .navbar-brand img {
   height: 60px;
   max-width: 100%;

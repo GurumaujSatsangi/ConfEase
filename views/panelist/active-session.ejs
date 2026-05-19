@@ -44,7 +44,7 @@
           <tr>
                <form action="/mark-presentation-as-complete" method="POST">
     <input type="hidden" name="paper_id" value="<%= session.submission_id %>">
-        <input type="hidden" name="track_id" value="<%= trackinfo.track_id %>">
+        <input type="hidden" name="track_id" value="<%= session.track_id %>">
 
 
             <td><%= session.title %></td>
