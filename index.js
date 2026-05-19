@@ -174,7 +174,7 @@ function setChairTokenCookies(res, accessToken, refreshToken) {
 function checkAuth(req, res, next) {
   const token = getAccessTokenFromRequest(req);
   if (!token) {
-    return res.sendStatus(401);
+    return res.redirect("/login/user");
   }
 
   try {
@@ -182,7 +182,7 @@ function checkAuth(req, res, next) {
     req.user = decoded;
     next();
   } catch (err) {
-    return res.sendStatus(401);
+    return res.redirect("/login/user");
   }
 }
 
