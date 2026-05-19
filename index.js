@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import pool from "./config/db.js";
+import requestIp from 'request-ip';
 import {PDFParse} from 'pdf-parse';
 import passwordValidator from 'password-validator';
 
@@ -107,23 +108,47 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+function getAccessTokenFromRequest(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1];
+  }
+
+  return req.cookies.access_token || req.cookies.token || null;
+}
+
+function verifyAccessToken(token) {
+  return jwt.verify(
+    token,
+    process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+  );
+}
+
+function setAccessTokenCookies(res, accessToken) {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: false,
+    sameSite: "strict",
+    maxAge: 15 * 60 * 1000,
+  };
+
+  res.cookie("access_token", accessToken, cookieOptions);
+ 
+}
+
 // Middleware functions for authentication
 function checkAuth(req, res, next) {
+  const token = getAccessTokenFromRequest(req);
+  if (!token) {
+    return res.sendStatus(401);
+  }
+
   try {
-    const token = req.cookies.token;
-    if (!token) {
-      return res.redirect("/login/user");
-    }
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
-      req.user = decoded;
-      next();
-    } catch (err) {
-      return res.redirect("/login/user");
-    }
+    const decoded = verifyAccessToken(token);
+    req.user = decoded;
+    next();
   } catch (err) {
-    console.error("checkAuth error:", err);
-    return res.redirect("/login/user");
+    return res.sendStatus(401);
   }
 }
 
@@ -148,17 +173,19 @@ function checkChairAuth(req, res, next) {
 
 function checkAuthOrChair(req, res, next) {
   try {
-    const token = req.cookies.token;
     const chairToken = req.cookies.ChairToken;
+    const token = getAccessTokenFromRequest(req);
     
     if (!token && !chairToken) {
       return res.redirect("/login/user");
     }
     
-    const tokenToUse = token || chairToken;
     try {
-      const decoded = jwt.verify(tokenToUse, process.env.JWT_SECRET || "dev_jwt_secret");
-      req.user = decoded;
+      if (chairToken) {
+        req.user = jwt.verify(chairToken, process.env.JWT_SECRET || "dev_jwt_secret");
+      } else {
+        req.user = verifyAccessToken(token);
+      }
       next();
     } catch (err) {
       return res.redirect("/login/user");
@@ -169,21 +196,23 @@ function checkAuthOrChair(req, res, next) {
   }
 }
 app.use((req, res, next) => {
-    const token = req.cookies.token;
+  const token = getAccessTokenFromRequest(req);
 
     if (!token) {
         req.user = null;
+    res.locals.user = null;
         return next();
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = verifyAccessToken(token);
 
         req.user = decoded; // attach user to request
         res.locals.user = decoded; // optional for EJS partials
 
     } catch (err) {
         req.user = null;
+    res.locals.user = null;
     }
 
     next();
@@ -2317,7 +2346,7 @@ app.post("/activate-account", async (req, res) => {
 
 app.get("/login/user", async (req,res)=>{
 
-  const token = req.cookies['token'];
+  const token = req.cookies['access_token'] || req.cookies['token'];
   if(token){
     return res.redirect("/dashboard");
   }
@@ -2335,58 +2364,216 @@ app.get("/registration/user", async (req,res)=>{
 })
 
 
+app.use(requestIp.mw())
+
+app.get("/user-login", (req, res) => {
+  return res.redirect("/login/user");
+});
+
 
 app.post("/user-login", async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
-    // fetch user
+    // FETCH USER
     const userResult = await pool.query(
       "SELECT * FROM users WHERE email = $1",
       [email]
     );
 
-    if (userResult.rows[0].status == "ACTIVATION PENDING") {
-      return res.redirect("/login/user?message=Account associated with this Email Address has not yet been Activated. Please check your inbox for the Instructions.");
-    }
     if (userResult.rows.length === 0) {
-      return res.redirect("/login/user?message=Invalid email or password");
+      return res.redirect(
+        "/login/user?message=Invalid email or password"
+      );
     }
 
     const user = userResult.rows[0];
 
-    // compare password
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.redirect("/login/user?message=Invalid email or password");
+    // CHECK ACTIVATION
+    if (user.status === "ACTIVATION PENDING") {
+      return res.redirect(
+        "/login/user?message=Account not activated. Check your email."
+      );
     }
 
-    // generate jwt
-    const token = jwt.sign(
-      { email: user.email,name:user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: "15m" }
+    // COMPARE PASSWORD
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password
     );
 
-    // set cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000
-    });
+    if (!isMatch) {
+      return res.redirect(
+        "/login/user?message=Invalid email or password"
+      );
+    }
 
+    // ACCESS TOKEN
+    const access_token = jwt.sign(
+      {
+        email: user.email,
+        name: user.name,
+        user_id: user.id
+      },
+      process.env.JWT_ACCESS_TOKEN_SECRET,
+      {
+        expiresIn: "15m"
+      }
+    );
 
+    // REFRESH TOKEN
+    const refresh_token = jwt.sign(
+      {
+        user_id: user.id
+      },
+      process.env.JWT_REFRESH_TOKEN_SECRET,
+      {
+        expiresIn: "7d"
+      }
+    );
 
-    // ✅ redirect instead of render
+    // HASH REFRESH TOKEN
+    const hashed_refresh_token = crypto
+      .createHash("sha256")
+      .update(refresh_token)
+      .digest("hex");
+
+    // STORE SESSION
+    await pool.query(
+      `
+      INSERT INTO sessions (
+        user_id,
+        refresh_token_hash,
+        ip_address,
+        user_agent,
+        expires_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        NOW() + INTERVAL '7 days'
+      )
+      `,
+      [
+        user.id,
+        hashed_refresh_token,
+        req.ip,
+        req.headers["user-agent"]
+      ]
+    );
+
+    // STORE REFRESH TOKEN COOKIE
+    res.cookie("refresh_token", refresh_token, { httpOnly: true, secure: false, sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
+
+    // STORE ACCESS TOKEN COOKIE
+    setAccessTokenCookies(res, access_token);
+
+    // REDIRECT
     return res.redirect("/dashboard");
 
   } catch (err) {
+
     console.error(err);
+
     return res.status(500).send("Server error");
+
   }
 });
+
+
+
+async function handleRefresh(req, res) {
+
+  try {
+
+    const refresh_token = req.cookies.refresh_token;
+    if (!refresh_token) {
+      return res.status(401).json({
+        message: "No refresh token"
+      });
+    }
+
+    // VERIFY REFRESH TOKEN
+    const decoded = jwt.verify(
+      refresh_token,
+      process.env.JWT_REFRESH_TOKEN_SECRET
+    );
+
+    // HASH TOKEN
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refresh_token)
+      .digest("hex");
+
+    // CHECK SESSION
+    const sessionResult = await pool.query(
+      `
+      SELECT * FROM sessions
+      WHERE refresh_token_hash = $1
+      AND is_revoked = FALSE
+      AND expires_at > NOW()
+      `,
+      [refreshTokenHash]
+    );
+
+    const session = sessionResult.rows[0];
+
+    if (!session) {
+      return res.status(401).json({
+        message: "Invalid session"
+      });
+    }
+
+    const userResult = await pool.query(
+      `SELECT email, name, id FROM users WHERE id = $1 LIMIT 1`,
+      [session.user_id]
+    );
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(401).json({
+        message: "User not found"
+      });
+    }
+
+    // CREATE NEW ACCESS TOKEN
+    const accessToken = jwt.sign(
+      {
+        email: user.email,
+        name: user.name,
+        user_id: user.id
+      },
+      process.env.JWT_ACCESS_TOKEN_SECRET,
+      {
+        expiresIn: "15m"
+      }
+    );
+
+    setAccessTokenCookies(res, accessToken);
+
+    // SEND NEW ACCESS TOKEN
+    res.json({
+      accessToken
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(401).json({
+      message: "Invalid refresh token"
+    });
+
+  }
+}
+
+app.post("/refresh", handleRefresh);
+app.post("/auth/refresh", handleRefresh);
+
+
 
 
 app.get("/admin", async(req,res)=>{
@@ -4488,336 +4675,60 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
 
 
 
-passport.use(
-  "google",
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "http://localhost:3000/auth/google/dashboard",
-      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
-    },
-    async (accessToken, refreshToken, profile, cb) => {
-      try {
-        const email = profile.emails[0].value;
+async function handleLogout(req, res) {
 
-        //
-        // 1. Check if user exists by uid (Google account previously linked)
-        //
-        const uidResult = await pool.query(
-          `SELECT * FROM users WHERE uid = $1 LIMIT 1;`,
-          [profile.id]
-        );
-        if (uidResult.rows.length > 0) {
-          const user = uidResult.rows[0];
-          user.role = user.role || "author";
-          return cb(null, user);
-        }
+  try {
 
-        //
-        // 2. Check if account exists by email
-        //
-        const emailResult = await pool.query(
-          `SELECT * FROM users WHERE email = $1 LIMIT 1;`,
-          [email]
-        );
-        const existing = emailResult.rows[0];
+    // GET REFRESH TOKEN FROM COOKIE
+    const refresh_token = req.cookies.refresh_token;
 
-        if (existing) {
-          // If the user has a local password, block Google sign in
-          if (existing.password_hash) {
-            return cb(null, false, {
-              message: "An account with this email already exists. Please sign in using Email + Password.",
-            });
-          }
+    // IF TOKEN EXISTS
+    if (refresh_token) {
 
-          // Update missing fields if any
-          const updates = [];
-          const values = [];
-          let idx = 1;
+      // HASH TOKEN
+      const hashed_refresh_token = crypto
+        .createHash("sha256")
+        .update(refresh_token)
+        .digest("hex");
 
-          if (!existing.uid) {
-            updates.push(`uid = $${idx++}`);
-            values.push(profile.id);
-          }
-          if (!existing.profile_picture) {
-            updates.push(`profile_picture = $${idx++}`);
-            values.push(profile.photos[0].value);
-          }
-          if (!existing.name) {
-            updates.push(`name = $${idx++}`);
-            values.push(profile.displayName);
-          }
+      // REVOKE SESSION
+      await pool.query(
+        `
+        UPDATE sessions
+        SET is_revoked = TRUE
+        WHERE refresh_token_hash = $1
+        `,
+        [hashed_refresh_token]
+      );
 
-          if (updates.length > 0) {
-            values.push(email);
-            await pool.query(
-              `UPDATE users SET ${updates.join(", ")} WHERE email = $${idx};`,
-              values
-            );
-          }
-
-          existing.role = existing.role || "author";
-          return cb(null, existing);
-        }
-
-        //
-        // 3. Insert new Google user
-        //
-        await pool.query(
-          `INSERT INTO users (uid, name, email, profile_picture)
-           VALUES ($1, $2, $3, $4);`,
-          [profile.id, profile.displayName, email, profile.photos[0].value]
-        );
-
-        // Retrieve newly inserted user
-        const newUserResult = await pool.query(
-          `SELECT * FROM users WHERE uid = $1 LIMIT 1;`,
-          [profile.id]
-        );
-        const newUser = newUserResult.rows[0];
-        newUser.role = newUser.role || "author";
-
-        return cb(null, newUser);
-
-      } catch (err) {
-        console.error("Google OAuth Error:", err);
-        return cb(err);
-      }
     }
-  )
-);
 
+    // CLEAR COOKIES
+    res.clearCookie("access_token");
+    res.clearCookie("refresh_token");
+    res.clearCookie("token");
+    res.clearCookie("ChairToken");
 
-passport.use(
-  "google3",
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID3,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET3,
-      callbackURL: "http://localhost:3000/auth3/google/dashboard3",
-      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
-    },
-    async (accessToken, refreshToken, profile, cb) => {
-      try {
-        const email = profile.emails[0].value;
+    // REDIRECT
+    return res.redirect("/login/user");
 
-        // 1. Check if the user exists in chair table
-        const result = await pool.query(
-          `SELECT * FROM chair WHERE email_id = $1 LIMIT 1;`,
-          [email]
-        );
+  } catch (err) {
 
-        if (result.rows.length === 0) {
-          return cb(null, false, {
-            message: "You are not authorized as a chair for this conference.",
-          });
-        }
+    console.error(err);
 
-        const chair = result.rows[0];
+    return res.status(500).send("Logout failed");
 
-        // 2. Determine updates needed
-        const updates = {};
-        if (!chair.profile_picture) updates.profile_picture = profile.photos[0].value;
-        if (!chair.name) updates.name = profile.displayName;
-        if (!chair.uid) updates.uid = profile.id;
+  }
 
-        // 3. If updates exist, apply them
-        if (Object.keys(updates).length > 0) {
-          const updateFields = [];
-          const values = [];
-          let index = 1;
+}
 
-          for (const field in updates) {
-            updateFields.push(`${field} = $${index}`);
-            values.push(updates[field]);
-            index++;
-          }
-          values.push(email); // last param for WHERE clause
-
-          await pool.query(
-            `UPDATE chair SET ${updateFields.join(", ")}
-             WHERE email_id = $${index};`,
-            values
-          );
-        }
-
-        // 4. Set role for session object
-        const user = { ...chair, ...updates, role: "chair" };
-
-        return cb(null, user);
-
-      } catch (err) {
-        console.error("Google3 Chair Auth Error:", err);
-        return cb(err);
-      }
-    }
-  )
-);
-
-
-passport.use(
-  "google2",
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID2,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET2,
-      callbackURL: "http://localhost:3000/auth2/google/dashboard2",
-      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
-    },
-    async (accessToken, refreshToken, profile, cb) => {
-      try {
-        const reviewerEmail = profile.emails[0].value;
-
-        // 1. Fetch all tracks
-        const trackResult = await pool.query(
-          `SELECT track_reviewers FROM conference_tracks;`
-        );
-
-        const tracks = trackResult.rows;
-
-        // 2. Check if email is listed as reviewer in any track
-        const isReviewer = tracks.some(track =>
-          Array.isArray(track.track_reviewers) &&
-          track.track_reviewers.includes(reviewerEmail)
-        );
-
-        if (!isReviewer) {
-          return cb(null, false, {
-            message: "You are not authorized as a reviewer for any track.",
-          });
-        }
-
-        // 3. Construct reviewer session user object (no DB write)
-        const user = {
-          uid: profile.id,
-          name: profile.displayName,
-          email: reviewerEmail,
-          profile_picture: profile.photos?.[0]?.value || null,
-          role: "reviewer",
-        };
-
-        return cb(null, user);
-
-      } catch (err) {
-        console.error("Reviewer Google Login Error:", err);
-        return cb(err);
-      }
-    }
-  )
-);
-
-
-passport.use(
-  "google4",
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID4,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET4,
-      callbackURL: "http://localhost:3000/auth4/google/dashboard4",
-      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
-    },
-    async (accessToken, refreshToken, profile, cb) => {
-      try {
-        const userEmail = profile.emails[0].value;
-        console.log("Google4 OAuth - User email:", userEmail);
-
-        //
-        // 1. Check if user exists in invitees table
-        //
-        const inviteeResult = await pool.query(
-          `SELECT * FROM invitees WHERE email = $1;`,
-          [userEmail]
-        );
-        const invitees = inviteeResult.rows;
-
-        if (invitees.length === 0) {
-          console.log("No invitee found for:", userEmail);
-          return cb(null, false, {
-            message: "You are not authorized as an invited speaker.",
-          });
-        }
-
-        const invitee = invitees[0]; // If multiple exist, use the first
-
-
-        //
-        // 2. Update missing fields (name only)
-        //
-        const updates = {};
-        if (!invitee.name) updates.name = profile.displayName;
-
-        if (Object.keys(updates).length > 0) {
-          const updateColumns = [];
-          const values = [];
-          let idx = 1;
-
-          for (const key in updates) {
-            updateColumns.push(`${key} = $${idx}`);
-            values.push(updates[key]);
-            idx++;
-          }
-          values.push(userEmail);
-
-          await pool.query(
-            `UPDATE invitees 
-             SET ${updateColumns.join(", ")}
-             WHERE email = $${idx};`,
-            values
-          );
-        }
-
-
-        //
-        // 3. Construct authenticated user object
-        //
-        const user = {
-          uid: profile.id,
-          name: profile.displayName,
-          email: userEmail,
-          profile_picture: profile.photos?.[0]?.value || null,
-          role: "invitee",
-          conference_id: invitee.conference_id,
-        };
-
-        console.log("Google4 OAuth - Auth Success:", user);
-        return cb(null, user);
-
-      } catch (err) {
-        console.error("Google4 Invitee Auth Error:", err);
-        return cb(err);
-      }
-    }
-  )
-);
+app.post("/logout", handleLogout);
+app.get("/logout", handleLogout);
 
 
 
-passport.serializeUser((user, cb) => {
-  cb(null, { ...user, role: user.role });
-});
-
-passport.deserializeUser((user, cb) => {
-  cb(null, user);
-});
-
-
-app.get("/logout", (req, res) => {
-  // Explicitly delete cookies by setting maxAge to 0 and expires to past date
-  const cookieOptions = {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: false,
-    path: "/",
-    maxAge: 0,
-    expires: new Date(0)
-  };
-
-  res.cookie("token", "", cookieOptions);
-  res.cookie("ChairToken", "", cookieOptions);
-
-  console.log("Clearing cookies: token and ChairToken");
-  return res.redirect("/?message=Logged out successfully");
+app.use(function(req, res) {
+    res.status(404).send("Not Found");
 });
 
   app.listen(port, () => {
