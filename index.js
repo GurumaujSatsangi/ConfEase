@@ -168,7 +168,26 @@ function checkAuthOrChair(req, res, next) {
     return res.redirect("/login/user");
   }
 }
+app.use((req, res, next) => {
+    const token = req.cookies.token;
 
+    if (!token) {
+        req.user = null;
+        return next();
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        req.user = decoded; // attach user to request
+        res.locals.user = decoded; // optional for EJS partials
+
+    } catch (err) {
+        req.user = null;
+    }
+
+    next();
+});
 
 
 
@@ -200,8 +219,14 @@ app.get("/", async (req, res) => {
     };
   });
   
-  res.render("home.ejs", { conferences: formattedData, message: message });
+  res.render("home.ejs", { conferences: formattedData, message: message,user: req.user });
 });
+
+
+
+
+
+
 
 
 
@@ -2339,7 +2364,7 @@ app.post("/user-login", async (req, res) => {
 
     // generate jwt
     const token = jwt.sign(
-      { email: user.email },
+      { email: user.email,name:user.name },
       process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
@@ -2413,7 +2438,7 @@ app.post("/chair-login", async (req, res) => {
 
     // generate jwt
     const ChairToken = jwt.sign(
-      { email: user.email },
+      { email: user.email,name:user.name },
       process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
@@ -2791,15 +2816,7 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
       ]
     );
 
-    //
-    // 4. Update submission status
-    //
-    await pool.query(
-      `UPDATE submissions 
-       SET submission_status = 'Reviewed'
-       WHERE submission_id = $1;`,
-      [submission_id]
-    );
+
 
     //
     // 5. If revision required → insert record for revision
@@ -2812,47 +2829,6 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
       );
     }
 
-    //
-    // 6. Notify authors by email
-    //
-    try {
-      const confResult = await pool.query(
-        `SELECT acceptance_notification, title 
-         FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-        [conference_id]
-      );
-      const conference = confResult.rows[0];
-
-      const acceptanceDate = conference?.acceptance_notification
-        ? new Date(conference.acceptance_notification).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })
-        : "the scheduled acceptance notification date";
-
-      const coAuthors = Array.isArray(submissionData.co_authors)
-        ? submissionData.co_authors
-        : [];
-      const ccEmails = coAuthors.length > 0 ? coAuthors.join(",") : null;
-
-      await sendMail(
-        submissionData.primary_author,
-        `Review Completed - ${submissionData.title}`,
-        `Your paper "${submissionData.title}" has been reviewed. Results will be published on ${acceptanceDate}.`,
-        `<p>Dear Author,</p>
-         <p>Your paper titled <strong>"${submissionData.title}"</strong> has now been reviewed.</p>
-         <p>Final results will be announced on <strong>${acceptanceDate}</strong>.</p>
-         <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
-        ccEmails
-      );
-    } catch (emailErr) {
-      console.error("Email send failed (ignored):", emailErr);
-    }
-
-    //
-    // 7. Re-render dashboard so reviewer sees updated list
-    //
     return res.redirect("/dashboard?message=Submission has been successfully marked as reviewed.");
 
   } catch (err) {

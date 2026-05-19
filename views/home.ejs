@@ -15,6 +15,14 @@
     <%- include('partials/header') %>
     
   <div class="container">
+
+    <% if(user) { %>
+      <div class="alert alert-primary" role="alert">
+You are logged in as <b><%=user.name %> (<%=user.email%>)</b>!</div>
+    
+    <% } %>
+
+
     
         <div class="welcome-content" id="active-conferences">
        
