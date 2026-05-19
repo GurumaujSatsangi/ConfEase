@@ -136,6 +136,40 @@ function setAccessTokenCookies(res, accessToken) {
  
 }
 
+function getChairAccessTokenFromRequest(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.split(" ")[1];
+  }
+
+  return req.cookies.chair_access_token || req.cookies.ChairToken || null;
+}
+
+function verifyChairAccessToken(token) {
+  // Prefer the dedicated access token secret, fall back to legacy JWT_SECRET for compatibility
+  const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret";
+  return jwt.verify(token, secret);
+}
+
+function setChairTokenCookies(res, accessToken, refreshToken) {
+  const accessCookieOptions = {
+    httpOnly: true,
+    secure: false,
+    sameSite: "strict",
+    maxAge: 15 * 60 * 1000,
+  };
+
+  const refreshCookieOptions = {
+    httpOnly: true,
+    secure: false,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
+
+  res.cookie("chair_access_token", accessToken, accessCookieOptions);
+  res.cookie("chair_refresh_token", refreshToken, refreshCookieOptions);
+}
+
 // Middleware functions for authentication
 function checkAuth(req, res, next) {
   const token = getAccessTokenFromRequest(req);
@@ -154,12 +188,12 @@ function checkAuth(req, res, next) {
 
 function checkChairAuth(req, res, next) {
   try {
-    const chairToken = req.cookies.ChairToken;
+    const chairToken = getChairAccessTokenFromRequest(req);
     if (!chairToken) {
       return res.redirect("/login/user");
     }
     try {
-      const decoded = jwt.verify(chairToken, process.env.JWT_SECRET || "dev_jwt_secret");
+      const decoded = verifyChairAccessToken(chairToken);
       req.user = decoded;
       next();
     } catch (err) {
@@ -173,7 +207,7 @@ function checkChairAuth(req, res, next) {
 
 function checkAuthOrChair(req, res, next) {
   try {
-    const chairToken = req.cookies.ChairToken;
+    const chairToken = getChairAccessTokenFromRequest(req);
     const token = getAccessTokenFromRequest(req);
     
     if (!token && !chairToken) {
@@ -182,7 +216,7 @@ function checkAuthOrChair(req, res, next) {
     
     try {
       if (chairToken) {
-        req.user = jwt.verify(chairToken, process.env.JWT_SECRET || "dev_jwt_secret");
+        req.user = verifyChairAccessToken(chairToken);
       } else {
         req.user = verifyAccessToken(token);
       }
@@ -664,9 +698,9 @@ return result;
 
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
-  const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
- const  result = data.rows;
-  res.render("score-posters.ejs",{result, user:req.user})
+const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
+const  result = data.rows;
+res.render("score-posters.ejs",{result, user:req.user})
 
 })
 
@@ -2350,7 +2384,7 @@ app.get("/login/user", async (req,res)=>{
   if(token){
     return res.redirect("/dashboard");
   }
-  const chairtoken = req.cookies['ChairToken'];
+  const chairtoken = req.cookies['chair_access_token'] || req.cookies['ChairToken'];
   if(chairtoken){
    return  res.redirect("/chair/dashboard");
   }
@@ -2624,31 +2658,168 @@ app.post("/chair-login", async (req, res) => {
     }
 
     // generate jwt
-    const ChairToken = jwt.sign(
-      { email: user.email,name:user.name },
-      process.env.JWT_SECRET,
+    const chairAccessToken = jwt.sign(
+      { email: user.email, name: user.name },
+      process.env.JWT_ACCESS_TOKEN_SECRET,
       { expiresIn: "15m" }
     );
 
+    const chairRefreshToken = jwt.sign(
+      { email: user.email, name: user.name },
+      process.env.JWT_REFRESH_TOKEN_SECRET,
+      { expiresIn: "7d" }
+    );
+
     // set cookie with consistent options
-    res.cookie("ChairToken", ChairToken, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: "strict",
-      path: "/",
-      maxAge: 15 * 60 * 1000
-    });
+    setChairTokenCookies(res, chairAccessToken, chairRefreshToken);
 
 
+
+    // HASH CHAIR REFRESH TOKEN and store session with role_type='chair'
+    const hashed_chair_refresh_token = crypto
+      .createHash("sha256")
+      .update(chairRefreshToken)
+      .digest("hex");
+
+    // sessions.user_id must come from chairs.user_id for chair logins.
+    let chairUserId = null;
+    try {
+      const chairIdResult = await pool.query(
+        `SELECT user_id, name, email FROM chairs WHERE email = $1 LIMIT 1`,
+        [user.email]
+      );
+
+      const chairRow = chairIdResult.rows[0];
+      chairUserId = chairRow && chairRow.user_id;
+
+      if (chairUserId) {
+        const chairUserResult = await pool.query(
+          `SELECT id FROM users WHERE id = $1 LIMIT 1`,
+          [chairUserId]
+        );
+
+        if (chairUserResult.rows.length === 0) {
+          await pool.query(
+            `
+            INSERT INTO users (id, name, email, password, status)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (email)
+            DO UPDATE SET
+              id = EXCLUDED.id,
+              name = EXCLUDED.name,
+              password = EXCLUDED.password,
+              status = EXCLUDED.status
+            `,
+            [
+              chairUserId,
+              chairRow.name,
+              chairRow.email,
+              crypto.randomBytes(32).toString("hex"),
+              "ACTIVATED"
+            ]
+          );
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching chair user_id:", e);
+    }
+
+    if (chairUserId) {
+      await pool.query(
+        `
+        INSERT INTO sessions (
+          user_id,
+          refresh_token_hash,
+          ip_address,
+          user_agent,
+          expires_at,
+          role_type
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          NOW() + INTERVAL '7 days',
+          $5
+        )
+        `,
+        [chairUserId, hashed_chair_refresh_token, req.ip, req.headers["user-agent"], "chair"]
+      );
+    } else {
+      console.error("Could not determine chair user id; skipping session insert for chair.");
+    }
 
     // ✅ redirect instead of render
-    return res.redirect("/chair/dashboard?message=Welcome, "+ user.name+" !");
+    return res.redirect("/chair/dashboard?message=Welcome, " + user.name + " !");
 
   } catch (err) {
     console.error(err);
     return res.status(500).send("Server error");
   }
 });
+
+async function handleChairRefresh(req, res) {
+  try {
+    const refreshToken = req.cookies.chair_refresh_token;
+    if (!refreshToken) {
+      return res.status(401).json({ message: "No refresh token" });
+    }
+
+    // HASH THE PROVIDED REFRESH TOKEN
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    // CHECK SESSION FOR CHAIR
+    const sessionResult = await pool.query(
+      `
+      SELECT * FROM sessions
+      WHERE refresh_token_hash = $1
+      AND is_revoked = FALSE
+      AND expires_at > NOW()
+      AND role_type = $2
+      `,
+      [refreshTokenHash, "chair"]
+    );
+
+    const session = sessionResult.rows[0];
+
+    if (!session) {
+      return res.status(401).json({ message: "Invalid session" });
+    }
+
+    // Resolve the chair directly from chairs.user_id.
+    const chairResult = await pool.query(
+      `SELECT user_id, email, name FROM chairs WHERE user_id = $1 LIMIT 1`,
+      [session.user_id]
+    );
+
+    const chair = chairResult.rows[0];
+
+    if (!chair) {
+      return res.status(401).json({ message: "Chair not found" });
+    }
+
+    // CREATE NEW ACCESS TOKEN
+    const accessToken = jwt.sign(
+      { email: chair.email, name: chair.name, user_id: chair.user_id, role: "chair" },
+      process.env.JWT_ACCESS_TOKEN_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    setChairTokenCookies(res, accessToken, refreshToken);
+
+    return res.json({ accessToken });
+  } catch (err) {
+    console.error(err);
+    return res.status(401).json({ message: "Invalid refresh token" });
+  }
+}
+
+app.post("/chair/refresh", handleChairRefresh);
+app.post("/auth/chair/refresh", handleChairRefresh);
 
 app.post("/update-password", async(req,res)=>{
   const {new_password,email,token}=req.body;
@@ -3516,7 +3687,7 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
-      return res.redirect("/dashboard?message=Unauthorized Access!!! Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to join papers as co-authors. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+      return res.redirect("/dashboard?message=Unauthorized Access!!! Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
     }
     
 
@@ -4703,11 +4874,31 @@ async function handleLogout(req, res) {
 
     }
 
+    // ALSO REVOKE CHAIR REFRESH TOKEN IF PRESENT
+    const chair_refresh_token = req.cookies.chair_refresh_token;
+    if (chair_refresh_token) {
+      const hashed_chair_refresh_token = crypto
+        .createHash("sha256")
+        .update(chair_refresh_token)
+        .digest("hex");
+
+      await pool.query(
+        `
+        UPDATE sessions
+        SET is_revoked = TRUE
+        WHERE refresh_token_hash = $1
+        `,
+        [hashed_chair_refresh_token]
+      );
+    }
+
     // CLEAR COOKIES
     res.clearCookie("access_token");
     res.clearCookie("refresh_token");
     res.clearCookie("token");
     res.clearCookie("ChairToken");
+    res.clearCookie("chair_access_token");
+    res.clearCookie("chair_refresh_token");
 
     // REDIRECT
     return res.redirect("/login/user");
