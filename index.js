@@ -1585,7 +1585,7 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
 );
 
 
-await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned","Hi, You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT (Session Details are as follows - Date: "+session_date+" | Timings: "+start_time+" - "+end_time+"). If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned","Hi, You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT (Session Details are as follows - Date: "+session_date+" | Timings: "+start_time+" - "+end_time+"). If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
 
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
@@ -1795,7 +1795,7 @@ app.post("/send-password-reset-link",async(req,res)=>{
         [email, token, expiresAt]
     );
 
-    const resetLink = `http://cmt.dei.ac.in/reset-password/${token}`;
+    const resetLink = `http://cmt.gurumaujsatsangi.in/reset-password/${token}`;
 
     await sendMail(email,"Password Reset Link","Hi, Please click on this link to update your password for your DEI CMT account: "+resetLink+" If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
@@ -2309,7 +2309,7 @@ if(result==true){
     const activation_code = crypto.randomUUID();
     console.log(activation_code);
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     sendMail(email,"Welcome to DEI CMT!","Dear "+name+"! Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.dei.ac.in/account-activation and enter your Account Activation Code which is "+activation_code+" Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+     sendMail(email,"Welcome to DEI CMT!","Dear "+name+"! Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter your Account Activation Code which is "+activation_code+" Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -2963,7 +2963,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-     await sendMail(email,name+", You are invited!","Dear "+name+" Greetings from DEI CMT! You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.dei.ac.in/registration/user to create your account and submit your paper for the Invited Talk. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+     await sendMail(email,name+", You are invited!","Dear "+name+" Greetings from DEI CMT! You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
     else if (data.rows[0] && data2.rows[0]){
@@ -3207,7 +3207,7 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       await sendMail(
         reviewerEmail,
         "Reviewer Role Assigned",
-        "Hi, You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+        "Hi, You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
       );
     }
 
@@ -3215,7 +3215,7 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       await sendMail(
         chairEmail,
         "Session Chair Role Assigned",
-        "Hi, You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.dei.ac.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+        "Hi, You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
       );
     }
 
