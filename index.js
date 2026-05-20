@@ -719,8 +719,8 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
     ["Poster Scored", conference_id, submission_id]
   );
   await pool.query(
-    "insert into poster_presentation_scores values ($1,$2,$3,$4)",
-    [conference_id, submission_id, score, req.user.email]
+    "update final_camera_ready_submissions set panelist_score = $2 where submission_id=$1",
+    [submission_id, score]
   );
 
   return res.redirect("/score-posters/"+conference_id+"?message=Poster has been scored succesfully!");
