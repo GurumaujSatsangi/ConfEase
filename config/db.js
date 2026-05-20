@@ -1,6 +1,9 @@
 import pkg from "pg";
 const { Pool, types } = pkg;
 
+import dotenv from "dotenv";
+dotenv.config();
+
 // Return date columns as raw 'YYYY-MM-DD' strings instead of JS Date objects
 // This prevents timezone-related off-by-one errors
 types.setTypeParser(1082, (val) => val);
