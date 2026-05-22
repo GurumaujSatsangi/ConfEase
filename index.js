@@ -1,6 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
+import { createClient } from 'redis';
 import passport from "passport";
 import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
@@ -255,31 +256,56 @@ app.use((req, res, next) => {
 
 
 const MAX_ALLOWED_REQ = 5;
-const MAX_TIME = 30_000;
+const MAX_TIME = 60;
 
-let ip_mapping = {};
+// let ip_mapping = {};
 
-setInterval(()=>{
+// setInterval(()=>{
 
-  ip_mapping = {}
+//   ip_mapping = {}
 
-  console.log("Ready to receive new requests!")
+//   console.log("Ready to receive new requests!")
 
-},MAX_TIME)
+// },MAX_TIME)
+
+
+const client = createClient({
+    username: 'default',
+    password: 'aDP0PfFLnJkWyeQnviepoaBUymwUY1To',
+    socket: {
+        host: 'peachish-sister-huge-38282.db.redis.io',
+        port: 11004
+    }
+});
+
+client.on('error', err => console.log('Redis Client Error', err));
+
+await client.connect();
 
 
 
-app.use((req,res,next)=>{
+
+
+app.use(async(req,res,next)=>{
 
   const my_ip = ip.address();
 
-  ip_mapping[my_ip]= ip_mapping[my_ip] + 1 || 1;
-
-  console.log("Request Number: "+ip_mapping[my_ip]+" from "+my_ip)
-
-  if(ip_mapping[my_ip]>MAX_ALLOWED_REQ){
-    return res.send("Too Many Requests, Please Tray Again Later!");
+  const request = await client.incr(my_ip);
+  if(request===1){
+   await client.expire(my_ip,MAX_TIME);
   }
+  if(request>MAX_ALLOWED_REQ){
+    return res.send("TOO MANY REQUESTS, PLEASE TRY AGAIN LATER! SORRY FOR THE INCONVINIENCE.");
+  }
+
+
+  // ip_mapping[my_ip]= ip_mapping[my_ip] + 1 || 1;
+
+  // console.log("Request Number: "+ip_mapping[my_ip]+" from "+my_ip)
+
+  // if(ip_mapping[my_ip]>MAX_ALLOWED_REQ){
+  //   return res.send("Too Many Requests, Please Tray Again Later!");
+  // }
 
   next();
 })
