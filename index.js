@@ -5,6 +5,7 @@ import passport from "passport";
 import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
+import ip from 'ip';
 import pool from "./config/db.js";
 import requestIp from 'request-ip';
 import {PDFParse} from 'pdf-parse';
@@ -96,12 +97,12 @@ app.use("/static", express.static(path.join(__dirname, "public")));
 
 app.set("views", path.join(__dirname, "views"));
 // Session middleware must be registered before passport.session()
+const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET || "confease-dev-session-secret";
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
   })
 );
 
@@ -253,9 +254,40 @@ app.use((req, res, next) => {
 });
 
 
+const MAX_ALLOWED_REQ = 5;
+const MAX_TIME = 30_000;
+
+let ip_mapping = {};
+
+setInterval(()=>{
+
+  ip_mapping = {}
+
+  console.log("Ready to receive new requests!")
+
+},MAX_TIME)
+
+
+
+app.use((req,res,next)=>{
+
+  const my_ip = ip.address();
+
+  ip_mapping[my_ip]= ip_mapping[my_ip] + 1 || 1;
+
+  console.log("Request Number: "+ip_mapping[my_ip]+" from "+my_ip)
+
+  if(ip_mapping[my_ip]>MAX_ALLOWED_REQ){
+    return res.send("Too Many Requests, Please Tray Again Later!");
+  }
+
+  next();
+})
 
 
 app.get("/", async (req, res) => {
+
+
  
   const message = req.query.message || null;
   const result = await pool.query("SELECT * FROM conferences");
