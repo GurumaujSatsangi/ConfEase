@@ -270,11 +270,11 @@ const MAX_TIME = 60;
 
 
 const client = createClient({
-    username: 'default',
-    password: 'aDP0PfFLnJkWyeQnviepoaBUymwUY1To',
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
     socket: {
-        host: 'peachish-sister-huge-38282.db.redis.io',
-        port: 11004
+        host: process.env.REDIS_HOST,
+        port: process.env.REDIS_PORT
     }
 });
 
@@ -286,29 +286,24 @@ await client.connect();
 
 
 
-app.use(async(req,res,next)=>{
+app.set('trust proxy', true);
 
-  const my_ip = ip.address();
+app.use(async (req, res, next) => {
+
+  const my_ip = req.ip;
 
   const request = await client.incr(my_ip);
-  if(request===1){
-   await client.expire(my_ip,MAX_TIME);
-  }
-  if(request>MAX_ALLOWED_REQ){
-    return res.send("TOO MANY REQUESTS, PLEASE TRY AGAIN LATER! SORRY FOR THE INCONVINIENCE.");
+
+  if (request === 1) {
+    await client.expire(my_ip, MAX_TIME);
   }
 
-
-  // ip_mapping[my_ip]= ip_mapping[my_ip] + 1 || 1;
-
-  // console.log("Request Number: "+ip_mapping[my_ip]+" from "+my_ip)
-
-  // if(ip_mapping[my_ip]>MAX_ALLOWED_REQ){
-  //   return res.send("Too Many Requests, Please Tray Again Later!");
-  // }
+  if (request > MAX_ALLOWED_REQ) {
+    return res.send("Too Many Requests!");
+  }
 
   next();
-})
+});
 
 
 app.get("/", async (req, res) => {
