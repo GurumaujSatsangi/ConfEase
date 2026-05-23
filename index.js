@@ -4222,9 +4222,12 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
-
     const result = await pool.query("SELECT * FROM conferences where created_by = $1",[req.user.email]);
-    const conferences = result.rows.map(conference => ({
+    var conferences;
+    const data = client.get(req.user.email+"_initiated_conferences");
+    if(data && data.length>0){
+      const parsed_data =  JSON.parse(data);
+      conferences = parsed_data.rows.map(conference => ({
       ...conference,
       conference_start_date: formatDate(conference.conference_start_date),
       conference_end_date: formatDate(conference.conference_end_date),
@@ -4233,6 +4236,25 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
       deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
     }));
+
+    } else{
+
+      conferences = result.rows.map(conference => ({
+      ...conference,
+      conference_start_date: formatDate(conference.conference_start_date),
+      conference_end_date: formatDate(conference.conference_end_date),
+      full_paper_submission: formatDate(conference.full_paper_submission),
+      acceptance_notification: formatDate(conference.acceptance_notification),
+      camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
+      deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
+    }));
+
+      const enter_data = client.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences));
+
+    }
+
+    
+    
 
     res.render("chair/dashboard.ejs", {
       user: req.user,
