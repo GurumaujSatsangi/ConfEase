@@ -255,18 +255,9 @@ app.use((req, res, next) => {
 });
 
 
-const MAX_ALLOWED_REQ = 5;
+const MAX_ALLOWED_REQ = 50;
 const MAX_TIME = 60;
 
-// let ip_mapping = {};
-
-// setInterval(()=>{
-
-//   ip_mapping = {}
-
-//   console.log("Ready to receive new requests!")
-
-// },MAX_TIME)
 
 
 const client = createClient({
@@ -660,6 +651,10 @@ function enrichSubmissions(submissions, tracks, emailToNameMap) {
   }));
 }
 
+
+
+
+
 async function fetchCoAuthorRequests(submissionIds) {
   if (!submissionIds.length) return [];
   const result = await pool.query(
@@ -913,11 +908,32 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     });
 
     const emailToNameMap = await fetchUserNamesByEmails([...emailSet]);
-    const userSubmissions = enrichSubmissions(
+
+  
+
+    const data = await client.get(req.user.email+"_submissions");
+    let userSubmissions;
+    const parsed_data = JSON.parse(data);
+    console.log("SUBMISSIONS FETCHED FROM CACHE:"+parsed_data);
+    if(data && data.length>0){
+      
+      userSubmissions = enrichSubmissions(
+      parsed_data,
+      presentationTracks,
+      emailToNameMap
+    );
+    
+    }
+    else{
+      const enter_data = await client.set(req.user.email+"_submissions",JSON.stringify(submissions));
+      console.log(enter_data);
+      userSubmissions = enrichSubmissions(
       submissions,
       presentationTracks,
       emailToNameMap
     );
+    }
+    
 
     const primarySubmissionIds = submissions
       .filter(s => s.primary_author === req.user.email)
