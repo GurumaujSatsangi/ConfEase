@@ -888,37 +888,85 @@ app.get("/dashboard", checkAuth, async (req, res) => {
   
 
   try {
-let conference_ids_for_reviewer=[];
+let conference_ids_for_reviewer = [];
+  let conference_ids_for_session_chair = [];
+  let conference_ids_for_poster_presentation_coordinator = [];
+  let conference_ids_for_invited_talk = [];
 
-    const cached_conferences = await client.get("conference-roles-"+req.user.email);
+  const userEmail = req.user.email;
+  // 1. Use a single cache key to store an object containing all 4 roles
+  const cacheKey = `user-conference-roles-${userEmail}`;
+  
+  const cached_conferences = await client.get(cacheKey);
 
-    if(cached_conferences && cached_conferences.length>0){
+  if (cached_conferences) {
+    const parsed_cached_conferences = JSON.parse(cached_conferences);
+    
+    // 2. Properly assign the cached data to your variables
+    conference_ids_for_reviewer = parsed_cached_conferences.reviewer;
+    conference_ids_for_session_chair = parsed_cached_conferences.session_chair;
+    conference_ids_for_poster_presentation_coordinator = parsed_cached_conferences.poster_coordinator;
+    conference_ids_for_invited_talk = parsed_cached_conferences.invited_talk;
 
-      const parsed_cached_conferences = JSON.parse(cached_conferences);
+    console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
+  } else {
+    // 3. Run all database queries in parallel using Promise.all
+    const [
+      session_chair_role,
+      invited_talk_role,
+      poster_presentation_coordinator_role,
+      reviewer_role
+    ] = await Promise.all([
+      pool.query(
+        `SELECT c.conference_id
+         FROM conferences c
+         LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
+         WHERE $1 = ANY(ct.panelists)`,
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT c.conference_id
+         FROM conferences c
+         LEFT JOIN invitees ct ON c.conference_id = ct.conference_id::uuid 
+         WHERE $1 = ct.email`,
+        [userEmail]
+      ),
+      pool.query(
+        /* Note: Check if 'coodinators' is a typo in your database schema */
+        `SELECT c.conference_id
+         FROM conferences c
+         LEFT JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid 
+         WHERE $1 = ct.coodinators`, 
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT c.conference_id
+         FROM conferences c
+         LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
+         WHERE $1 = ANY(ct.track_reviewers)`,
+        [userEmail]
+      )
+    ]);
 
-      console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
-    }
+    // Map rows to arrays
+    conference_ids_for_session_chair = session_chair_role.rows.map(row => row.conference_id);
+    conference_ids_for_invited_talk = invited_talk_role.rows.map(row => row.conference_id);
+    conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role.rows.map(row => row.conference_id);
+    conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
 
-    else{
+    // 4. Save everything to Redis in one go
+    const rolesToCache = {
+      session_chair: conference_ids_for_session_chair,
+      invited_talk: conference_ids_for_invited_talk,
+      poster_coordinator: conference_ids_for_poster_presentation_coordinator,
+      reviewer: conference_ids_for_reviewer
+    };
 
+    // Consider using client.setEx(cacheKey, 3600, JSON.stringify(rolesToCache)) if you want the cache to expire
+    await client.set(cacheKey, JSON.stringify(rolesToCache));
+  }
 
-
-const reviewer_role = await pool.query(
-  `SELECT c.conference_id
-   FROM conferences c
-   LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
-   WHERE $1 = ANY(ct.track_reviewers)`,
-  [req.user.email]
-);
-
-const reviewer_data = await client.set("reviewer-role-"+req.user.email,JSON.stringify(reviewer_role.rows));
-conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
-console.log(conference_ids_for_reviewer);
-
-
-
-}
-    const isSessionChairResult = await isSessionChair(req.user.email);
+     const isSessionChairResult = await isSessionChair(req.user.email);
     const isInviteeResult = await isInvitee(req.user.email);
     const isReviewerResult = await isReviewer(req.user.email);
     const isPosterCoordinatorResult = await isPosterCoordinator(req.user.email);
