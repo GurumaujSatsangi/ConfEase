@@ -732,8 +732,8 @@ return result;
 }
 
 
-async function isSessionChair(email){
-const data = await pool.query("select * from conference_tracks where $1=any(panelists)",[email]);
+async function isSessionChair(email, conference_id){
+const data = await pool.query("select * from conference_tracks where $1=any(panelists)and conference_id = $2",[email,conference_id]);
 let result;
 if(data.rows.length>0){
   result = true;
@@ -888,6 +888,36 @@ app.get("/dashboard", checkAuth, async (req, res) => {
   
 
   try {
+let conference_ids_for_reviewer=[];
+
+    const cached_conferences = await client.get("conference-roles-"+req.user.email);
+
+    if(cached_conferences && cached_conferences.length>0){
+
+      const parsed_cached_conferences = JSON.parse(cached_conferences);
+
+      console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
+    }
+
+    else{
+
+
+
+const reviewer_role = await pool.query(
+  `SELECT c.conference_id
+   FROM conferences c
+   LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
+   WHERE $1 = ANY(ct.track_reviewers)`,
+  [req.user.email]
+);
+
+const reviewer_data = await client.set("reviewer-role-"+req.user.email,JSON.stringify(reviewer_role.rows));
+conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
+console.log(conference_ids_for_reviewer);
+
+
+
+}
     const isSessionChairResult = await isSessionChair(req.user.email);
     const isInviteeResult = await isInvitee(req.user.email);
     const isReviewerResult = await isReviewer(req.user.email);
@@ -914,7 +944,8 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const data = await client.get(req.user.email+"_submissions");
     let userSubmissions;
     const parsed_data = JSON.parse(data);
-    console.log("SUBMISSIONS FETCHED FROM CACHE:"+parsed_data);
+
+    console.log("SUBMISSIONS FETCHED FROM REDIS CACHE!");
     if(data && data.length>0){
       
       userSubmissions = enrichSubmissions(
@@ -929,6 +960,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       console.log(enter_data);
       userSubmissions = enrichSubmissions(
       submissions,
+      
       presentationTracks,
       emailToNameMap
     );
@@ -951,6 +983,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       conferences,
       userSubmissions,
       isReviewerResult,
+      conference_ids_for_reviewer,
       invitedTalkSubmissions: result.rows,
       isSessionChairResult,
       isInviteeResult,

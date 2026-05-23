@@ -122,7 +122,9 @@
                 </td>
               </tr>
               <tr>
-                <td colspan="4"><% if(isReviewerResult === true) { %>
+
+                <% const isReviewerResult2 = conference_ids_for_reviewer.includes(conference.conference_id) %>
+                <td colspan="4"><% if(isReviewerResult2) { %>
                 <center>
             <a href="/reviewer/<%=conference.conference_id%>" style="width:300px" class="btn btn-outline-success">Review Papers</a>
 
