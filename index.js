@@ -879,7 +879,6 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
 
 
-
 app.get("/dashboard", checkAuth, async (req, res) => {
   try {
     const userEmail = req.user.email;
@@ -950,13 +949,6 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       console.log("CONFERENCE ROLES FETCHED FROM DB AND CACHED FOR 1 HOUR!");
     }
 
-    // Derive booleans directly from arrays to save 4 extra database queries
-    const isSessionChairResult = conference_ids_for_session_chair.length > 0;
-    const isInviteeResult = conference_ids_for_invited_talk.length > 0;
-    const isPosterCoordinatorResult = conference_ids_for_poster_presentation_coordinator.length > 0;
-    const isReviewerResult = conference_ids_for_reviewer.length > 0;
-
-
     // ==========================================
     // 2. FETCH INDEPENDENT DATA IN PARALLEL
     // ==========================================
@@ -1024,12 +1016,11 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       user: req.user,
       conferences,
       userSubmissions,
-      isReviewerResult,
       conference_ids_for_reviewer,
+      conference_ids_for_session_chair,
+      conference_ids_for_invited_talk,
+      conference_ids_for_poster_presentation_coordinator,
       invitedTalkSubmissions: invitedTalksResult.rows,
-      isSessionChairResult,
-      isInviteeResult,
-      isPosterCoordinatorResult,
       presentationdata: presentationTracks,
       coAuthorRequests,
       revisedSubmissionsMap,
