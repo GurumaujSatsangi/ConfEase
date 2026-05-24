@@ -46,7 +46,7 @@
             <div class="accordion-item">
               <h2 class="accordion-header" id="heading-<%= conference.conference_id %>">
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= conference.conference_id %>" aria-expanded="false" aria-controls="collapse-<%= conference.conference_id %>">
-                  <b><%= conference.title %> </b>
+                  <b><%= conference.title %> </b>&nbsp;-&nbsp;<span class="badge rounded-pill bg-info text-dark"><%= conference.conference_id %></span>
                 </button>
               </h2>
               <div id="collapse-<%= conference.conference_id %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= conference.conference_id %>" data-bs-parent="#accordion-<%= conference.conference_id %>">
@@ -157,174 +157,186 @@
         </ul>
       <% } %>
 
-      <h4>My Submissions</h4>
+     <h4>My Submissions</h4>
       <% if (userSubmissions && userSubmissions.length > 0) { %> 
         <% userSubmissions.forEach(function(submission) { %>
-        <div class="card mb-3">
-          <div class="card-header">
-            <strong><%= submission.title %></strong>
-          </div>
-          <div class="card-body">
-            <div class="table-responsive">
-              <table class="table table-bordered table-sm">
-              <tr>
-                <th style="max-width: 200px;">Abstract</th>
-                <th style="min-width: 120px;">Track</th>
-                <th style="width: 80px; text-align: center;">View Paper</th>
-                <% if (submission.primary_author === user.email) { %>
-                  <th style="max-width: 150px;">Co-Authors </th>
-                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                  <th style="max-width: 150px;">Primary Author</th>
-                <% } %>
-                <th style="min-width: 120px;">Paper Code</th>
-                <th style="min-width: 120px;">AI Generated Content Detection Score & Verdict</th>
-                <th style="min-width: 120px;">Status</th>
-                <th style="max-width: 200px;">Final Camera Ready Paper Submission</th>
-                <th style="max-width: 150px;">Presentation Date & Time</th>
-                <th style="width: 100px; text-align: center;">Action</th>
-              </tr>
-              <tr>
-                <td style="max-width: 200px; word-wrap: break-word; overflow-wrap: break-word;">
-                  <div style="max-height: 60px; overflow-y: auto;">
-                    <%= submission.abstract %>
-                  </div>
-                </td>
-                <td><%= submission.track_name %></td>
-                <td style="text-align: center;">
-                  <a href="<%= submission.file_url %>" target="_blank" class="btn btn-sm btn-outline-info">
-                    <i class="bi bi-eye-fill"></i>
-                  </a>
-                </td>
-                
-                <% if (submission.primary_author === user.email) { %>
-                  <td style="max-width: 150px; word-wrap: break-word;">
-                    <% if(!submission.co_authors){ %>
-                      <p class="small">No Co-Authors at the moment. Click on <i class="bi bi-bell-fill"></i> in the action column to manage requests. </p> 
-                    <% } else { %>
-                      <%= submission.co_authors %> 
-                    <% } %>
-                  </td>
-                <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                  <td style="max-width: 150px; word-wrap: break-word;">
-                    <small><%= submission.primary_author_formatted %></small>
-                  </td>
-                <% } %>
 
-                <td><%= submission.paper_code %></td>
-                <td>Score: <%= submission.ai_score %> | Verdict: <%= submission.is_ai %>
-                  <% if (submission.is_ai === "true") { %>
-                    <p class="small">(<b>Your submission has been marked as AI generated.</b> However, it will still be reviewed by the reviewers. Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision. If you think this is an error, please reach out to the conference chairs.)</p>
-                  <% } else { %>
-                    <p class="small">(<b>Your submission has NOT been marked as AI generated.</b> Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision.)</p>
-                  <% } %> 
-                </td>
+        <div class="accordion mb-3" id="accordion-sub-<%= submission.submission_id %>">
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading-sub-<%= submission.submission_id %>">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-sub-<%= submission.submission_id %>" aria-expanded="false" aria-controls="collapse-sub-<%= submission.submission_id %>">
+                  <strong><%= submission.title %></strong>&nbsp;-&nbsp;<span class="badge rounded-pill bg-warning text-dark"><%= submission.submission_status %></span>&nbsp;-&nbsp;<span class="badge rounded-pill bg-info text-dark"><%= submission.conference_id %></span>
 
-                <td><%= submission.submission_status %></td>
-                
-                <td>
-                  <% if (submission.submission_status == "Accepted for Poster Presentation" || submission.submission_status == "Accepted for Oral Presentation") { %>
-                    <% if (submission.primary_author === user.email) { %>
-                      <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br>
-                      <a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit</a>
-                    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                      <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please ask the Primary Author to submit the Final Camera Ready Paper.</span>
-                    <% } %>
-                  <% } else if (submission.submission_status == "Submitted for Review" ) { %>
-                    <span class="badge-review">Review is still in Progress</span>
-                  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Oral Presentation" ) { %>
-                    <span class="badge-submitted">✓ Final camera ready paper submitted (Oral Presentation)</span>
-                  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Poster Presentation" ) { %>
-                    <span class="badge-submitted">✓ Final camera ready paper submitted (Poster Presentation)</span>
-                  <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
-                    <% if (submission.primary_author === user.email) { %>
-                      <span class="badge-submitted">You have already submitted your Final Camera Ready Paper.</span>
-                    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                      <span class="badge-submitted">The Primary Author has already submitted the Final Camera Ready Paper.</span>
-                    <% } %>
-                  <% } else if (submission.submission_status == "Reviewed" ) { %>
-                    <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
-                  <% } else if (submission.submission_status == "Revision Required" ) { %>
-                    <span class="badge-review"><i class="bi bi-info-circle-fill"></i> Revisions Required</span><br>
-                    <small>May be reconsidered after revision and re-review</small><br>
-                    <% if (submission.primary_author === user.email) { %>
-                      <% if (revisedSubmissionsMap && revisedSubmissionsMap[submission.submission_id]) { %>
-                        <span class="badge-success mt-2">✓ Revised paper already submitted</span>
-                      <% } else { %>
-                        <a href="/submission/revised/primary-author/<%= submission.submission_id %>" class="btn btn-sm btn-outline-warning mt-2">
-                          <i class="bi bi-upload"></i> Submit Revised Paper
-                        </a>
-                      <% } %>
-                    <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                      <small class="text-muted">Only the primary author can submit revised papers.</small>
-                    <% } %>
-                  <% } else if (submission.submission_status == "Presentation Completed" ) { %>
-                    <span class="badge-reviewed">Your presentation is over.</span>
-                  <% } else { %>
-                    <span class="badge-rejected"> Not Eligible</span>
-                  <% } %>
-                </td>
-                
-                <td>
-                  <% 
-                      let presentationInfo = null;
-                      if (submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation") {
-                        presentationInfo = trackDetailsMap[submission.track_id];
-                      } else if (submission.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
-                        presentationInfo = posterSessionsMap[submission.conference_id];
-                      }
-                  %>
-                  <% if (presentationInfo && presentationInfo.presentation_date) { %>
-                      <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.presentation_date %></b> between <b><%= presentationInfo.presentation_start_time %></b> & <b><%= presentationInfo.presentation_end_time %></b></span><br>
-                  <% } else if (presentationInfo && presentationInfo.date) { %>
-                      <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.date %></b> between <b><%= presentationInfo.start_time %></b> & <b><%= presentationInfo.end_time %></b></span><br>
-                  <% } else if (submission.submission_status === "Presentation Completed") { %>
-                      <span class="badge-reviewed">Your presentation is over.</span>
-                  <% } else { %> 
-                      <span class="badge-rejected">Not Scheduled Yet</span>
-                  <% } %>
-                </td>
-                
-                <td style="text-align: center; width: 100px;">
-                  <% 
-                      const submissionConference = conferences.find(c => c.id == submission.conference_id);
-                      let isDeadlinePassed = false;
-                      if (submissionConference) {
-                          isDeadlinePassed = currentDate > submissionConference.full_paper_submission;
-                      }
-                  %>
-
-                  <% if (isDeadlinePassed) { %>
-                      <div class="d-flex flex-column align-items-center">
-                        <i class="bi bi-lock-fill text-muted"></i>
-                        <small class="text-muted">Locked</small>
-                      </div>
-                  <% } else { %>
-                      <% if (submission.primary_author === user.email) { %>
-                          <div class="d-flex flex-column gap-1">
-                            <a class="btn btn-sm btn-outline-primary request-btn" href="/submission/view-co-author-requests/<%= submission.submission_id %>"><i class="bi bi-bell-fill"></i></a>
-                            <a class="btn btn-sm btn-outline-warning" href="/submission/edit/primary-author/<%= submission.submission_id %>" role="button" title="Edit Submission">
-                                <i class="bi bi-pencil-square"></i>
-                            </a>
-                            <a class="btn btn-sm btn-outline-danger delete-btn" 
-                               href="/submission/delete/primary-author/<%= submission.submission_id %>" 
-                               data-title="<%= submission.title %>"
-                               role="button"
-                               title="Delete Submission">
-                                <i class="bi bi-trash3-fill"></i>
-                            </a>
+              </button>
+            </h2>
+            <div id="collapse-sub-<%= submission.submission_id %>" class="accordion-collapse collapse" aria-labelledby="heading-sub-<%= submission.submission_id %>" data-bs-parent="#accordion-sub-<%= submission.submission_id %>">
+              <div class="accordion-body p-0"> <div class="card border-0"> <div class="card-body">
+                    <div class="table-responsive">
+                      <table class="table table-bordered table-sm">
+                      <tr>
+                        <th style="max-width: 200px;">Abstract</th>
+                        <th style="min-width: 120px;">Track</th>
+                        <th style="width: 80px; text-align: center;">View Paper</th>
+                        <% if (submission.primary_author === user.email) { %>
+                          <th style="max-width: 150px;">Co-Authors </th>
+                        <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                          <th style="max-width: 150px;">Primary Author</th>
+                        <% } %>
+                        <th style="min-width: 120px;">Paper Code</th>
+                        <th style="min-width: 120px;">AI Generated Content Detection Score & Verdict</th>
+                        <th style="min-width: 120px;">Status</th>
+                        <th style="max-width: 200px;">Final Camera Ready Paper Submission</th>
+                        <th style="max-width: 150px;">Presentation Date & Time</th>
+                        <th style="width: 100px; text-align: center;">Action</th>
+                      </tr>
+                      <tr>
+                        <td style="max-width: 200px; word-wrap: break-word; overflow-wrap: break-word;">
+                          <div style="max-height: 60px; overflow-y: auto;">
+                            <%= submission.abstract %>
                           </div>
-                      <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
-                          <span class="d-inline-block" tabindex="0" data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-content="Only the primary author can edit or delete the submission.">
-                              <i class="bi bi-lock-fill text-muted"></i>
-                          </span>
-                      <% } %>
-                  <% } %>
-                </td>
-              </tr>
-              </table>
+                        </td>
+                        <td><%= submission.track_name %></td>
+                        <td style="text-align: center;">
+                          <a href="<%= submission.file_url %>" target="_blank" class="btn btn-sm btn-outline-info">
+                            <i class="bi bi-eye-fill"></i>
+                          </a>
+                        </td>
+                        
+                        <% if (submission.primary_author === user.email) { %>
+                          <td style="max-width: 150px; word-wrap: break-word;">
+                            <% if(!submission.co_authors){ %>
+                              <p class="small">No Co-Authors at the moment. Click on <i class="bi bi-bell-fill"></i> in the action column to manage requests. </p> 
+                            <% } else { %>
+                              <%= submission.co_authors %> 
+                            <% } %>
+                          </td>
+                        <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                          <td style="max-width: 150px; word-wrap: break-word;">
+                            <small><%= submission.primary_author_formatted %></small>
+                          </td>
+                        <% } %>
+
+                        <td><%= submission.paper_code %></td>
+                        <td>Score: <%= submission.ai_score %> | Verdict: <%= submission.is_ai %>
+                          <% if (submission.is_ai === "true") { %>
+                            <p class="small">(<b>Your submission has been marked as AI generated.</b> However, it will still be reviewed by the reviewers. Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision. If you think this is an error, please reach out to the conference chairs.)</p>
+                          <% } else { %>
+                            <p class="small">(<b>Your submission has NOT been marked as AI generated.</b> Please note, the score and verdict are visible to the reviewers and may impact the acceptance decision.)</p>
+                          <% } %> 
+                        </td>
+
+                        <td><%= submission.submission_status %></td>
+                        
+                        <td>
+                          <% if (submission.submission_status == "Accepted for Poster Presentation" || submission.submission_status == "Accepted for Oral Presentation") { %>
+                            <% if (submission.primary_author === user.email) { %>
+                              <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please click on the link given below to submit the Final Camera Ready Paper.</span><br>
+                              <a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit</a>
+                            <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                              <span class="badge-reviewed"><i class="bi bi-check-circle-fill"></i> <br>This submission has been Accepted. Please ask the Primary Author to submit the Final Camera Ready Paper.</span>
+                            <% } %>
+                          <% } else if (submission.submission_status == "Submitted for Review" ) { %>
+                            <span class="badge-review">Review is still in Progress</span>
+                          <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Oral Presentation" ) { %>
+                            <span class="badge-submitted">✓ Final camera ready paper submitted (Oral Presentation)</span>
+                          <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper for Poster Presentation" ) { %>
+                            <span class="badge-submitted">✓ Final camera ready paper submitted (Poster Presentation)</span>
+                          <% } else if (submission.submission_status == "Submitted Final Camera Ready Paper" ) { %>
+                            <% if (submission.primary_author === user.email) { %>
+                              <span class="badge-submitted">You have already submitted your Final Camera Ready Paper.</span>
+                            <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                              <span class="badge-submitted">The Primary Author has already submitted the Final Camera Ready Paper.</span>
+                            <% } %>
+                          <% } else if (submission.submission_status == "Reviewed" ) { %>
+                            <span class="badge-reviewed">Your submission has been reviewed but Acceptance Notification has not been released yet.</span>
+                          <% } else if (submission.submission_status == "Revision Required" ) { %>
+                            <span class="badge-review"><i class="bi bi-info-circle-fill"></i> Revisions Required</span><br>
+                            <small>May be reconsidered after revision and re-review</small><br>
+                            <% if (submission.primary_author === user.email) { %>
+                              <% if (revisedSubmissionsMap && revisedSubmissionsMap[submission.submission_id]) { %>
+                                <span class="badge-success mt-2">✓ Revised paper already submitted</span>
+                              <% } else { %>
+                                <a href="/submission/revised/primary-author/<%= submission.submission_id %>" class="btn btn-sm btn-outline-warning mt-2">
+                                  <i class="bi bi-upload"></i> Submit Revised Paper
+                                </a>
+                              <% } %>
+                            <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                              <small class="text-muted">Only the primary author can submit revised papers.</small>
+                            <% } %>
+                          <% } else if (submission.submission_status == "Presentation Completed" ) { %>
+                            <span class="badge-reviewed">Your presentation is over.</span>
+                          <% } else { %>
+                            <span class="badge-rejected"> Not Eligible</span>
+                          <% } %>
+                        </td>
+                        
+                        <td>
+                          <% 
+                              let presentationInfo = null;
+                              if (submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation") {
+                                presentationInfo = trackDetailsMap[submission.track_id];
+                              } else if (submission.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
+                                presentationInfo = posterSessionsMap[submission.conference_id];
+                              }
+                          %>
+                          <% if (presentationInfo && presentationInfo.presentation_date) { %>
+                              <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.presentation_date %></b> between <b><%= presentationInfo.presentation_start_time %></b> & <b><%= presentationInfo.presentation_end_time %></b></span><br>
+                          <% } else if (presentationInfo && presentationInfo.date) { %>
+                              <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.date %></b> between <b><%= presentationInfo.start_time %></b> & <b><%= presentationInfo.end_time %></b></span><br>
+                          <% } else if (submission.submission_status === "Presentation Completed") { %>
+                              <span class="badge-reviewed">Your presentation is over.</span>
+                          <% } else { %> 
+                              <span class="badge-rejected">Not Scheduled Yet</span>
+                          <% } %>
+                        </td>
+                        
+                        <td style="text-align: center; width: 100px;">
+                          <% 
+                              const submissionConference = conferences.find(c => c.id == submission.conference_id);
+                              let isDeadlinePassed = false;
+                              if (submissionConference) {
+                                  isDeadlinePassed = currentDate > submissionConference.full_paper_submission;
+                              }
+                          %>
+
+                          <% if (isDeadlinePassed) { %>
+                              <div class="d-flex flex-column align-items-center">
+                                <i class="bi bi-lock-fill text-muted"></i>
+                                <small class="text-muted">Locked</small>
+                              </div>
+                          <% } else { %>
+                              <% if (submission.primary_author === user.email) { %>
+                                  <div class="d-flex flex-column gap-1">
+                                    <a class="btn btn-sm btn-outline-primary request-btn" href="/submission/view-co-author-requests/<%= submission.submission_id %>"><i class="bi bi-bell-fill"></i></a>
+                                    <a class="btn btn-sm btn-outline-warning" href="/submission/edit/primary-author/<%= submission.submission_id %>" role="button" title="Edit Submission">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </a>
+                                    <a class="btn btn-sm btn-outline-danger delete-btn" 
+                                       href="/submission/delete/primary-author/<%= submission.submission_id %>" 
+                                       data-title="<%= submission.title %>"
+                                       role="button"
+                                       title="Delete Submission">
+                                        <i class="bi bi-trash3-fill"></i>
+                                    </a>
+                                  </div>
+                              <% } else if (Array.isArray(submission.co_authors) && submission.co_authors.includes(user.email)) { %>
+                                  <span class="d-inline-block" tabindex="0" data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-content="Only the primary author can edit or delete the submission.">
+                                      <i class="bi bi-lock-fill text-muted"></i>
+                                  </span>
+                              <% } %>
+                          <% } %>
+                        </td>
+                      </tr>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
             </div>
           </div>
         </div>
+
         <% }); %> 
       <% } else { %>
         <h6><i class="bi bi-emoji-frown-fill"></i> &nbsp;You have not made any submissions yet.</h6>
