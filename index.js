@@ -880,159 +880,153 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
 
 
-
-// =====================
-// Dashboard Route
-// =====================
 app.get("/dashboard", checkAuth, async (req, res) => {
-  
-
   try {
-let conference_ids_for_reviewer = [];
-  let conference_ids_for_session_chair = [];
-  let conference_ids_for_poster_presentation_coordinator = [];
-  let conference_ids_for_invited_talk = [];
+    const userEmail = req.user.email;
 
-  const userEmail = req.user.email;
-  // 1. Use a single cache key to store an object containing all 4 roles
-  const cacheKey = `user-conference-roles-${userEmail}`;
-  
-  const cached_conferences = await client.get(cacheKey);
+    // ==========================================
+    // 1. ROLE CACHING & FETCHING
+    // ==========================================
+    let conference_ids_for_reviewer = [];
+    let conference_ids_for_session_chair = [];
+    let conference_ids_for_poster_presentation_coordinator = [];
+    let conference_ids_for_invited_talk = [];
 
-  if (cached_conferences) {
-    const parsed_cached_conferences = JSON.parse(cached_conferences);
-    
-    // 2. Properly assign the cached data to your variables
-    conference_ids_for_reviewer = parsed_cached_conferences.reviewer;
-    conference_ids_for_session_chair = parsed_cached_conferences.session_chair;
-    conference_ids_for_poster_presentation_coordinator = parsed_cached_conferences.poster_coordinator;
-    conference_ids_for_invited_talk = parsed_cached_conferences.invited_talk;
+    const sessionChairKey = `session_chair_role_${userEmail}`;
+    const invitedTalkKey = `invited_talk_role_${userEmail}`;
+    const posterCoordinatorKey = `poster_coordinator_role_${userEmail}`;
+    const reviewerKey = `reviewer_role_${userEmail}`;
 
-    console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
-  } else {
-    // 3. Run all database queries in parallel using Promise.all
     const [
-      session_chair_role,
-      invited_talk_role,
-      poster_presentation_coordinator_role,
-      reviewer_role
+      cached_session_chair,
+      cached_invited_talk,
+      cached_poster_coordinator,
+      cached_reviewer
     ] = await Promise.all([
-      pool.query(
-        `SELECT c.conference_id
-         FROM conferences c
-         LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
-         WHERE $1 = ANY(ct.panelists)`,
-        [userEmail]
-      ),
-      pool.query(
-        `SELECT c.conference_id
-         FROM conferences c
-         LEFT JOIN invitees ct ON c.conference_id = ct.conference_id::uuid 
-         WHERE $1 = ct.email`,
-        [userEmail]
-      ),
-      pool.query(
-        /* Note: Check if 'coodinators' is a typo in your database schema */
-        `SELECT c.conference_id
-         FROM conferences c
-         LEFT JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid 
-         WHERE $1 = ct.coodinators`, 
-        [userEmail]
-      ),
-      pool.query(
-        `SELECT c.conference_id
-         FROM conferences c
-         LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid 
-         WHERE $1 = ANY(ct.track_reviewers)`,
-        [userEmail]
-      )
+      client.get(sessionChairKey),
+      client.get(invitedTalkKey),
+      client.get(posterCoordinatorKey),
+      client.get(reviewerKey)
     ]);
 
-    // Map rows to arrays
-    conference_ids_for_session_chair = session_chair_role.rows.map(row => row.conference_id);
-    conference_ids_for_invited_talk = invited_talk_role.rows.map(row => row.conference_id);
-    conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role.rows.map(row => row.conference_id);
-    conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
+    // Because we will cache empty arrays ("[]"), this check accurately reflects if we have checked the DB before.
+    if (cached_session_chair && cached_invited_talk && cached_poster_coordinator && cached_reviewer) {
+      conference_ids_for_session_chair = JSON.parse(cached_session_chair);
+      conference_ids_for_invited_talk = JSON.parse(cached_invited_talk);
+      conference_ids_for_poster_presentation_coordinator = JSON.parse(cached_poster_coordinator);
+      conference_ids_for_reviewer = JSON.parse(cached_reviewer);
 
-    // 4. Save everything to Redis in one go
-    const rolesToCache = {
-      session_chair: conference_ids_for_session_chair,
-      invited_talk: conference_ids_for_invited_talk,
-      poster_coordinator: conference_ids_for_poster_presentation_coordinator,
-      reviewer: conference_ids_for_reviewer
-    };
+      console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
+    } else {
+      // Cache Miss: Run all database queries in parallel
+      const [
+        session_chair_role,
+        invited_talk_role,
+        poster_presentation_coordinator_role,
+        reviewer_role
+      ] = await Promise.all([
+        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.panelists)`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN invitees ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.email`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.coodinators`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.track_reviewers)`, [userEmail])
+      ]);
 
-    // Consider using client.setEx(cacheKey, 3600, JSON.stringify(rolesToCache)) if you want the cache to expire
-    await client.set(cacheKey, JSON.stringify(rolesToCache));
-  }
+      if (session_chair_role && session_chair_role.rows) conference_ids_for_session_chair = session_chair_role.rows.map(row => row.conference_id);
+      if (invited_talk_role && invited_talk_role.rows) conference_ids_for_invited_talk = invited_talk_role.rows.map(row => row.conference_id);
+      if (poster_presentation_coordinator_role && poster_presentation_coordinator_role.rows) conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role.rows.map(row => row.conference_id);
+      if (reviewer_role && reviewer_role.rows) conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
 
-     const isSessionChairResult = await isSessionChair(req.user.email);
-    const isInviteeResult = await isInvitee(req.user.email);
-    const isReviewerResult = await isReviewer(req.user.email);
-    const isPosterCoordinatorResult = await isPosterCoordinator(req.user.email);
-    const conferences = await fetchAllConferences();
-    const submissions = await fetchUserSubmissions(req.user.email);
-    const trackIds = await fetchTrackIds(req.user.email);
+      // Cache EVERYTHING (including empty arrays for negative caching) with a 1-hour expiration (3600 seconds)
+      // Note: If using redis v4+, use client.set(key, value, { EX: 3600 }) if setEx is deprecated in your version
+      const CACHE_TTL = 3600; 
+
+      await Promise.all([
+        client.setEx(sessionChairKey, CACHE_TTL, JSON.stringify(conference_ids_for_session_chair)),
+        client.setEx(invitedTalkKey, CACHE_TTL, JSON.stringify(conference_ids_for_invited_talk)),
+        client.setEx(posterCoordinatorKey, CACHE_TTL, JSON.stringify(conference_ids_for_poster_presentation_coordinator)),
+        client.setEx(reviewerKey, CACHE_TTL, JSON.stringify(conference_ids_for_reviewer))
+      ]);
+      
+      console.log("CONFERENCE ROLES FETCHED FROM DB AND CACHED FOR 1 HOUR!");
+    }
+
+    // Derive booleans directly from arrays to save 4 extra database queries
+    const isSessionChairResult = conference_ids_for_session_chair.length > 0;
+    const isInviteeResult = conference_ids_for_invited_talk.length > 0;
+    const isPosterCoordinatorResult = conference_ids_for_poster_presentation_coordinator.length > 0;
+    const isReviewerResult = conference_ids_for_reviewer.length > 0;
+
+
+    // ==========================================
+    // 2. FETCH INDEPENDENT DATA IN PARALLEL
+    // ==========================================
+    const [conferences, trackIds, invitedTalksResult] = await Promise.all([
+      fetchAllConferences(),
+      fetchTrackIds(userEmail),
+      pool.query("SELECT * FROM invited_talk_submissions WHERE invitee_email = $1", [userEmail])
+    ]);
+
     const presentationTracks = await fetchPresentationTracks(trackIds);
 
-    const result = await pool.query("select * from invited_talk_submissions where invitee_email = $1",[req.user.email]);
-    
-    
-    
+
+    // ==========================================
+    // 3. SUBMISSIONS CACHING & FETCHING
+    // ==========================================
+    const submissionsCacheKey = `${userEmail}_submissions`;
+    const cachedSubmissionsData = await client.get(submissionsCacheKey);
+    let submissions;
+
+    if (cachedSubmissionsData) {
+      console.log("SUBMISSIONS FETCHED FROM REDIS CACHE!");
+      submissions = JSON.parse(cachedSubmissionsData);
+    } else {
+      submissions = await fetchUserSubmissions(userEmail);
+      await client.set(submissionsCacheKey, JSON.stringify(submissions || []));
+      console.log("SUBMISSIONS FETCHED FROM DB AND CACHED!");
+    }
+
+
+    // ==========================================
+    // 4. ENRICH DATA
+    // ==========================================
     const emailSet = new Set();
-    submissions.forEach(s => {  
-      emailSet.add(s.primary_author);
-      if (Array.isArray(s.co_authors)) s.co_authors.forEach(e => emailSet.add(e));
-    });
+    if (submissions && submissions.length > 0) {
+      submissions.forEach(s => {  
+        emailSet.add(s.primary_author);
+        if (Array.isArray(s.co_authors)) s.co_authors.forEach(e => emailSet.add(e));
+      });
+    }
 
     const emailToNameMap = await fetchUserNamesByEmails([...emailSet]);
+    const userSubmissions = enrichSubmissions(submissions || [], presentationTracks, emailToNameMap);
 
-  
 
-    const data = await client.get(req.user.email+"_submissions");
-    let userSubmissions;
-    const parsed_data = JSON.parse(data);
-
-    console.log("SUBMISSIONS FETCHED FROM REDIS CACHE!");
-    if(data && data.length>0){
-      
-      userSubmissions = enrichSubmissions(
-      parsed_data,
-      presentationTracks,
-      emailToNameMap
-    );
-    
-    }
-    else{
-      const enter_data = await client.set(req.user.email+"_submissions",JSON.stringify(submissions));
-      console.log(enter_data);
-      userSubmissions = enrichSubmissions(
-      submissions,
-      
-      presentationTracks,
-      emailToNameMap
-    );
-    }
-    
-
-    const primarySubmissionIds = submissions
-      .filter(s => s.primary_author === req.user.email)
+    // ==========================================
+    // 5. FETCH DEPENDENT MAPS IN PARALLEL
+    // ==========================================
+    const primarySubmissionIds = (submissions || [])
+      .filter(s => s.primary_author === userEmail)
       .map(s => s.submission_id);
 
-    const coAuthorRequests = await fetchCoAuthorRequests(primarySubmissionIds);
-    const revisedSubmissionsMap = await fetchRevisedSubmissions(primarySubmissionIds);
-    const posterSessionsMap = await fetchPosterSessions(submissions);
+    const [coAuthorRequests, revisedSubmissionsMap, posterSessionsMap] = await Promise.all([
+      fetchCoAuthorRequests(primarySubmissionIds),
+      fetchRevisedSubmissions(primarySubmissionIds),
+      fetchPosterSessions(submissions || [])
+    ]);
+
     const trackDetailsMap = buildTrackDetailsMap(presentationTracks);
 
-  
 
+    // ==========================================
+    // 6. RENDER DASHBOARD
+    // ==========================================
     res.render("dashboard.ejs", {
       user: req.user,
       conferences,
       userSubmissions,
       isReviewerResult,
       conference_ids_for_reviewer,
-      invitedTalkSubmissions: result.rows,
+      invitedTalkSubmissions: invitedTalksResult.rows,
       isSessionChairResult,
       isInviteeResult,
       isPosterCoordinatorResult,
@@ -1044,6 +1038,7 @@ let conference_ids_for_reviewer = [];
       currentDate: getCurrentDateIST(),
       message: req.query.message || null,
     });
+
   } catch (err) {
     console.error(err);
     res.redirect(
