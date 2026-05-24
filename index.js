@@ -1946,6 +1946,7 @@ app.post("/send-password-reset-link",async(req,res)=>{
 
 app.get("/reset-password/:token", async (req, res) => {
     const { token } = req.params;
+  const message = req.query.message || null;
 
     const result = await pool.query(
         `SELECT * FROM password_resets
@@ -1957,7 +1958,10 @@ app.get("/reset-password/:token", async (req, res) => {
         return res.redirect("/login/user?message=This password reset link has expired. Please try again.");
     }
 
-    res.render("login/reset-password.ejs", { result: result.rows[0] });
+    res.render("login/reset-password.ejs", {
+      result: result.rows[0],
+      message,
+    });
 });
 
 
@@ -2927,21 +2931,74 @@ async function handleChairRefresh(req, res) {
 app.post("/chair/refresh", handleChairRefresh);
 app.post("/auth/chair/refresh", handleChairRefresh);
 
-app.post("/update-password", async(req,res)=>{
-  const {new_password,email,token}=req.body;
-const hashed_new_password = await bcrypt.hash(new_password, 10);
-  const data = await pool.query("update users set password=$1 where email=$2 RETURNING *",[hashed_new_password,email]);
-  const data2 = await pool.query("delete from password_resets where token=$1 RETURNING *",[token]);
+app.post("/update-password", async (req, res) => {
+  try {
+    // SECURITY: Do not accept 'email' from req.body. Rely entirely on the token.
+    const { new_password, token } = req.body;
 
-  const result = data.rows[0];
-  const result2 = data2.rows[0];
+     schema
+.is().min(8)                                    // Minimum length 8
+.is().max(100)                                  // Maximum length 100
+.has().uppercase()                              // Must have uppercase letters
+.has().lowercase()                              // Must have lowercase letters
+.has().digits(2)                                // Must have at least 2 digits
+.has().not().spaces()                           // Should not have spaces
+.is().not().oneOf(['Passw0rd', 'Password123']);
+    
+    // 1. Validate the new password
+    const isValidPassword = schema.validate(new_password);
 
-  if(result2){
-    await sendMail(email,"Password Updated",+"Hi, The password for your DEI CMT account linked to this Email ID was succesfully updated. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
-    return res.redirect("/login/user?message=Password Updated, Please login with your updated credentials.")
+    if (!isValidPassword) {
+      // Updated message to match the actual schema (2 digits, no special char mentioned yet)
+      return res.redirect(`/reset-password/${token}?message=Your password does not match our policy. Ensure it is 8-100 characters long, contains uppercase and lowercase letters, at least 2 digits, and no spaces.`);
+    }
+
+    // 2. Validate the token and get the associated email FIRST
+    const tokenRecord = await pool.query(
+      "SELECT email FROM password_resets WHERE token=$1", 
+      [token]
+    );
+
+    // If no token is found, it's invalid or expired
+    if (tokenRecord.rowCount === 0) {
+      return res.redirect("/login/user?message=Your reset link is invalid or has expired. Please request a new one.");
+    }
+
+    const verifiedEmail = tokenRecord.rows[0].email;
+
+    // 3. Hash the new password
+    const hashed_new_password = await bcrypt.hash(new_password, 10);
+
+    // 4. Update the user's password using the VERIFIED email
+    await pool.query(
+      "UPDATE users SET password=$1 WHERE email=$2", 
+      [hashed_new_password, verifiedEmail]
+    );
+
+    // 5. Delete the used token to prevent reuse
+    await pool.query(
+      "DELETE FROM password_resets WHERE token=$1", 
+      [token]
+    );
+
+    // 6. Send confirmation email (Removed the stray '+')
+    await sendMail(
+      verifiedEmail, 
+      "Password Updated", 
+      "Hi, The password for your DEI CMT account linked to this Email ID was successfully updated. In case of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+    );
+
+    // 7. Send success response
+    return res.redirect("/login/user?message=Password Updated. Please login with your updated credentials.");
+
+  } catch (error) {
+    console.error("Error during password update:", error);
+    // Send a generic error so the user doesn't hang
+    return res.redirect("/login/user?message=An internal server error occurred while updating your password. Please try again later.");
   }
+});
 
-})
+
 
 app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
   try {
