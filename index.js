@@ -2964,10 +2964,20 @@ app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
       panelists
     } = req.body;
 
-    // convert comma-separated values to arrays
-    const reviewersArray = reviewers.split(",").map(r => r.trim());
-    const panelistsArray = panelists.split(",").map(p => p.trim());
+    // 1. Clean up comma-separated values (filter out empty strings to avoid [""])
+    const reviewersArray = reviewers ? reviewers.split(",").map(r => r.trim()).filter(r => r) : [];
+    const panelistsArray = panelists ? panelists.split(",").map(p => p.trim()).filter(p => p) : [];
 
+    // 2. FETCH OLD ROLES FIRST (Crucial for invalidating users who are being removed)
+    const oldTrackData = await pool.query(
+      `SELECT track_reviewers, panelists FROM conference_tracks WHERE track_id = $1`,
+      [trackId]
+    );
+    
+    const oldReviewers = oldTrackData.rows[0]?.track_reviewers || [];
+    const oldPanelists = oldTrackData.rows[0]?.panelists || [];
+
+    // 3. Update the database
     await pool.query(
       `UPDATE conference_tracks
        SET track_name = $1,
@@ -2988,9 +2998,32 @@ app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
       ]
     );
 
+    // 4. ACTIVE CACHE INVALIDATION
+    // Create unique sets of emails containing BOTH old and new users
+    const affectedReviewers = new Set([...oldReviewers, ...reviewersArray]);
+    const affectedPanelists = new Set([...oldPanelists, ...panelistsArray]);
+
+    const cacheDeletionPromises = [];
+
+    // Queue up cache deletion for Reviewers
+    affectedReviewers.forEach(email => {
+      cacheDeletionPromises.push(client.del(`reviewer_role_${email}`));
+    });
+
+    // Queue up cache deletion for Session Chairs (Panelists)
+    affectedPanelists.forEach(email => {
+      cacheDeletionPromises.push(client.del(`session_chair_role_${email}`));
+    });
+
+    // Execute all cache deletions concurrently
+    if (cacheDeletionPromises.length > 0) {
+      await Promise.all(cacheDeletionPromises);
+      console.log(`Invalidated cache for ${cacheDeletionPromises.length} role changes.`);
+    }
+
     res.redirect("/chair/dashboard?message=Track updated successfully!");
   } catch (err) {
-    console.error(err);
+    console.error("Error updating track:", err);
     res.redirect("/chair/dashboard?message=Failed to update Track!");
   }
 });
