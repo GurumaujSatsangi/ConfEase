@@ -299,8 +299,6 @@ app.use(async (req, res, next) => {
 
 app.get("/", async (req, res) => {
 
-
- 
   const message = req.query.message || null;
   const result = await pool.query("SELECT * FROM conferences");
   const data = result.rows;
@@ -1963,6 +1961,7 @@ app.get("/reset-password/:token", async (req, res) => {
       message,
     });
 });
+
 
 
 
