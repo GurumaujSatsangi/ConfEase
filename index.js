@@ -4372,11 +4372,11 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 });
 
 
-app.get("/login" , async (req,res)=>{
-  res.render("login.ejs", {
-    message: req.query.message || null
-  });
-});
+// app.get("/login" , async (req,res)=>{
+//   res.render("login.ejs", {
+//     message: req.query.message || null
+//   });
+// });
 
 app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
   
@@ -5149,7 +5149,7 @@ app.get("/logout", handleLogout);
 
 
 app.use(function(req, res) {
-    res.status(404).send("Not Found");
+    res.render("error.ejs");
 });
 
   app.listen(port, () => {
