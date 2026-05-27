@@ -48,10 +48,18 @@
                 id="exampleInputPassword1"
               />
             </div>
-            <button type="submit" class="btn btn-primary">Login</button>
-            <a href="/registration/user" class="btn btn-outline-success">New Here? Create Account</a>
+            <button type="submit" class="btn btn-primary">Login</button><hr>
+            <ul>
+              <li>
+            <a href="/registration/user" >New Here? Create Account</a>
 
-            <a href="/password-reset" class="btn btn-outline-danger">Forgot Password?</a>
+              </li>
+              <li>            <a href="/account-activation" >Activate Account</a>
+</li>
+<li>            <a href="/password-reset" >Forgot Password?</a>
+</li>
+            </ul>
+
 
           </form>
         </div>
@@ -60,7 +68,7 @@
           <td>
             <div class="card">
         <div class="card-header">
-          <b>Conference Chair / Co-Chair Login</b>
+          <b>Conference Chair Login</b>
         </div>
         <div class="card-body">
           <form action="/chair-login" method="post">
@@ -90,7 +98,12 @@
               />
             </div>
             <button type="submit" class="btn btn-primary">Login</button>
-            <a onclick="showNewChairMessage()" class="btn btn-outline-success">New Here? Create Account</a>
+<hr>
+            <ul>
+              <li><a href="#" onclick="showNewChairMessage()">New Here? Create Account</a>
+</li>
+            </ul>
+
           </form>
         </div>
       </div>
