@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+    <title>Document</title>
+</head>
+<body>
+    <%- include('partials/dashboard/header') %>
+    <div class="container">
+
+    <h4>My Profile</h4><hr>
+
+
+    <table class="table">
+        <tr>
+
+            <th>NAME</th>
+            <th>EMAIL ID</th>
+            <th>CONTACT NUMBER</th>
+            <th>ADDRESS</th>
+        </tr>
+        <tr>
+            <td><%= user_data.name %></td>
+            <td><%= user_data.email %></td>
+            <td><%= user_data.contact_number %></td>
+            <td><%= user_data.address %></td>
+        </tr>
+    </table>
+
+    <h4>Session History</h4>
+    <hr>
+    <% if(session_history && session_history.length>0 ){ %>
+
+        <table class="table">
+            <tr>
+                <th>TIMESTAMP</th>
+                <th>IP</th>
+                <th>USER AGENT</th>
+            </tr>
+
+        <% session_history.forEach(function(session_history){ %>
+        <tr>
+            <td><%= session_history.created_at %></td>
+            <td><%= session_history.ip_address%></td>
+            <td><%= session_history.user_agent %></td>
+        </tr>
+        
+        <% })%>
+        </table>
+    
+    
+    <% } %>
+
+
+        </div>
+
+    <%- include('partials/footer') %>
+</body>
+</html>

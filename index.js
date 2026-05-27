@@ -843,7 +843,7 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     let userSubmissions = [];
     if (trackIds.length > 0) {
       const subResult = await pool.query(
-        `SELECT * FROM submissions WHERE track_id = ANY($1);`,
+        `SELECT * FROM submissions s WHERE track_id = ANY($1) and not exists (select 1 from peer_review p where s.submission_id = p.submission_id);`,
         [trackIds]
       );
       userSubmissions = subResult.rows;
@@ -874,11 +874,22 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
   }
 });
 
+app.get("/my-profile",checkAuth,async(req,res)=>{
+  const user_data = await pool.query("select * from users where email=$1",[req.user.email]);
+  const session_history = await pool.query("select * from sessions where user_id=$1",[user_data.rows[0].id]);
+  return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows});
+})
+
 
 
 
 app.get("/dashboard", checkAuth, async (req, res) => {
+
+
   try {
+
+    
+
     const userEmail = req.user.email;
 
     // ==========================================
@@ -888,6 +899,8 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     let conference_ids_for_session_chair = [];
     let conference_ids_for_poster_presentation_coordinator = [];
     let conference_ids_for_invited_talk = [];
+
+   
 
     const sessionChairKey = `session_chair_role_${userEmail}`;
     const invitedTalkKey = `invited_talk_role_${userEmail}`;
@@ -2418,7 +2431,7 @@ app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
 
 app.post("/user-registration", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, contact_number, address, password } = req.body;
 
     // hash password (IMPORTANT: await)
     const hashed_password = await bcrypt.hash(password, 10);
@@ -2441,8 +2454,8 @@ const result = schema.validate(password);
 if(result==true){
 
  await pool.query(
-      "INSERT INTO users (name, email, password, status) VALUES ($1, $2, $3,$4)",
-      [name, email, hashed_password,"ACTIVATION PENDING"]
+      "INSERT INTO users (name, email, password, status, contact_number, address) VALUES ($1, $2, $3,$4,$5,$6)",
+      [name, email, hashed_password,"ACTIVATION PENDING",contact_number, address]
     );
 
     const activation_code = crypto.randomUUID();
