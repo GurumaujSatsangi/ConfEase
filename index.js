@@ -2491,7 +2491,8 @@ else{
 });
 
 app.get("/account-activation", async (req, res) => {
-  res.render("login/activation.ejs");
+
+  res.render("login/activation.ejs", {message:req.query.message || null});
 });
 
 app.post("/activate-account", async (req, res) => {
@@ -2792,9 +2793,11 @@ app.post("/auth/refresh", handleRefresh);
 
 app.get("/admin", async(req,res)=>{
 
+
+
 const chairs = await pool.query("select * from chairs");
 const conferences = await pool.query("select * from conferences");
-res.render("admin",{chairs:chairs.rows,conferences:conferences,message:message || null});
+res.render("admin",{chairs:chairs.rows,conferences:conferences,message:req.query.message || null});
 })
 
 app.post("/create-chair-credentials",async(req,res)=>{
