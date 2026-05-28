@@ -2772,7 +2772,10 @@ app.post("/auth/refresh", handleRefresh);
 
 
 app.get("/admin", async(req,res)=>{
-res.render("admin");
+
+const chairs = await pool.query("select * from chairs");
+const conferences = await pool.query("select * from conferences");
+res.render("admin",{chairs:chairs.rows,conferences:conferences});
 })
 
 app.post("/create-chair-credentials",async(req,res)=>{
