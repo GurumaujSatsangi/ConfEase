@@ -2679,6 +2679,25 @@ app.post("/user-login", async (req, res) => {
 });
 
 
+app.post("/activation-check",async(req,res)=>{
+  const {email} = req.body;
+  const data = await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
+  console.log(data.rows[0]);
+  
+  if(data.rows[0]){
+
+      const data2 = await pool.query("select * from activation_requests where email=$1",[email]);
+      console.log(data2.rows[0])
+    if(data2.rows[0]){
+      return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
+      await sendMail(email,"Account Activation Code [SENT ON REQUEST]","Your Account Activation Code for DEI CMT is "+data2.rows[0].activation_code);
+    }
+  } else{
+    return res.redirect("/account-activation?message=User Not Found with Pending Activation status!");
+  }
+})
+
+
 
 async function handleRefresh(req, res) {
 
@@ -2775,7 +2794,7 @@ app.get("/admin", async(req,res)=>{
 
 const chairs = await pool.query("select * from chairs");
 const conferences = await pool.query("select * from conferences");
-res.render("admin",{chairs:chairs.rows,conferences:conferences});
+res.render("admin",{chairs:chairs.rows,conferences:conferences,message:message || null});
 })
 
 app.post("/create-chair-credentials",async(req,res)=>{

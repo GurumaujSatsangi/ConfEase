@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-    <%- include('../partials/header') %>
+    <%- include('../partials/header copy') %>
     <div class="container">
 
         <div class="card">
@@ -17,14 +17,43 @@
   <div class="card-body">
     <p class="card-text">
         <form action="/activate-account" method="post">
-            <input type="text" name="activation_code" required class="form-control">
-            <input type="submit" class="btn btn-primary" value="Activate Account">
+            <input type="text" name="activation_code" placeholder="Activation Code" required class="form-control">
+            <input type="submit" class="btn btn-primary"  value="Activate Account">
         </form>
+
+        <hr>
+
+        <ul>
+            <li><a href="" data-bs-toggle="modal" data-bs-target="#exampleModal">Did not receive Activation Code? Click Here</a></li>
+        </ul>
 </p>
 </div>
 </div>
     </div>
+
+     <div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">Activation Code Not Received</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="/activation-check" method="post">
+            <input type="email" class="form-control" placeholder="Email ID" name="email">
+            <input type="submit" value="Submit" class="btn btn-primary">
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
     <%- include('../partials/footer') %>
+    <script src="/script.js"></script>
     
 </body>
 </html>

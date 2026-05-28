@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/styles.css">
-    <title>Document</title>
+    <title>DEI CMT | Admin's Dashboard</title>
 </head>
 <body>
-    <%- include('partials/header') %>
+    <%- include('partials/header copy') %>
 
     <div class="container">
 
@@ -51,6 +51,7 @@
             <th>Contact Number</th>
             <th>Faculty</th>
             <th>Department</th>
+            <th>Action</th>
         </tr>
         <% chairs.forEach(function(chairs){ %>
 
@@ -69,6 +70,9 @@
     </td>
     <td>
         <%= chairs.department %>
+    </td>
+    <td>
+        <a href="#" onclick="showDisableAccount()" class="btn btn-warning">Disable Account</a><a href="#" onclick="RevokeAccess()" class="btn btn-danger">Revoke Access</a>
     </td>
 
 </tr>
@@ -147,7 +151,7 @@
 
     <%- include('partials/footer') %>
 
-  
+  <script src="/script.js"></script>
     
 </body>
 </html>
