@@ -2805,7 +2805,7 @@ app.post("/create-chair-credentials",async(req,res)=>{
   const {name,email,contact_number, faculty, department, password} = req.body;
 
   const hashed_password= await bcrypt.hash(password, 10);
-  const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password) values($1,$2,$3,$4,$5,$6)",[name,email,contact_number, faculty,department, hashed_password]);
+  const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password,status) values($1,$2,$3,$4,$5,$6,$7)",[name,email,contact_number, faculty,department, hashed_password,"ACCOUNT ACTIVATED"]);
 
   if(!result){
     res.send("Error");
@@ -2818,6 +2818,38 @@ app.post("/create-chair-credentials",async(req,res)=>{
   }
 
 });
+
+
+app.get("/revoke-access/:id",async(req,res)=>{
+
+  const email = req.params.id;
+
+  const pre_data = await pool.query("select * from chairs where email=$1 and status=$2",[email,"ACCOUNT ACTIVATED"]);
+
+  if(pre_data){
+
+     const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCESS REVOKED",email]);
+  if(data.rows[0]){
+    return res.redirect("/admin?message=Chair Access Revoked for "+ email);
+  }
+
+  } else{
+    return res.redirect("/admin?message=User not Found with 'Account Activated' status!");
+  }
+
+ 
+
+})
+
+app.get("/delete-account/:id",async(req,res)=>{
+  const email = req.params.id;
+
+  const data = await pool.query("delete from chairs where email = $1 returning *",[email]);
+
+  if(data.rows[0]){
+    return res.redirect("/admin?message=Account ("+email+") Deleted!");
+  }
+})
 
 
 app.post("/chair-login", async (req, res) => {

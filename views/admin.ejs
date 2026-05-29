@@ -72,7 +72,10 @@
         <%= chairs.department %>
     </td>
     <td>
-        <a href="#" onclick="showDisableAccount()" class="btn btn-warning">Disable Account</a><a href="#" onclick="RevokeAccess()" class="btn btn-danger">Revoke Access</a>
+        <a href="/delete-account/<%=chairs.email%>"  class="btn btn-danger">Delete Account</a><% if(chairs.status=="ACCESS REVOKED"){ %>
+          <a disabled class="small">Access Revoked</a> <% } else { %>
+          <a href="/revoke-access/<%=chairs.email%>" class="btn btn-warning">Revoke Access</a>
+          <% } %>
     </td>
 
 </tr>
