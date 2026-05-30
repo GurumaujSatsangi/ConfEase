@@ -9,10 +9,24 @@
 <body>
     <%- include('partials/header') %>
     <div class="container">
-        <center><h4 style="color:blue">Virtual Poster Presentation</h4>
-        <h5>
-<%= conference.title %>
-        </h5></center><hr>
+        <center><h3>VIRTUAL POSTER PRESENTATION</h3>
+       </center><HR>
+
+       <div class="card">
+  <h5 class="card-header"><%= conference.title %></h5>
+  <div class="card-body">
+    <p class="card-text" align="justify">
+
+      <table class="table">
+        
+      </table>
+    </p>
+  </div>
+</div>
+        
+        
+         
+        <hr>
 <% if(posters && posters.length>0){ %>
     <% poster.forEach(function(posters) { %>
 
@@ -33,7 +47,10 @@
     
     <% }) %>
 
-<% } %>
+<% } else {  %>
+
+<p class="small">There are no poster to display as of now. If you think this is an error please report to the conference chair (<a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></a>)</p>
+  <% } %>
     </div>
     <%-include('partials/footer') %>
 </body>

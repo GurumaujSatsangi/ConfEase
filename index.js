@@ -1320,12 +1320,14 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
 });
 
 app.get("/virtual-poster-presentation/:id" , async(req,res)=>{
+
+  const conference_id = req.params.id;
  
-    const posters = await pool.query("select * from submissions where conference_id=$1 and submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",[req.params.id]);
+    const posters = await pool.query("select * from submissions where conference_id=$1 and submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",[conference_id]);
     
    
-    const conference = await fetchConference(posters.rows[0].conference_id);
-    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference});
+    const conference = await fetchConference(conference_id);
+    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference.rows[0]});
 
 });
 
@@ -2795,10 +2797,17 @@ app.post("/auth/refresh", handleRefresh);
 app.get("/admin", async(req,res)=>{
 
 
+  const locked_seat = await client.get("S-101");
+
+  if(locked_seat){
+    var lock = true;
+  }
+
+
 
 const chairs = await pool.query("select * from chairs");
 const conferences = await pool.query("select * from conferences");
-res.render("admin",{chairs:chairs.rows,conferences:conferences,message:req.query.message || null});
+res.render("admin",{chairs:chairs.rows,conferences:conferences,message:req.query.message || null, lock});
 })
 
 app.post("/create-chair-credentials",async(req,res)=>{
@@ -2856,6 +2865,14 @@ app.get("/grant-access/:id",async(req,res)=>{
     await sendMail(email,"Chair Portal Access Re-Granted","Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=Chair Portal Access Re-Granted to "+email+"!");
   }
+
+})
+
+app.post("/select-room/:id",async(req,res)=>{
+
+  const uid = req.params.id;
+
+  await client.set("S-101",uid);
 
 })
 
