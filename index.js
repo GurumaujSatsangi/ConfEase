@@ -11,6 +11,7 @@ import pool from "./config/db.js";
 import requestIp from 'request-ip';
 import {PDFParse} from 'pdf-parse';
 import passwordValidator from 'password-validator';
+import generator from 'generate-password';
 
 import {
   detectAIText,
@@ -2802,7 +2803,12 @@ res.render("admin",{chairs:chairs.rows,conferences:conferences,message:req.query
 
 app.post("/create-chair-credentials",async(req,res)=>{
 
-  const {name,email,contact_number, faculty, department, password} = req.body;
+  const {name,email,contact_number, faculty, department} = req.body;
+
+  var password = generator.generate({
+	length: 10,
+	numbers: true
+});
 
   const hashed_password= await bcrypt.hash(password, 10);
   const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password,status) values($1,$2,$3,$4,$5,$6,$7)",[name,email,contact_number, faculty,department, hashed_password,"ACCOUNT ACTIVATED"]);
@@ -2814,10 +2820,45 @@ app.post("/create-chair-credentials",async(req,res)=>{
 
   else{
     await sendMail(email,"DEI CMT Chair Portal Credentials","Dear "+name+" You have been granted DEI CMT - CHAIR PORTAL access. Please use the given credentials to access the portal. Email ID: "+email+" Password: "+password+" Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
-    res.send("Chair Added & Credentials Created Succesfully !!!");
+    res.redirect("/admin?message=Chair Portal Access succesfully granted to "+name+" ("+email+")! An auto generated password has been sent to the user.");
   }
 
 });
+
+app.get("/reset-chair-password/:id",async(req,res)=>{
+  const email = req.params.id;
+
+  const new_password = generator.generate({
+	length: 10,
+	numbers: true
+});
+
+  const hashed_password = await bcrypt.hash(new_password,10);
+  const data = await pool.query("update chairs set password=$1 where email=$2 returning *",[hashed_password,email]);
+
+  if(data.rows[0]){
+
+    await sendMail(email,"Password Updated","Hi, The Admin has updated the password for your DEI CMT Chair Portal Account ("+email+"). The new password is:"+new_password+".[Full Stop is not part of the password].Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+
+    return res.redirect("/admin?message=Password for "+email+" has been reset and the user has been notified via Email.");
+
+  }
+})
+
+
+app.get("/grant-access/:id",async(req,res)=>{
+
+  const email = req.params.id;
+  const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCOUNT ACTIVATED",email]);
+
+  if(data.rows[0]){
+
+    await sendMail(email,"Chair Portal Access Re-Granted","Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+    return res.redirect("/admin?message=Chair Portal Access Re-Granted to "+email+"!");
+  }
+
+})
+
 
 
 app.get("/revoke-access/:id",async(req,res)=>{
@@ -2830,6 +2871,8 @@ app.get("/revoke-access/:id",async(req,res)=>{
 
      const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCESS REVOKED",email]);
   if(data.rows[0]){
+
+    await sendMail(email,"Chair Portal Access Revoked","Hi, The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=Chair Access Revoked for "+ email);
   }
 
@@ -2858,8 +2901,8 @@ app.post("/chair-login", async (req, res) => {
 
     // fetch user
     const userResult = await pool.query(
-      "SELECT * FROM chairs WHERE email = $1",
-      [email]
+      "SELECT * FROM chairs WHERE email = $1 and status=$2",
+      [email,"ACCOUNT ACTIVATED"]
     );
 
     if (userResult.rows.length === 0) {
@@ -5030,7 +5073,10 @@ app.post("/submit", checkAuth, async(req, res) => {
         try { await fs.unlink(filePath); } catch (e) { /* ignore cleanup errors */ }
       }
 
-      const paperCode = crypto.randomUUID();
+      const paperCode  = generator.generate({
+	length: 6,
+	numbers: true
+});;
 
       const parser = new PDFParse({ url: uploadResult.secure_url });
       const result = await parser.getText();
@@ -5065,7 +5111,7 @@ console.log(confidence);
 
       await sendMail(req.user.email,"Paper Submitted | "+title,"Hi, Your paper titled "+title+" has been submitted succesfully and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
 
-      return res.redirect("/dashboard?message=Congratulations!!! Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
+      return res.redirect("/dashboard?message=Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
       console.error("Submit error:", error);
       return res.redirect("/dashboard?message=Something went wrong while submitting the paper.");
