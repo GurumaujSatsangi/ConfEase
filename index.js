@@ -1325,9 +1325,10 @@ app.get("/virtual-poster-presentation/:id" , async(req,res)=>{
  
     const posters = await pool.query("select * from submissions where conference_id=$1 and submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",[conference_id]);
     
+    const poster = await pool.query("select * from poster_session where conference_id=$1",[conference_id]);
    
     const conference = await fetchConference(conference_id);
-    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference.rows[0]});
+    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference.rows[0],poster:poster.rows[0]});
 
 });
 
