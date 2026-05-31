@@ -62,7 +62,7 @@
   <div class="card-body">
     <h5 class="card-title"><%= poster.title %></h5>
     <p class="card-text"><video src="<%= poster.video %>" width="50%"></video></p>
-    <a href="<%=poster.file_url %>" class="btn btn-primary">View Poster</a>
+    <a href="<%=poster.file_url %>" class="btn btn-primary">View Poster</a> <form action="/upvote-poster/<%=poster.submission_id %>"><button class="btn btn-primary">Upvote Poster</button></form>
   </div>
 </div>
     
