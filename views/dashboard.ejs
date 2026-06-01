@@ -68,14 +68,59 @@
                           <td>Acceptance Notification: <br><b><%= formatDateDisplay(conference.acceptance_notification) %> (11:59 PM IST)</b></td>
                           <td>Final Camera Ready Paper Submission: <br><b><%= formatDateDisplay(conference.camera_ready_paper_submission) %> (11:59 PM IST)</b></td>
                         </tr>
-                        <tr>
-                          <td colspan="3"><strong>Any Conference related query should be sent to: <a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></strong></a>
-                            <hr>
-                            <h6>Conference Chairs:</h6>
-                            <ul>
-                              <li></li>
-                            </ul></td>
-                        </tr>
+       <tr>
+
+        
+  <td colspan="3">
+
+    <div class="accordion" id="accordionFlushExample">
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapseOne" aria-expanded="false" aria-controls="flush-collapseOne">
+        <strong>Official Email ID for Communication / List of Conference Chairs</strong>
+      </button>
+    </h2>
+    
+    <div id="flush-collapseOne" class="accordion-collapse collapse" data-bs-parent="#accordionFlushExample">
+      <div class="accordion-body">
+
+ <strong>Any Conference related query should be sent to: <a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></a></strong>
+    <hr>
+    <h6>Conference Chairs:</h6>
+
+    <% 
+      // 1. Safely handle the data whether it's a String or an Array
+      let chairsList = [];
+      if (Array.isArray(conference.co_chairs)) {
+        chairsList = conference.co_chairs;
+      } else if (typeof conference.co_chairs === 'string') {
+        // Remove postgres curly braces {} if they exist, then split by comma
+        chairsList = conference.co_chairs.replace(/^{|}$/g, '').split(',');
+      }
+    %>
+
+    <% if (chairsList && chairsList.length > 0) { %>
+      <ul>
+        <% chairsList.forEach(function(chair) { %>
+          <li><%= chair.replace(/"/g, '').trim() %></li>
+        <% }); %>
+      </ul>
+    <% } else { %>
+      <p class="small">No Conference Chairs Listed!</p>
+    <% } %>
+
+      </div>
+    </div>
+  </div>
+  
+
+</div>
+
+
+
+   
+  </td>
+</tr>
                         <tr>
                           <td></td>
                           <% if (currentDate > conference.full_paper_submission) { %>
