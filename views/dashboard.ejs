@@ -68,7 +68,14 @@
                           <td>Acceptance Notification: <br><b><%= formatDateDisplay(conference.acceptance_notification) %> (11:59 PM IST)</b></td>
                           <td>Final Camera Ready Paper Submission: <br><b><%= formatDateDisplay(conference.camera_ready_paper_submission) %> (11:59 PM IST)</b></td>
                         </tr>
-                        
+                        <tr>
+                          <td colspan="3"><strong>Any Conference related query should be sent to: <a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></strong></a>
+                            <hr>
+                            <h6>Conference Chairs:</h6>
+                            <ul>
+                              <li></li>
+                            </ul></td>
+                        </tr>
                         <tr>
                           <td></td>
                           <% if (currentDate > conference.full_paper_submission) { %>

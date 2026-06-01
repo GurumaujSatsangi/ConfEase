@@ -3757,6 +3757,15 @@ app.get("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res
 
 
 app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
+
+    const isReviewerResult = await isReviewer(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isInviteeResult = await isInvitee(req.user.email);
+
+    if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
+      return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+    }
+    
   
 
   try {
@@ -4074,7 +4083,7 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
-      return res.redirect("/dashboard?message=Unauthorized Access!!! Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+      return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
     }
     
 
@@ -4356,6 +4365,15 @@ app.get("/submission/revised/primary-author/:id", checkAuth, async (req, res) =>
 
 
 app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (req, res) => {
+
+    const isReviewerResult = await isReviewer(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isInviteeResult = await isInvitee(req.user.email);
+
+    if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
+      return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+    }
+    
  
 
   try {
