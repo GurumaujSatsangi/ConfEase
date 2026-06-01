@@ -1319,17 +1319,78 @@ app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
   }
 });
 
-app.get("/virtual-poster-presentation/:id" , async(req,res)=>{
+app.post("/upvote-poster/:id",async(req,res)=>{
+  const submission_id = req.params.id;
 
-  const conference_id = req.params.id;
- 
-    const posters = await pool.query("select * from submissions where conference_id=$1 and submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",[conference_id]);
+  const conference_id = await pool.query("select conference_id from submissions where submission_id=$1",[submission_id]);
+
+  console.log(req.ip+" -> "+submission_id);
+
+   const increment_vote_count = await client.incr(submission_id);
+
+    const vpp_vote_token = jwt.sign(
+      {
+        submission_id: submission_id,
+        user_ip: req.ip,
+      },
+      process.env.JWT_ACCESS_TOKEN_SECRET,
+      {
+        expiresIn: "7d"
+      }
+    );
+
+
+    res.cookie("vpp_vote_token", vpp_vote_token, { httpOnly: true, secure: false, sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
+
+
+    return res.redirect("/virtual-poster-presentation/"+conference_id+"?message=Your Vote has been submitted Successfully!");
+
+
+})
+
+app.get("/virtual-poster-presentation/:id", async (req, res) => {
+  try {
+    const conference_id = req.params.id;
+    const vpp_vote_token_from_cookie = req.cookies.vpp_vote_token;
+
+    if (vpp_vote_token_from_cookie) {
+      try {
+        const result = jwt.verify(
+          vpp_vote_token_from_cookie, 
+          process.env.JWT_ACCESS_TOKEN_SECRET
+        );
+
+        if (result) {
+          return res.redirect(`/virtual-poster-presentation/${conference_id}?message=You have already Voted for a Poster, hence you are not allowed to vote. However, you can view the posters.`);
+        }
+      } catch (jwtError) {
+        console.error("JWT Verification failed:", jwtError.message);
+        res.clearCookie("vpp_vote_token"); 
+      }
+    }
+
+    const posters = await pool.query(
+      "SELECT * FROM submissions WHERE conference_id=$1 AND submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'",
+      [conference_id]
+    );
     
-    const poster = await pool.query("select * from poster_session where conference_id=$1",[conference_id]);
+    const poster = await pool.query(
+      "SELECT * FROM poster_session WHERE conference_id=$1",
+      [conference_id]
+    );
    
     const conference = await fetchConference(conference_id);
-    return res.render("virtual-poster-presentation",{posters:posters.rows[0],conference:conference.rows[0],poster:poster.rows[0]});
 
+    return res.render("virtual-poster-presentation", {
+      posters: posters.rows, 
+      conference: conference.rows[0],
+      poster: poster.rows[0]
+    });
+
+  } catch (error) {
+    console.error("Server error:", error);
+    return res.status(500).send("Internal Server Error");
+  }
 });
 
 app.get(
