@@ -173,60 +173,244 @@ function setChairTokenCookies(res, accessToken, refreshToken) {
   res.cookie("chair_refresh_token", refreshToken, refreshCookieOptions);
 }
 
-// Middleware functions for authentication
-function checkAuth(req, res, next) {
-  const token = getAccessTokenFromRequest(req);
-  if (!token) {
-    return res.redirect("/login/user");
+async function refreshUserSessionFromCookie(req, res) {
+  const refreshToken = req.cookies.refresh_token;
+
+  if (!refreshToken) {
+    return null;
   }
 
   try {
-    const decoded = verifyAccessToken(token);
-    req.user = decoded;
-    next();
+    jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+    );
+
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    const sessionResult = await pool.query(
+      `
+      SELECT * FROM sessions
+      WHERE refresh_token_hash = $1
+      AND is_revoked = FALSE
+      AND expires_at > NOW()
+      `,
+      [refreshTokenHash]
+    );
+
+    const session = sessionResult.rows[0];
+
+    if (!session) {
+      return null;
+    }
+
+    const userResult = await pool.query(
+      `SELECT email, name, id FROM users WHERE id = $1 LIMIT 1`,
+      [session.user_id]
+    );
+
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return null;
+    }
+
+    const accessToken = jwt.sign(
+      {
+        email: user.email,
+        name: user.name,
+        user_id: user.id,
+      },
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret",
+      {
+        expiresIn: "15m",
+      }
+    );
+
+    setAccessTokenCookies(res, accessToken);
+
+    return {
+      email: user.email,
+      name: user.name,
+      user_id: user.id,
+    };
   } catch (err) {
-    return res.redirect("/login/user");
+    return null;
   }
 }
 
-function checkChairAuth(req, res, next) {
+async function refreshChairSessionFromCookie(req, res) {
+  const refreshToken = req.cookies.chair_refresh_token;
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+    );
+
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    const sessionResult = await pool.query(
+      `
+      SELECT * FROM chair_sessions
+      WHERE refresh_token_hash = $1
+      AND is_revoked = FALSE
+      AND expires_at > NOW()
+      `,
+      [refreshTokenHash]
+    );
+
+    const session = sessionResult.rows[0];
+
+    if (!session) {
+      return null;
+    }
+
+    const chairResult = await pool.query(
+      `SELECT user_id, email, name FROM chairs WHERE user_id = $1 LIMIT 1`,
+      [session.chair_id]
+    );
+
+    const chair = chairResult.rows[0];
+
+    if (!chair) {
+      return null;
+    }
+
+    const accessToken = jwt.sign(
+      {
+        email: chair.email,
+        name: chair.name,
+        user_id: chair.user_id,
+        role: "chair",
+      },
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret",
+      {
+        expiresIn: "15m",
+      }
+    );
+
+    setChairTokenCookies(res, accessToken, refreshToken);
+
+    return {
+      email: chair.email,
+      name: chair.name,
+      user_id: chair.user_id,
+      role: "chair",
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+// Middleware functions for authentication
+async function checkAuth(req, res, next) {
+  const token = getAccessTokenFromRequest(req);
+
+  if (token) {
+    try {
+      const decoded = verifyAccessToken(token);
+      req.user = decoded;
+      res.locals.user = decoded;
+      return next();
+    } catch (err) {
+      // Fall through to refresh-token recovery below.
+    }
+  }
+
+  const refreshedUser = await refreshUserSessionFromCookie(req, res);
+
+  if (refreshedUser) {
+    req.user = refreshedUser;
+    res.locals.user = refreshedUser;
+    return next();
+  }
+
+  return res.redirect("/login/user");
+}
+
+async function checkChairAuth(req, res, next) {
   try {
     const chairToken = getChairAccessTokenFromRequest(req);
-    if (!chairToken) {
-      return res.redirect("/login/user");
+
+    if (chairToken) {
+      try {
+        const decoded = verifyChairAccessToken(chairToken);
+        req.user = decoded;
+        res.locals.user = decoded;
+        return next();
+      } catch (err) {
+        // Fall through to refresh-token recovery below.
+      }
     }
-    try {
-      const decoded = verifyChairAccessToken(chairToken);
-      req.user = decoded;
-      next();
-    } catch (err) {
-      return res.redirect("/login/user");
+
+    const refreshedChair = await refreshChairSessionFromCookie(req, res);
+
+    if (refreshedChair) {
+      req.user = refreshedChair;
+      res.locals.user = refreshedChair;
+      return next();
     }
+
+    return res.redirect("/login/user");
   } catch (err) {
     console.error("checkChairAuth error:", err);
     return res.redirect("/login/user");
   }
 }
 
-function checkAuthOrChair(req, res, next) {
+async function checkAuthOrChair(req, res, next) {
   try {
     const chairToken = getChairAccessTokenFromRequest(req);
     const token = getAccessTokenFromRequest(req);
     
+    if (chairToken) {
+      try {
+        req.user = verifyChairAccessToken(chairToken);
+        res.locals.user = req.user;
+        return next();
+      } catch (err) {
+        const refreshedChair = await refreshChairSessionFromCookie(req, res);
+
+        if (refreshedChair) {
+          req.user = refreshedChair;
+          res.locals.user = refreshedChair;
+          return next();
+        }
+      }
+    }
+
+    if (token) {
+      try {
+        req.user = verifyAccessToken(token);
+        res.locals.user = req.user;
+        return next();
+      } catch (err) {
+        const refreshedUser = await refreshUserSessionFromCookie(req, res);
+
+        if (refreshedUser) {
+          req.user = refreshedUser;
+          res.locals.user = refreshedUser;
+          return next();
+        }
+      }
+    }
+
     if (!token && !chairToken) {
       return res.redirect("/login/user");
     }
-    
-    try {
-      if (chairToken) {
-        req.user = verifyChairAccessToken(chairToken);
-      } else {
-        req.user = verifyAccessToken(token);
-      }
-      next();
-    } catch (err) {
-      return res.redirect("/login/user");
-    }
+
+    return res.redirect("/login/user");
   } catch (err) {
     console.error("checkAuthOrChair error:", err);
     return res.redirect("/login/user");
