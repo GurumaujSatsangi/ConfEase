@@ -1028,7 +1028,7 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     let userSubmissions = [];
     if (trackIds.length > 0) {
       const subResult = await pool.query(
-        `SELECT * FROM submissions s WHERE track_id = ANY($1) and not exists (select 1 from peer_review p where s.submission_id = p.submission_id);`,
+        `SELECT * FROM submissions s WHERE track_id = ANY($1::uuid[]) and not exists (select 1 from peer_review p where s.submission_id = p.submission_id);`,
         [trackIds]
       );
       userSubmissions = subResult.rows;
@@ -1169,7 +1169,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       submissions = JSON.parse(cachedSubmissionsData);
     } else {
       submissions = await fetchUserSubmissions(userEmail);
-      await client.set(submissionsCacheKey, JSON.stringify(submissions || []));
+      await client.set(submissionsCacheKey, JSON.stringify(submissions || []),{ EX: 3600 });
       console.log("SUBMISSIONS FETCHED FROM DB AND CACHED!");
     }
 
