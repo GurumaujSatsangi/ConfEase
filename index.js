@@ -1265,90 +1265,18 @@ app.get("/announcements", checkAuthOrChair, async(req,res)=>{
 
 app.post("/publish/review-results", checkChairAuth, async (req, res) => {
  
+  const {conference_id} = req.body;
 
-  const { conference_id } = req.body;
+  const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
-  if (!conference_id) {
-    return res.status(400).send("Invalid or missing conference_id.");
+  const authors = await pool.query("select title, submission_status, primary_author from submissions where conference_id = $1",[conference_id]);
+
+  for(let i=0;i<authors.rows.length;i++){
+    await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is displayed below for your convinience. <br><br><table class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
   }
 
-  const confId = conference_id;
+  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Acceptance Notification Published!");
 
-  try {
-    // 1. Fetch all review rows for this conference
-    const reviewResult = await pool.query(
-      `SELECT * FROM peer_review WHERE conference_id = $1;`,
-      [confId]
-    );
-    const reviewdata = reviewResult.rows;
-
-    // 2. Fetch conference title (for emails)
-    const confTitleResult = await pool.query(
-      `SELECT title FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-      [confId]
-    );
-    const conferenceTitle = confTitleResult.rows[0]?.title || "Conference";
-
-    // 3. Process each review entry
-    for (const reviewRow of reviewdata) {
-      // Update submission status
-      await pool.query(
-        `UPDATE submissions
-         SET submission_status = $1
-         WHERE submission_id = $2;`,
-        [reviewRow.acceptance_status, reviewRow.submission_id]
-      );
-
-      // Fetch submission metadata for email
-      const submissionResult = await pool.query(
-        `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
-        [reviewRow.submission_id]
-      );
-      const submissionData = submissionResult.rows[0];
-      if (!submissionData) continue;
-
-      // Email notification
-      try {
-        const coAuthors = Array.isArray(submissionData.co_authors) ? submissionData.co_authors : [];
-        const ccEmails = coAuthors.length ? coAuthors.join(",") : null;
-
-        const isAccepted = reviewRow.acceptance_status.includes("Accepted");
-        const statusMessage = isAccepted
-          ? "We are pleased to inform you that your paper has been accepted!"
-          : "We regret to inform you that your paper has not been accepted.";
-
-        await sendMail(
-          submissionData.primary_author,
-          `${reviewRow.acceptance_status} - ${submissionData.title}`,
-          `Your paper "${submissionData.title}" submitted to ${conferenceTitle} has been ${reviewRow.acceptance_status.toLowerCase()}.`,
-          `<p>Dear Author,</p>
-           <p>${statusMessage}</p>
-           <p><strong>Paper Title:</strong> ${submissionData.title}</p>
-           <p><strong>Conference:</strong> ${conferenceTitle}</p>
-           <p><strong>Decision:</strong> ${reviewRow.acceptance_status}</p>
-           <p><strong>Review Score:</strong> ${Number(reviewRow.mean_score).toFixed(2)}/5</p>
-           ${
-             isAccepted
-               ? "<p>Please prepare your final camera-ready paper for publication.</p>"
-               : "<p>We thank you for your submission and encourage you to apply again in the future.</p>"
-           }
-           <p>For any assistance, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
-           <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
-          ccEmails
-        );
-      } catch (emailErr) {
-        console.error(`Email error for submission ${reviewRow.submission_id}:`, emailErr);
-      }
-    }
-
-    return res.redirect(
-      "/chair/dashboard?message=Review results have been successfully published."
-    );
-
-  } catch (err) {
-    console.error("Error publishing review results:", err);
-    return res.status(500).send("Error publishing review results.");
-  }
 });
 
 app.get("/reviewer/dashboard", async (req, res) => {
@@ -2551,42 +2479,42 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     //
     // 5. Send email notification
     //
-    try {
-      const conferenceResult = await pool.query(
-        `SELECT acceptance_notification, title
-         FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-        [conference_id]
-      );
-      const conferenceData = conferenceResult.rows[0];
+    // try {
+    //   const conferenceResult = await pool.query(
+    //     `SELECT acceptance_notification, title
+    //      FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+    //     [conference_id]
+    //   );
+    //   const conferenceData = conferenceResult.rows[0];
 
-      const acceptanceDate = conferenceData?.acceptance_notification
-        ? new Date(conferenceData.acceptance_notification).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })
-        : "the scheduled acceptance notification date";
+    //   const acceptanceDate = conferenceData?.acceptance_notification
+    //     ? new Date(conferenceData.acceptance_notification).toLocaleDateString("en-US", {
+    //         year: "numeric",
+    //         month: "long",
+    //         day: "numeric",
+    //       })
+    //     : "the scheduled acceptance notification date";
 
-      const conferenceTitle = conferenceData?.title || "the conference";
+    //   const conferenceTitle = conferenceData?.title || "the conference";
 
-      const coAuthors = Array.isArray(submissionData.co_authors)
-        ? submissionData.co_authors
-        : [];
-      const ccEmails = coAuthors.length > 0 ? coAuthors.join(",") : null;
+    //   const coAuthors = Array.isArray(submissionData.co_authors)
+    //     ? submissionData.co_authors
+    //     : [];
+    //   const ccEmails = coAuthors.length > 0 ? coAuthors.join(",") : null;
 
-      await sendMail(
-        submissionData.primary_author,
-        `Re-review Completed - ${submissionData.title}`,
-        `Your revised paper "${submissionData.title}" has been re-reviewed. Results will be published on ${acceptanceDate}.`,
-        `<p>Dear Author,</p>
-         <p>Your revised paper titled <strong>"${submissionData.title}"</strong> has now been re-reviewed.</p>
-         <p>Final acceptance results will be announced on <strong>${acceptanceDate}</strong>.</p>
-         <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
-        ccEmails
-      );
-    } catch (emailError) {
-      console.error("Email send error (ignored):", emailError);
-    }
+    //   await sendMail(
+    //     submissionData.primary_author,
+    //     `Re-review Completed - ${submissionData.title}`,
+    //     `Your revised paper "${submissionData.title}" has been re-reviewed. Results will be published on ${acceptanceDate}.`,
+    //     `<p>Dear Author,</p>
+    //      <p>Your revised paper titled <strong>"${submissionData.title}"</strong> has now been re-reviewed.</p>
+    //      <p>Final acceptance results will be announced on <strong>${acceptanceDate}</strong>.</p>
+    //      <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
+    //     ccEmails
+    //   );
+    // } catch (emailError) {
+    //   console.error("Email send error (ignored):", emailError);
+    // }
 
     return res.redirect("/reviewer/"+conference_id+"?message=Revised paper review submitted successfully.");
 
