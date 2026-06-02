@@ -3,72 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Resolve Conflicts</title>
     <link rel="stylesheet" href="/styles.css">
-</head>
+    </head>
 <body>
     <%- include('../partials/dashboard/header') %>
 
-    <div class="container">
-
+    <div class="container mt-4">
         <h4>Resolve Conflicts</h4>
-        <h6>Submission Title: <%= submission.title %></h6><hr>
+        <h6>Submission Title: <%= submission.title %></h6>
+        <hr>
 
-
-        <% if(reviews && reviews.length>0) { %>
-
-            <table class="table">
-                <tr>
-                    <th>REVIWER</th>
-                    <th>SCORE</th>
-                    <th>REMARKS</th>
-                </tr>
-
-            <% reviews.forEach(function(reviews){ %>
-
-                <tr>
-                    <td><%= reviews.reviewer %></td>
-                    <td><%= reviews.mean_score %></td>
-                    <td><%= reviews.remarks %></td>
-                </tr>
-             
-            
-            <% }) %>
-        
-        
+        <% if(reviews && reviews.length > 0) { %>
+            <table class="table table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>REVIEWER</th>
+                        <th>SCORE</th>
+                        <th>REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <% reviews.forEach(function(review, index){ %>
+                    <tr>
+                        <td><%= review.reviewer %></td>
+                        <td>
+                            <div class="accordion" id="accordion-<%= index %>">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="heading-<%= index %>">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= index %>" aria-expanded="false" aria-controls="collapse-<%= index %>">
+                                            <%= review.mean_score %> &nbsp; <span class="small text-muted">(Click to expand)</span>
+                                        </button>
+                                    </h2>
+                                    <div id="collapse-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= index %>" data-bs-parent="#accordion-<%= index %>">
+                                        <div class="accordion-body p-0">
+                                            <table class="table table-sm m-0 text-center">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Originality</th>
+                                                        <th>Relevance</th>
+                                                        <th>Technical</th>
+                                                        <th>Clarity</th>
+                                                        <th>Impact</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr>
+                                                        <td><%= review.originality_score %></td>
+                                                        <td><%= review.relevance_score %></td>
+                                                        <td><%= review.technical_quality_score %></td>
+                                                        <td><%= review.clarity_score %></td>
+                                                        <td><%= review.impact_score %></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        <td><%= review.remarks %></td>
+                    </tr>
+                <% }) %>
+                </tbody>
             </table>
 
-            <form action="/resolve-conflit/<%=reviews.submission_id %>">
-
-                <table class="table">
-
-<tr>
-    <td>
-<textarea class="form-control" name="final_remarks" placeholder="Final Remarks"></textarea>
-</td>
-<td>
-<select class="form-select" name ="status" aria-label="Default select example" required>
-  <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
-  <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
-  <option value="Revision Required">Revision Required</option>
-  <option value="Rejected">Rejected</option>
-</select>
-</td>
-<td>
-    <button class="btn btn-success">Submit Final Decision</button>
-
-</td>
-</tr>
-
+            <form action="/resolve-conflict/<%= submission.submission_id %>/<%=submission.conference_id %>" method="POST" class="mt-4">
+                <table class="table borderless">
+                    <tr>
+                        <td>
+                            <textarea class="form-control" name="final_remarks" placeholder="Final Remarks" required></textarea>
+                        </td>
+                        <td>
+                            <select class="form-select" name="status" aria-label="Default select example" required>
+                                <option value="" disabled selected>Select Decision...</option>
+                                <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
+                                <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+                                <option value="Revision Required">Revision Required</option>
+                                <option value="Rejected">Rejected</option>
+                            </select>
+                        </td>
+                        <td class="align-middle">
+                            <button type="submit" class="btn btn-success w-100">Submit Final Decision</button>
+                        </td>
+                    </tr>
                 </table>
-
-                
-        </form>
+            </form>
+        <% } else { %>
+            <div class="alert alert-warning">No reviews found for this submission.</div>
         <% } %>
     </div>
 
-        <%- include('../partials/footer') %>
-
-    
+    <%- include('../partials/footer') %>
 </body>
 </html>

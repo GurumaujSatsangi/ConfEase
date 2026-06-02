@@ -1045,10 +1045,10 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     let revisedSubmissions = [];
     if (trackIds.length > 0) {
       const revisedResult = await pool.query(
-        `SELECT * FROM submissions 
+        `SELECT * FROM submissions s
          WHERE track_id::text = ANY($1)
-         AND submission_status = 'Submitted Revised Paper';`,
-        [trackIds]
+         AND submission_status = 'Submitted Revised Paper' AND NOT EXISTS(SELECT 1 FROM revised_submissions r where s.submission_id::text = r.submission_id::text and r.reviewer=$2::text);`,
+        [trackIds,req.user.email]
       );
       revisedSubmissions = revisedResult.rows;
     }
@@ -2522,17 +2522,8 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     // 3. Update revised_submissions table
     //
     await pool.query(
-      `UPDATE revised_submissions
-       SET review_status = 'Re-Reviewed',
-           originality_score = $1,
-           relevance_score = $2,
-           technical_quality_score = $3,
-           clarity_score = $4,
-           impact_score = $5,
-           mean_score = $6,
-           acceptance_status = $7
-       WHERE submission_id = $8;`,
-      [
+      "insert into revised_submissions(submission_id, originality_score, relevance_score,technical_quality_score, clarity_score, impact_score, mean_score, acceptance_status,review_status,reviewer) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[
+        submission_id,
         originality_score,
         relevance_score,
         technical_quality_score,
@@ -2540,7 +2531,8 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
         impact_score,
         mean_score,
         status,
-        submission_id,
+        "Re-Reviewed",
+        req.user.email,
       ]
     );
 
@@ -2549,12 +2541,12 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     //
    
 
-     await pool.query(
-      `UPDATE submissions
-       SET submission_status = $1
-       WHERE submission_id = $2;`,
-      [status,submission_id]
-    );
+    //  await pool.query(
+    //   `UPDATE submissions
+    //    SET submission_status = $1
+    //    WHERE submission_id = $2;`,
+    //   [status,submission_id]
+    // );
 
     //
     // 5. Send email notification
@@ -3757,13 +3749,13 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
     //
     // 5. If revision required → insert record for revision
     //
-    if (status === "Revision Required") {
-      await pool.query(
-        `INSERT INTO revised_submissions (submission_id) 
-         VALUES ($1) ON CONFLICT DO NOTHING;`,
-        [submission_id]
-      );
-    }
+    // if (status === "Revision Required") {
+    //   await pool.query(
+    //     `INSERT INTO revised_submissions (submission_id) 
+    //      VALUES ($1) ON CONFLICT DO NOTHING;`,
+    //     [submission_id]
+    //   );
+    // }
 
     return res.redirect("/dashboard?message=Submission has been successfully marked as reviewed.");
 
@@ -4943,6 +4935,24 @@ app.get("/chair/dashboard/resolve-conflicts/:id",checkChairAuth,async(req,res)=>
 
 })
 
+app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
+
+  const {final_remarks, status} = req.body;
+
+  const conference_id = req.params.conf_id;
+
+  const submission_id = req.params.id;
+
+  const submission = await pool.query("update submissions set remarks=$1, submission_status=$2 where submission_id=$3",[final_remarks,status,submission_id]);
+
+  if(submission){
+    return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submission Updated Succesfully!");
+  }
+
+
+
+})
+
 
 app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res) => {
   try {
@@ -5193,13 +5203,13 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
           public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
         });
 
-        //
-        // 4. Update revised_submissions file_url
-        //
-        await pool.query(
-          `UPDATE revised_submissions SET file_url = $1 WHERE submission_id = $2`,
-          [uploadResult.secure_url, submission_id]
-        );
+        // //
+        // // 4. Update revised_submissions file_url
+        // //
+        // await pool.query(
+        //   `UPDATE revised_submissions SET file_url = $1 WHERE submission_id = $2`,
+        //   [uploadResult.secure_url, submission_id]
+        // );
 
         //
         // 5. Update submissions status + file_url
