@@ -1028,17 +1028,16 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     const trackIds = tracks.map(t => t.track_id);
     let userSubmissions = [];
     if (trackIds.length > 0) {
-      const subResult = await pool.query(
-        // 1. Cast track_id to text to match the incoming string array
-        // 2. Cast both submission_ids to text to fix the JOIN mismatch
-        `SELECT * FROM submissions s 
-         WHERE track_id::text = ANY($1) 
-         AND NOT EXISTS (
-           SELECT 1 FROM peer_review p 
-           WHERE s.submission_id::text = p.submission_id::text
-         );`,
-        [trackIds]
-      );
+     const subResult = await pool.query(
+  `SELECT * FROM submissions s 
+   WHERE track_id::text = ANY($1) 
+   AND NOT EXISTS (
+     SELECT 1 FROM peer_review p 
+     WHERE s.submission_id::text = p.submission_id::text 
+     AND p.reviewer = $2::text 
+   );`,
+  [trackIds, req.user.email]
+);
       userSubmissions = subResult.rows;
     }
 
