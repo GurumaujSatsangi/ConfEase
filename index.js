@@ -999,8 +999,9 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
     // 1. Get tracks where this reviewer is assigned for this conference
     const tracksResult = await pool.query(
+      // Cast conference_id to text to prevent param mismatch
       `SELECT * FROM conference_tracks
-       WHERE conference_id = $1
+       WHERE conference_id::text = $1
        AND track_reviewers @> ARRAY[$2];`,
       [req.params.id, reviewerEmail]
     );
@@ -1012,7 +1013,7 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
     // 2. Fetch the conference
     const conferenceResult = await pool.query(
-      `SELECT * FROM conferences WHERE conference_id = $1;`,
+      `SELECT * FROM conferences WHERE conference_id::text = $1;`,
       [req.params.id]
     );
     const conference = conferenceResult.rows[0];
@@ -1028,7 +1029,14 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     let userSubmissions = [];
     if (trackIds.length > 0) {
       const subResult = await pool.query(
-        `SELECT * FROM submissions s WHERE track_id = ANY($1::uuid[]) and not exists (select 1 from peer_review p where s.submission_id = p.submission_id);`,
+        // 1. Cast track_id to text to match the incoming string array
+        // 2. Cast both submission_ids to text to fix the JOIN mismatch
+        `SELECT * FROM submissions s 
+         WHERE track_id::text = ANY($1) 
+         AND NOT EXISTS (
+           SELECT 1 FROM peer_review p 
+           WHERE s.submission_id::text = p.submission_id::text
+         );`,
         [trackIds]
       );
       userSubmissions = subResult.rows;
@@ -1039,7 +1047,7 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     if (trackIds.length > 0) {
       const revisedResult = await pool.query(
         `SELECT * FROM submissions 
-         WHERE track_id = ANY($1)
+         WHERE track_id::text = ANY($1)
          AND submission_status = 'Submitted Revised Paper';`,
         [trackIds]
       );
