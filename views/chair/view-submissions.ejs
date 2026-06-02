@@ -12,49 +12,40 @@
     <%- include('../partials/dashboard/header') %>
 
     <div class="container">
-  
-
-    
         <h4>Manage Submissions</h4>
         <h6>Conference: <%=confdata.title%></h6>
-<form
-          action="/publish/review-results"
-          method="POST"
-        >
-               <input type="hidden" name="conference_id" value="<%= confdata.conference_id %>" />
-             <% 
-  // Get current date in IST
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-  const istTime = new Date(now.getTime() + istOffset);
-  const currentDateISO = istTime.toISOString().split("T")[0];
-  
-  // Parse DD-MM-YYYY format from confdata.acceptance_notification
-  const [day, month, year] = confdata.acceptance_notification.split('-');
-  const acceptanceDateISO = `${year}-${month}-${day}`;
-  
-  // Compare ISO date strings (YYYY-MM-DD format works correctly)
-  const isNotificationDateReached = currentDateISO >= acceptanceDateISO;
-%>
+        
+        <form action="/publish/review-results" method="POST">
+          <input type="hidden" name="conference_id" value="<%= confdata.conference_id %>" />
+          <% 
+            // Get current date in IST
+            const now = new Date();
+            const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+            const istTime = new Date(now.getTime() + istOffset);
+            const currentDateISO = istTime.toISOString().split("T")[0];
+            
+            // Parse DD-MM-YYYY format from confdata.acceptance_notification
+            const [day, month, year] = confdata.acceptance_notification.split('-');
+            const acceptanceDateISO = `${year}-${month}-${day}`;
+            
+            // Compare ISO date strings (YYYY-MM-DD format works correctly)
+            const isNotificationDateReached = currentDateISO >= acceptanceDateISO;
+          %>
 
-
-
-<% if (isNotificationDateReached) { %>
-  <div class="alert alert-success mb-3">
-    <i class="bi bi-check-circle"></i> Review results can now be published!
-  </div>
-  <input type="submit" class="btn btn-outline-danger" value="Publish Review Results" />
-<% } else { %>
- 
-  <button type="button" class="btn btn-outline-secondary" disabled 
-          title="Available from <%= confdata.acceptance_notification %>">
-    <i class="bi bi-lock"></i> Publish Review Results (Available from <%= confdata.acceptance_notification %>)
-  </button>
-<% } %>
-</form>
+          <% if (isNotificationDateReached) { %>
+            <div class="alert alert-success mb-3">
+              <i class="bi bi-check-circle"></i> Review results can now be published!
+            </div>
+            <input type="submit" class="btn btn-outline-danger" value="Publish Review Results" />
+          <% } else { %>
+            <button type="button" class="btn btn-outline-secondary" disabled 
+                    title="Available from <%= confdata.acceptance_notification %>">
+              <i class="bi bi-lock"></i> Publish Review Results (Available from <%= confdata.acceptance_notification %>)
+            </button>
+          <% } %>
+        </form>
         <hr>
 
-        <!-- Search and Filter Section -->
         <div class="row mb-4">
           <div class="col-md-4">
             <div class="form-group">
@@ -95,10 +86,9 @@
           </div>
         </div>
 
-        <!-- Results Count -->
         <div class="row mb-3">
           <div class="col-12">
-            <span id="resultsCount" class="badge badge-info">
+            <span id="resultsCount" class="badge badge-info text-dark border">
               Showing <span id="visibleCount"><%= submissions ? submissions.length : 0 %></span> 
               of <span id="totalCount"><%= submissions ? submissions.length : 0 %></span> submissions
             </span>
@@ -114,126 +104,133 @@
           <% if (submissions && submissions.length > 0) { %>
             <div class="table-responsive">
               <style>
-                /* Constrain columns and force wrapping so content stays in the right column */
                 .cs-table td { vertical-align: top; padding: 12px; }
-                .cs-title { max-width: 220px; white-space: normal; word-wrap: break-word; word-break: break-word; }
-                .cs-track { max-width: 160px; white-space: normal; word-wrap: break-word; }
-                .cs-primary { max-width: 220px; white-space: normal; word-wrap: break-word; }
-                .cs-coauthors { max-width: 240px; white-space: normal; word-wrap: break-word; }
-                .cs-status { max-width: 100px; white-space: normal; }
-                .cs-reviewer { max-width: 180px; white-space: normal; word-wrap: break-word; }
-                .cs-score { max-width: 160px; white-space: normal; }
-                .cs-actions { white-space: nowrap; }
+                /* Custom accordion styling for compact tables */
+                .table-accordion .accordion-button { padding: 0.5rem 1rem; font-size: 0.9rem; }
+                .table-accordion .accordion-body { padding: 0.75rem 1rem; font-size: 0.85rem; }
               </style>
-           <div class="table-responsive">
-  <table class="table table-bordered align-middle text-wrap" style="width:100%;">
-    <thead class="table-light text-center">
-      <tr>
-        <th style="min-width:200px;">Title</th>
-        <th style="min-width:180px;">Track</th>
-        <th style="min-width:200px;">Primary Author</th>
-        <th style="min-width:200px;">Co-Authors</th>
-        <th style="min-width:120px;">Status</th>
-        <th style="min-width:200px;">Reviewer</th>
-        <th style="min-width:180px;">Score / Remarks</th>
-        <th style="min-width:150px;">View / Actions</th>
-      </tr>
-    </thead>
+              
+              <table class="table table-bordered align-middle text-wrap cs-table" style="width:100%;">
+                <thead class="table-light text-center">
+                  <tr>
+                    <th style="min-width:200px;">Title</th>
+                    <th style="min-width:180px;">Track</th>
+                    <th style="min-width:200px;">Primary Author</th>
+                    <th style="min-width:200px;">Co-Authors</th>
+                    <th style="min-width:120px;">Status</th>
+                    <th style="min-width:300px;">Review Details</th>
+                    <th style="min-width:150px;">View / Actions</th>
+                  </tr>
+                </thead>
 
-    <tbody>
-      <% submissions.forEach(function(submission) { %>
-        <tr>
-          <!-- Title -->
-          <td><%= submission.title %></td>
+                <tbody>
+                  <% submissions.forEach(function(submission) { %>
+                    <tr class="submission-item" 
+                        data-title="<%= submission.title ? submission.title.toLowerCase() : '' %>"
+                        data-track="<%= submission.track_name || '' %>"
+                        data-status="<%= submission.submission_status || '' %>"
+                        data-author="<%= submission.primary_author_formatted ? submission.primary_author_formatted.toLowerCase() : '' %>"
+                        data-coauthors="<%= submission.co_authors_formatted ? submission.co_authors_formatted.toLowerCase() : '' %>"
+                        data-papercode="<%= submission.submission_id ? submission.submission_id.toLowerCase() : '' %>">
+                      
+                      <td><%= submission.title %></td>
 
-          <!-- Track -->
-          <td><%= submission.track_name || '—' %></td>
+                      <td><%= submission.track_name || '—' %></td>
 
-          <!-- Primary Author -->
-          <td><%= submission.primary_author_formatted %></td>
+                      <td><%= submission.primary_author_formatted %></td>
 
-          <!-- Co-Authors -->
-          <td><%= submission.co_authors_formatted || '—' %></td>
+                      <td><%= submission.co_authors_formatted || '—' %></td>
 
-          <!-- Status -->
-          <td class="text-center">
-            <span class="badge 
-              <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
-                  submission.submission_status === 'Rejected' ? 'bg-danger' : 
-                  submission.submission_status === 'Reviewed' ? 'bg-warning text-dark' : 
-                  'bg-secondary' %>">
-              <%= submission.submission_status %>
-            </span>
-          </td>
+                      <td class="text-center">
+                        <span class="badge 
+                          <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
+                              submission.submission_status === 'Rejected' ? 'bg-danger' : 
+                              submission.submission_status === 'Reviewed' ? 'bg-warning text-dark' : 
+                              'bg-secondary' %>">
+                          <%= submission.submission_status %>
+                        </span>
+                      </td>
 
-          <!-- Reviewer -->
-          <td>
-            <% if (submission.reviewer_name || submission.reviewer) { %>
-              <%= submission.reviewer_name ? submission.reviewer_name + ' (' + (submission.reviewer || '') + ')' : (submission.reviewer || '') %>
-            <% } else { %>
-              <em class="text-muted">—</em>
-            <% } %>
-          </td>
+                      <td>
+                        <% if (!['Submitted for Review', 'Reviewed'].includes(submission.submission_status)) { %>
+                          <% if (submission.reviews && submission.reviews.length > 0) { %>
+                            <div class="accordion accordion-flush table-accordion border" id="accordion-<%= submission.submission_id %>">
+                              <% submission.reviews.forEach(function(review, index) { %>
+                                <div class="accordion-item">
+                                  <h2 class="accordion-header" id="heading-<%= submission.submission_id %>-<%= index %>">
+                                    <button class="accordion-button collapsed bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= submission.submission_id %>-<%= index %>" aria-expanded="false" aria-controls="collapse-<%= submission.submission_id %>-<%= index %>">
+                                      <div class="d-flex w-100 justify-content-between align-items-center me-2">
+                                        <span class="text-truncate" style="max-width: 150px;" title="<%= review.name || review.email %>">
+                                          <strong><%= review.name || 'Unknown' %></strong>
+                                        </span>
+                                        <% if (review.mean_score) { %>
+                                          <span class="badge bg-primary rounded-pill"><%= review.mean_score %></span>
+                                        <% } %>
+                                      </div>
+                                    </button>
+                                  </h2>
+                                  <div id="collapse-<%= submission.submission_id %>-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= submission.submission_id %>-<%= index %>" data-bs-parent="#accordion-<%= submission.submission_id %>">
+                                    <div class="accordion-body bg-white">
+                                      <p class="mb-1 text-muted" style="font-size: 0.8rem;"><%= review.email %></p>
+                                      <% if (review.remarks) { %>
+                                        <p class="mb-0"><strong>Remarks:</strong> <%= review.remarks %></p>
+                                      <% } else { %>
+                                        <p class="mb-0 text-muted"><em>No remarks provided.</em></p>
+                                      <% } %>
+                                    </div>
+                                  </div>
+                                </div>
+                              <% }); %>
+                            </div>
+                          <% } else { %>
+                            <em class="text-muted d-block text-center mt-2">No reviews yet</em>
+                          <% } %>
+                        <% } else { %>
+                          <div class="text-center text-muted mt-2"><i class="bi bi-eye-slash-fill"></i> Hidden</div>
+                        <% } %>
+                      </td>
 
-          <!-- Score / Remarks -->
-          <td>
-              <% if (!['Submitted for Review', 'Reviewed'].includes(submission.submission_status)) { %>
-              <% if (submission.mean_score) { %>
-                <div><strong>Score:</strong> <%= submission.mean_score %></div>
-              <% } %>
-              <% if (submission.remarks) { %>
-                <div><strong>Remarks:</strong> <%= submission.remarks %></div>
-              <% } %>
-              <% if (!submission.mean_score && !submission.remarks) { %>
-                <em class="text-muted">No reviewer details</em>
-              <% } %>
-            <% } else { %>
-              <em class="text-muted"><center><i class="bi bi-eye-slash-fill"></i></center></em>
-            <% } %>
-          </td>
-
-          <!-- View / Actions -->
-          <td class="text-center">
-            <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm mb-1">
-              <i class="bi bi-eye-fill"></i> View
-            </a>
-
-               <a  href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
-                   class="btn btn-outline-danger btn-sm"
-                   onclick="return confirm('Delete this submission? This action cannot be undone.');">
-                <i class="bi bi-trash"></i> Delete
-               </a>
-          </td>
-        </tr>
-      <% }); %>
-    </tbody>
-  </table>
-</div>
-
+                      <td class="text-center">
+                        <div class="d-grid gap-2">
+                          <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-eye-fill"></i> View
+                          </a>
+                          <a href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
+                             class="btn btn-outline-danger btn-sm"
+                             onclick="return confirm('Delete this submission? This action cannot be undone.');">
+                            <i class="bi bi-trash"></i> Delete
+                          </a>
+                          <a href="/chair/dashboard/resolve-conflicts/<%= submission.submission_id %>" target="_blank" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-diagram-3-fill"></i> Conflicts
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
             </div>
           <% } else { %>
-            <div id="noSubmissionsMessage">
-              <h6 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Submissions found.</h6>
+            <div id="noSubmissionsMessage" class="text-center my-5">
+              <h5 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Submissions found.</h5>
             </div>
           <% } %>
         </div>
 
-        <div id="noResultsMessage" style="display: none;">
-          <h6 class="text-muted"><i class="bi bi-search"></i> No submissions match your search criteria.</h6>
+        <div id="noResultsMessage" class="text-center my-5" style="display: none;">
+          <h5 class="text-muted"><i class="bi bi-search"></i> No submissions match your search criteria.</h5>
         </div>
-      </div>
-    
+    </div>
 
     <script src="/script.js"></script>
+    <%- include('../partials/footer') %>
     
-    <!-- Search and Filter JavaScript -->
     <script>
       document.addEventListener('DOMContentLoaded', function() {
         const searchInput = document.getElementById('searchInput');
         const trackFilter = document.getElementById('trackFilter');
         const statusFilter = document.getElementById('statusFilter');
         const clearFiltersBtn = document.getElementById('clearFilters');
-        const submissionsContainer = document.getElementById('submissionsContainer');
         const noResultsMessage = document.getElementById('noResultsMessage');
         const visibleCountSpan = document.getElementById('visibleCount');
         const totalCountSpan = document.getElementById('totalCount');
@@ -251,12 +248,12 @@
           let hasActiveFilters = searchTerm || selectedTrack || selectedStatus;
 
           submissionItems.forEach(item => {
-            const title = item.getAttribute('data-title');
-            const track = item.getAttribute('data-track');
-            const status = item.getAttribute('data-status');
-            const author = item.getAttribute('data-author');
-            const coauthors = item.getAttribute('data-coauthors');
-            const papercode = item.getAttribute('data-papercode');
+            const title = item.getAttribute('data-title') || '';
+            const track = item.getAttribute('data-track') || '';
+            const status = item.getAttribute('data-status') || '';
+            const author = item.getAttribute('data-author') || '';
+            const coauthors = item.getAttribute('data-coauthors') || '';
+            const papercode = item.getAttribute('data-papercode') || '';
 
             // Check search term
             const matchesSearch = !searchTerm || 
@@ -273,7 +270,7 @@
 
             // Show/hide item based on all criteria
             const isVisible = matchesSearch && matchesTrack && matchesStatus;
-            item.style.display = isVisible ? 'block' : 'none';
+            item.style.display = isVisible ? '' : 'none'; // Use empty string to retain default table row display
 
             if (isVisible) visibleCount++;
           });
@@ -314,7 +311,5 @@
         filterSubmissions();
       });
     </script>
-
-  <%- include('../partials/footer') %>
   </body>
 </html>

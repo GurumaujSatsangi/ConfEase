@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <%- include('../partials/dashboard/header') %>
+
+    <div class="container">
+
+        <h4>Resolve Conflicts</h4>
+        <h6>Submission Title: <%= submission.title %></h6><hr>
+
+
+        <% if(reviews && reviews.length>0) { %>
+
+            <table class="table">
+                <tr>
+                    <th>REVIWER</th>
+                    <th>SCORE</th>
+                    <th>REMARKS</th>
+                </tr>
+
+            <% reviews.forEach(function(reviews){ %>
+
+                <tr>
+                    <td><%= reviews.reviewer %></td>
+                    <td><%= reviews.mean_score %></td>
+                    <td><%= reviews.remarks %></td>
+                </tr>
+             
+            
+            <% }) %>
+        
+        
+            </table>
+
+            <form action="/resolve-conflit/<%=reviews.submission_id %>">
+
+                <table class="table">
+
+<tr>
+    <td>
+<textarea class="form-control" name="final_remarks" placeholder="Final Remarks"></textarea>
+</td>
+<td>
+<select class="form-select" name ="status" aria-label="Default select example" required>
+  <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
+  <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+  <option value="Revision Required">Revision Required</option>
+  <option value="Rejected">Rejected</option>
+</select>
+</td>
+<td>
+    <button class="btn btn-success">Submit Final Decision</button>
+
+</td>
+</tr>
+
+                </table>
+
+                
+        </form>
+        <% } %>
+    </div>
+
+        <%- include('../partials/footer') %>
+
+    
+</body>
+</html>

@@ -185,3 +185,15 @@ function showNewChairMessage(){
 
 }
 
+
+function showSingleBlind(){
+
+       Swal.fire({
+        title: "Single-Blind Review Model",
+        html:
+          '<p align="left"><ul align="justify"><li>Reviewers know the identity of the authors.</li><li>Authors do not know who the reviewers are.</li><li>Reviewers do not know who the other reviewers are during the evaluation process.</li></ul></p>',
+        icon: "info",
+      })
+
+}
+

@@ -4929,9 +4929,22 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
 });
 
 
-app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res) => {
-  
+app.get("/chair/dashboard/resolve-conflicts/:id",checkChairAuth,async(req,res)=>{
 
+  const submission_id = req.params.id;
+
+  const submission = await pool.query("select * from submissions where submission_id=$1",[submission_id]);
+
+  const reviews = await pool.query("select * from peer_review where submission_id=$1",[submission_id]);
+
+  if(reviews){
+    return res.render("chair/resolve-conflicts.ejs",{reviews:reviews.rows,submission:submission.rows[0]});
+  }
+
+})
+
+
+app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res) => {
   try {
     // Helper function to format dates
     const formatDate = (dateString) => {
@@ -5012,7 +5025,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res)
         : (sub.co_authors ? formatNameEmail(sub.co_authors) : "None")
     }));
 
-    // Fetch latest review details (optimized: 1 query per submission)
+    // Fetch all review details for each submission
     for (let s of submissionsWithTracks) {
       const reviewResult = await pool.query(
         `SELECT reviewer, mean_score, remarks 
@@ -5021,23 +5034,33 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth,async (req, res)
         [s.submission_id]
       );
 
-      if (reviewResult.rows.length > 0) {
-        const r = reviewResult.rows[0];
-        s.reviewer = r.reviewer;
-        s.mean_score = r.mean_score !== null ? parseFloat(r.mean_score).toFixed(2) : null;
-        s.remarks = r.remarks;
+      // Initialize an array to hold all reviews for this submission
+      s.reviews = [];
 
-        if (s.reviewer) {
-          const reviewerNameResult = await pool.query(
-            `SELECT name FROM users WHERE email = $1 LIMIT 1;`,
-            [s.reviewer]
-          );
-          s.reviewer_name = reviewerNameResult.rows[0]?.name || s.reviewer;
+      if (reviewResult.rows.length > 0) {
+        // Map through all returned review rows
+        for (let r of reviewResult.rows) {
+          let reviewerName = r.reviewer;
+
+          // Fetch the name for each specific reviewer
+          if (r.reviewer) {
+            const reviewerNameResult = await pool.query(
+              `SELECT name FROM users WHERE email = $1 LIMIT 1;`,
+              [r.reviewer]
+            );
+            if (reviewerNameResult.rows.length > 0) {
+              reviewerName = reviewerNameResult.rows[0].name;
+            }
+          }
+
+          // Push the formatted review object into the array
+          s.reviews.push({
+            email: r.reviewer,
+            name: reviewerName,
+            mean_score: r.mean_score !== null ? parseFloat(r.mean_score).toFixed(2) : null,
+            remarks: r.remarks
+          });
         }
-      } else {
-        s.reviewer = null;
-        s.mean_score = null;
-        s.remarks = null;
       }
     }
 
