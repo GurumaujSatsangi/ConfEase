@@ -1263,16 +1263,40 @@ app.get("/announcements", checkAuthOrChair, async(req,res)=>{
   res.render("announcements.ejs",{announcements:data.rows})
 })
 
+let pending_acceptance_notifications = [];
+let pending_acceptance_notifications_titles = [];
+
 app.post("/publish/review-results", checkChairAuth, async (req, res) => {
  
   const {conference_id} = req.body;
 
+
   const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
-  const authors = await pool.query("select title, submission_status, primary_author from submissions where conference_id = $1",[conference_id]);
+  const authors = await pool.query("select submission_id, title, submission_status, primary_author from submissions where conference_id = $1",[conference_id]);
+
 
   for(let i=0;i<authors.rows.length;i++){
-    await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is displayed below for your convinience. <br><br><table class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+
+    if(authors.rows[i].submission_status=="Submitted Revised Paper" || authors.rows[i].submission_status=="Submitted for Review"){
+
+      pending_acceptance_notifications[i] = authors.rows[i].submission_id;
+      pending_acceptance_notifications_titles[i] = authors.rows[i].title;
+
+    }
+    else {
+      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is displayed below for your convinience. <br><br><table class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+    }
+  }
+
+  if(pending_acceptance_notifications.length>0){
+    
+    console.log(pending_acceptance_notifications);
+
+    
+
+    return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
+
   }
 
   return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Acceptance Notification Published!");
@@ -4853,7 +4877,11 @@ app.get("/chair/dashboard/resolve-conflicts/:id",checkChairAuth,async(req,res)=>
 
   const submission_id = req.params.id;
 
-  const submission = await pool.query("select * from submissions where submission_id=$1",[submission_id]);
+  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2 or submission_status=$3 ",[submission_id,'Submitted for Review','Submitted Revised Paper']);
+
+  if(!submission || submission.rows.length==0){
+    return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission!");
+  }
 
   const reviews = await pool.query("select * from peer_review where submission_id=$1",[submission_id]);
 
@@ -4893,6 +4921,9 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
       const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
+
+
+    // const revised_submissions = await pool.query("select * from revised_submissions where conference_id=$1",[req.params.id]);
 
     // Fetch submissions
     const submissionsResult = await pool.query(
@@ -5004,6 +5035,20 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
 
     const uniqueStatuses = [...new Set(submissions.map(sub => sub.submission_status))];
 
+    // if(revised_submissions.rows){
+
+    //   res.render("chair/view-submissions.ejs", {
+    //   user: req.user,
+    //   submissions: submissionsWithTracks,
+    //   tracks,
+    //   uniqueStatuses,
+    //   conferencedata: req.params.id,
+    //   confdata,
+    //   message: req.query.message || "There are Re-Review Conflicts that have to be resolved. Please set the 'Status' filter to 'Submitted Revised Paper' to view such submissions.",
+    // })
+      
+    // }
+
     res.render("chair/view-submissions.ejs", {
       user: req.user,
       submissions: submissionsWithTracks,
@@ -5013,7 +5058,6 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
       confdata,
       message: req.query.message || null,
     });
-
   } catch (err) {
     console.error("Error in chair view submissions:", err);
     return res.status(500).send("Error fetching data.");

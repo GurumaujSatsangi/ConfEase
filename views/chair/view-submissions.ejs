@@ -44,6 +44,9 @@
             </button>
           <% } %>
         </form>
+
+      
+
         <hr>
 
         <div class="row mb-4">
@@ -149,7 +152,13 @@
                               'bg-secondary' %>">
                           <%= submission.submission_status %>
                         </span>
-                      </td>
+
+                        <% if(submission.submission_status=='Submitted Revised Paper') { %>
+
+                          <a class="small" href="/chair/dashboard/resolve-re-review-conflict/<%= submission.conference_id %>">Resolve Re-Review Conflicts</a>
+                        
+                        <% } %>
+                       </td>
 
                       <td>
                         <% if (!['Submitted for Review', 'Reviewed'].includes(submission.submission_status)) { %>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+    <title>DEI CMT | Pending Acceptance Notifications</title>
+</head>
+<body>
+
+    <%- include('../partials/dashboard/header') %>
+
+    <div class="container">
+
+        <h4>Pending Acceptance Notification</h4>
+        <h6>Acceptance Notification was not sent to the authors of the following submissions because the status of these submissions is either 'Submitted for Review' or 'Submitted Revised Paper'.</h6>
+        <hr>
+<% if(pending_acceptance_notifications.length>0){ %>
+
+        <ul>
+
+        <% pending_acceptance_notifications.forEach(function(pending_acceptance_notifications){ %>
+
+
+        <li>Submission ID: <a target="_blank" href="/chair/dashboard/resolve-conflicts/<%= pending_acceptance_notifications %>"><%= pending_acceptance_notifications %></a></li>
+        
+        <% }) %>
+    
+        </ul>
+    <% } %>
+
+
+    </div>
+    <%- include('../partials/footer') %>
+
+    <script src="/script.js"></script>
+</body>
+</html>
