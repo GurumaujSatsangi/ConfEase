@@ -112,12 +112,16 @@
             <table class="table">
                 <tr>
                     <th>Title</th>
+                    <th>Created By</th>
+                    <th>Action</th>
                 </tr>
 
             <% conferences.forEach(function(conferences){ %>
             
             <tr>
                 <td><%= conferences.title%></td>
+                <td><%= conferences.created_by %></td>
+                <td><a href="" class="btn btn-danger">Terminate Conference</a></td>
             </tr>
             
             <% }) %>

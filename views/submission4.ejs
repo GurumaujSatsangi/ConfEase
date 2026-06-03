@@ -5,12 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DEI CMT</title>
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon" />
-
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <!-- MDB -->
-
     <%- include('partials/dashboard/header') %>
     <div class="container">
       
@@ -24,189 +21,279 @@
         method="POST"
         enctype="multipart/form-data"
       >
-        <div class="form-group">
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.submission_id %>"
-            name="id"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
+        <input type="hidden" value="<%= submission.submission_id %>" name="id" id="submissionId" />
+        <input type="hidden" value="<%= submission.conference_id %>" name="confid" />
+        <input type="hidden" value="<%= submission.title %>" name="title" />
+        <input type="hidden" value="<%= submission.abstract %>" name="abstract" />
+        <input type="hidden" value="<%= submission.track_id %>" name="areas" />
+        <input type="hidden" value="<%= submission.co_authors %>" name="co_authors" />
 
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.conference_id %>"
-            name="confid"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
-
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.title %>"
-            name="title"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
-
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.abstract %>"
-            name="abstract"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
-
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.track_id %>"
-            name="areas"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
-
-          <input
-            type="text"
-            readonly
-            hidden
-            value="<%=submission.co_authors %>"
-            name="co_authors"
-            class="form-control"
-            id="exampleInputEmail1"
-            aria-describedby="emailHelp"
-            placeholder=""
-          />
-        </div>
-
-        <table class="table table-bordered">
-          <tbody>
-            <tr>
-              <th>Title</th>
-              <td><%= submission.title %></td>
-            </tr>
-            <tr>
-              <th>Abstract</th>
-              <td><%= submission.abstract %></td>
-            </tr>
-            <tr>
-              <th>Track/Area</th>
-              <td><%= submission.track_name %></td>
-            </tr>
-            <tr>
-              <th>Co-Authors</th>
-              <td><%= submission.co_authors || 'None' %></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Reviewer Remarks Section -->
         <div class="mt-4">
           <h5>Reviewer Feedback</h5>
-          <% if (reviewerRemarks && reviewerRemarks.length > 0) { %>
-            <div class="table-responsive mb-4">
-              <table class="table table-bordered table-striped">
-                <thead class="table-light">
-                  <tr>
-                    <th>Reviewer</th>
-                    <th>Originality</th>
-                    <th>Relevance</th>
-                    <th>Technical Quality</th>
-                    <th>Clarity</th>
-                    <th>Impact</th>
-                    <th>Mean Score</th>
-                    <th>Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% reviewerRemarks.forEach(function(review, index) { %>
-                    <tr>
-                      <td><strong>Reviewer <%= index + 1 %></strong></td>
-                      <td><%= review.originality_score || '-' %> / 5</td>
-                      <td><%= review.relevance_score || '-' %> / 5</td>
-                      <td><%= review.technical_quality_score || '-' %> / 5</td>
-                      <td><%= review.clarity_score || '-' %> / 5</td>
-                      <td><%= review.impact_score || '-' %> / 5</td>
-                      <td><strong><%= review.mean_score ? review.mean_score.toFixed(2) : '-' %> / 5</strong></td>
-                      <td><strong><%= review.remarks %></strong></td>
 
-                    </tr>
-                  <% }); %>
-                </tbody>
-              </table>
+          <% if (reviewerRemarks && reviewerRemarks.length > 0) { %>
+            <div class="accordion" id="reviewFeedbackAccordion">
+              <% reviewerRemarks.forEach((review, index) => { %>
+                <div class="accordion-item">
+                  <h2 class="accordion-header" id="heading<%= index %>">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#review<%= index %>" aria-expanded="false" aria-controls="review<%= index %>">
+                      <strong>Reviewer <%= index + 1 %></strong>
+                      <% if (review.mean_score) { %>
+                        <span class="badge bg-secondary ms-2">Score: <%= review.mean_score.toFixed(2) %>/5</span>
+                      <% } %>
+                    </button>
+                  </h2>
+                  <div id="review<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading<%= index %>" data-bs-parent="#reviewFeedbackAccordion">
+                    <div class="accordion-body">
+                      <div class="row mb-3">
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Originality</th>
+                              <td>
+                                <% if (review.originality_score) { %>
+                                  <span class="badge bg-info"><%= review.originality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Relevance</th>
+                              <td>
+                                <% if (review.relevance_score) { %>
+                                  <span class="badge bg-info"><%= review.relevance_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Technical Quality</th>
+                              <td>
+                                <% if (review.technical_quality_score) { %>
+                                  <span class="badge bg-info"><%= review.technical_quality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Clarity</th>
+                              <td>
+                                <% if (review.clarity_score) { %>
+                                  <span class="badge bg-info"><%= review.clarity_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Impact</th>
+                              <td>
+                                <% if (review.impact_score) { %>
+                                  <span class="badge bg-info"><%= review.impact_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Mean Score</th>
+                              <td>
+                                <% if (review.mean_score) { %>
+                                  <span class="badge bg-success"><%= review.mean_score.toFixed(2) %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                      </div>
+                      <div class="mt-3">
+                        <h6><strong>Remarks</strong></h6>
+                        <div class="p-3 bg-light rounded">
+                          <% if (review.remarks && review.remarks.trim() !== '') { %>
+                            <%= review.remarks %>
+                          <% } else { %>
+                            <span class="text-muted"><em>No remarks provided by the reviewer.</em></span>
+                          <% } %>
+                        </div>
+                      </div>
+
+                       <div class="mt-3">
+                        <h6><strong>Acceptance Decision</strong></h6>
+                        <div class="p-3 bg-light rounded">
+                          <% if (review.acceptance_status) { %>
+                            <%= review.acceptance_status %>
+                          <% } else { %>
+                            <span class="text-muted"><em>No acceptance decision provided by the reviewer.</em></span>
+                          <% } %>
+                        </div>
+                      </div>
+
+
+                    </div>
+                  </div>
+                </div>
+              <% }); %>
             </div>
           <% } else { %>
-            <div class="alert alert-info">
-              <i class="bi bi-info-circle"></i> No reviewer feedback available for this submission.
+            <div class="alert alert-warning">
+              <i class="bi bi-exclamation-triangle"></i> No reviewer feedback available yet. Please check back later.
             </div>
           <% } %>
         </div>
 
-        <!-- Revised Submission Feedback Section (if exists) -->
-        <% if (revisedSubmissionData && revisedSubmissionData.originality_score) { %>
+        <% if (revisedSubmissionData && revisedSubmissionData.length > 0) { %>
           <div class="mt-4">
             <h5>Re-Review Feedback (After Revision)</h5>
-            <div class="table-responsive">
-              <table class="table table-bordered table-striped">
-                <thead class="table-light bg-success text-white">
-                  <tr>
-                    <th>Re-Reviewer</th>
-                    <th>Originality</th>
-                    <th>Relevance</th>
-                    <th>Technical Quality</th>
-                    <th>Clarity</th>
-                    <th>Impact</th>
-                    <th>Mean Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>Re-Review</strong></td>
-                    <td><%= revisedSubmissionData.originality_score %> / 5</td>
-                    <td><%= revisedSubmissionData.relevance_score %> / 5</td>
-                    <td><%= revisedSubmissionData.technical_quality_score %> / 5</td>
-                    <td><%= revisedSubmissionData.clarity_score %> / 5</td>
-                    <td><%= revisedSubmissionData.impact_score %> / 5</td>
-                    <td><strong><%= revisedSubmissionData.mean_score.toFixed(2) %> / 5</strong></td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="accordion" id="revisedFeedbackAccordion">
+              <% revisedSubmissionData.forEach((revisedData, index) => { %>
+                <div class="accordion-item">
+                  <h2 class="accordion-header" id="headingRevised<%= index %>">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#revisedReview<%= index %>" aria-expanded="false" aria-controls="revisedReview<%= index %>">
+                      <strong>Re-Reviewer <%= index + 1 %></strong>
+                      <% if (revisedData.mean_score) { %>
+                        <span class="badge bg-secondary ms-2">Score: <%= revisedData.mean_score.toFixed(2) %>/5</span>
+                      <% } %>
+                    </button>
+                  </h2>
+                  <div id="revisedReview<%= index %>" class="accordion-collapse collapse" aria-labelledby="headingRevised<%= index %>" data-bs-parent="#revisedFeedbackAccordion">
+                    <div class="accordion-body">
+                      <div class="row mb-3">
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Originality</th>
+                              <td>
+                                <% if (revisedData.originality_score) { %>
+                                  <span class="badge bg-info"><%= revisedData.originality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Relevance</th>
+                              <td>
+                                <% if (revisedData.relevance_score) { %>
+                                  <span class="badge bg-info"><%= revisedData.relevance_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Technical Quality</th>
+                              <td>
+                                <% if (revisedData.technical_quality_score) { %>
+                                  <span class="badge bg-info"><%= revisedData.technical_quality_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                        <div class="col-md-6">
+                          <table class="table table-sm">
+                            <tr>
+                              <th>Clarity</th>
+                              <td>
+                                <% if (revisedData.clarity_score) { %>
+                                  <span class="badge bg-info"><%= revisedData.clarity_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Impact</th>
+                              <td>
+                                <% if (revisedData.impact_score) { %>
+                                  <span class="badge bg-info"><%= revisedData.impact_score %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Mean Score</th>
+                              <td>
+                                <% if (revisedData.mean_score) { %>
+                                  <span class="badge bg-success"><%= revisedData.mean_score.toFixed(2) %>/5</span>
+                                <% } else { %>
+                                  <span class="text-muted">N/A</span>
+                                <% } %>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+                      </div>
+                      <div class="mt-3">
+                        <h6><strong>Remarks</strong></h6>
+                        <div class="p-3 bg-light rounded">
+                          <% if (revisedData.remarks && revisedData.remarks.trim() !== '') { %>
+                            <%= revisedData.remarks %>
+                          <% } else { %>
+                            <span class="text-muted"><em>No remarks provided by the reviewer.</em></span>
+                          <% } %>
+                        </div>
+                      </div>
+
+                      <div class="mt-3">
+                        <h6><strong>Acceptance Decision</strong></h6>
+                        <div class="p-3 bg-light rounded">
+                          <% if (revisedData.acceptance_status) { %>
+                            <%= revisedData.acceptance_status %>
+                          <% } else { %>
+                            <span class="text-muted"><em>No acceptance status provided by the reviewer.</em></span>
+                          <% } %>
+                        </div>
+                      </div>
+
+
+                    </div>
+                  </div>
+                </div>
+              <% }); %>
             </div>
           </div>
         <% } %>
 
-        <div class="form-group">
-          <label for="exampleFormControlFile1"
-            >Upload Final Camera Ready Paper
+        <h5 >Final Chair Decision: <span style="color:green"><%= submission.submission_status %></span></h5>
+<hr>
+        <div class="form-group mt-4">
+          <label for="cameraReadyFile" class="form-label">
+            <strong>Upload Final Camera Ready Paper</strong>
+            <span class="text-danger">*</span>
           </label>
-          <input type="file" required class="form-control" name="file" />
+          <input 
+            type="file" 
+            required 
+            class="form-control" 
+            name="file"
+            id="cameraReadyFile"
+            accept=".pdf,.doc,.docx"
+          />
           <small class="form-text text-muted">Maximum file size: 4MB</small>
         </div>
-        <input type="submit" class="btn btn-outline-primary" value="Submit" />
+
+        <div class="mt-4">
+          <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-upload"></i> Submit Final Camera Ready Paper
+          </button>
+        </div>
       </form>
       <div class="container px-5 my-5"></div>
       <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
 
-      <!-- Spinner Modal -->
       <div
         class="modal fade"
         id="loadingModal"

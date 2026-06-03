@@ -1273,7 +1273,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
-  const authors = await pool.query("select submission_id, title, submission_status, primary_author from submissions where conference_id = $1",[conference_id]);
+  const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors from submissions where conference_id = $1",[conference_id]);
 
 
   for(let i=0;i<authors.rows.length;i++){
@@ -1285,9 +1285,10 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
     }
     else {
-      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is displayed below for your convinience. <br><br><table class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
     }
   }
+
 
   if(pending_acceptance_notifications.length>0){
     
@@ -2994,17 +2995,9 @@ app.post("/auth/refresh", handleRefresh);
 app.get("/admin", async(req,res)=>{
 
 
-  const locked_seat = await client.get("S-101");
-
-  if(locked_seat){
-    var lock = true;
-  }
-
-
-
 const chairs = await pool.query("select * from chairs");
 const conferences = await pool.query("select * from conferences");
-res.render("admin",{chairs:chairs.rows,conferences:conferences,message:req.query.message || null, lock});
+res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null});
 })
 
 app.post("/create-chair-credentials",async(req,res)=>{
@@ -4547,11 +4540,11 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     // 4. Fetch revised submission if exists
     let revisedSubmissionData = null;
     const revisedResult = await pool.query(
-      `SELECT * FROM revised_submissions WHERE submission_id = $1 LIMIT 1;`,
+      `SELECT * FROM revised_submissions WHERE submission_id = $1;`,
       [req.params.id]
     );
     if (revisedResult.rows.length > 0) {
-      revisedSubmissionData = revisedResult.rows[0];
+      revisedSubmissionData = revisedResult.rows;
       console.log("Revised submission found:", revisedSubmissionData);
     } else {
       console.log("No revised submission found for:", req.params.id);
