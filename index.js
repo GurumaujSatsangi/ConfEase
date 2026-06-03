@@ -3915,6 +3915,15 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 
     const conferenceRaw = conferenceResult.rows[0];
 
+
+    const currentDate = getCurrentDateIST();
+      const deadline = formatDateISO(conferenceRaw.full_paper_submission);
+
+      // Check if current date is AFTER the deadline (not on the deadline day)
+      if (currentDate > deadline) {
+        return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
+      }
+
     if (!conferenceRaw) {
       return res.status(404).send("Conference not found.");
     }
@@ -4214,6 +4223,8 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
       return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
     }
     
+   
+
 
   try {
     // Helper function to format dates
@@ -4232,7 +4243,18 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
       [req.params.id]
     );
 
+
+
     const conferenceRaw = conferenceResult.rows[0];
+
+
+     const currentDate = getCurrentDateIST();
+      const deadline = formatDateISO(conferenceRaw.full_paper_submission);
+
+      // Check if current date is AFTER the deadline (not on the deadline day)
+      if (currentDate > deadline) {
+        return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
+      }
 
     if (!conferenceRaw) {
       return res.status(404).send("Conference not found.");
@@ -4308,6 +4330,14 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
       [conferenceId]
     );
     const conferenceRaw = conferenceResult.rows[0];
+
+     const currentDate = getCurrentDateIST();
+      const deadline = formatDateISO(conferenceRaw.full_paper_submission);
+
+      // Check if current date is AFTER the deadline (not on the deadline day)
+      if (currentDate > deadline) {
+        return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
+      }
 
     if (!conferenceRaw) {
       return res.status(404).send("Conference not found.");
@@ -4568,6 +4598,8 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
       }
     }
 
+  
+
     // 7. Status-based access restrictions
     if (submission.submission_status === "Submitted for Review") {
       return res.redirect("/dashboard?message=Your submission is under review.");
@@ -4577,6 +4609,9 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     }
     if (submission.submission_status === "Submitted Final Camera Ready Paper") {
       return res.redirect("/dashboard?message=You have already submitted the final camera ready paper.");
+    }
+    if(submission.submission_status === "Presentation Completed") {
+      return res.redirect("/dashboard?message=You have already submitted your Final Camera Ready Paper and your Presentation is also over.")
     }
 
     // 8. Render page
