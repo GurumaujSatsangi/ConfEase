@@ -2479,7 +2479,7 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     // 3. Update revised_submissions table
     //
     await pool.query(
-      "insert into revised_submissions(submission_id, originality_score, relevance_score,technical_quality_score, clarity_score, impact_score, mean_score, acceptance_status,review_status,reviewer) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[
+      "insert into revised_submissions(submission_id, originality_score, relevance_score,technical_quality_score, clarity_score, impact_score, mean_score, acceptance_status,review_status,reviewer,remarks) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[
         submission_id,
         originality_score,
         relevance_score,
@@ -2488,8 +2488,9 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
         impact_score,
         mean_score,
         status,
-        "Re-Reviewed",
+        "Re-Reviewed",  
         req.user.email,
+        remarks
       ]
     );
 
@@ -4907,16 +4908,16 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
 app.get("/chair/dashboard/resolve-re-review-conflicts/:id",checkChairAuth,async(req,res)=>{
 
   const submission_id = req.params.id;
-  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2 or submission_status=$3",[submission_id,'Submitted for Review','Submitted Revised Paper']);
+  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2",[submission_id,'Submitted Revised Paper']);
 
-  if(submission || submission.rows.length==0){
+  if(!submission || submission.rows.length==0){
     return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission");
   }
 
   const re_reviews = await pool.query("select * from revised_submissions where submission_id=$1",[submission_id]);
 
   if(re_reviews){
-    return res.render("chair/re-review-conflicts.ejs",{re_reviews:re_reviews.rows[0],submission:submission.rows[0]});
+    return res.render("chair/re-review-conflicts.ejs",{re_reviews:re_reviews.rows,submission:submission.rows[0]});
   }
 
 })
