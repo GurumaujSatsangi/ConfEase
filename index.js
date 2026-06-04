@@ -4904,6 +4904,22 @@ app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
   }
 });
 
+app.get("/chair/dashboard/resolve-re-review-conflicts/:id",checkChairAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2 or submission_status=$3",[submission_id,'Submitted for Review','Submitted Revised Paper']);
+
+  if(submission || submission.rows.length==0){
+    return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission");
+  }
+
+  const re_reviews = await pool.query("select * from revised_submissions where submission_id=$1",[submission_id]);
+
+  if(re_reviews){
+    return res.render("chair/re-review-conflicts.ejs",{re_reviews:re_reviews.rows[0],submission:submission.rows[0]});
+  }
+
+})
 
 app.get("/chair/dashboard/resolve-conflicts/:id",checkChairAuth,async(req,res)=>{
 
@@ -5448,9 +5464,11 @@ console.log(confidence);
         ]
       );
 
+      const conference_data = await pool.query("select * from conferences where conference_id=$1",[id]); 
+
     	await client.del(req.user.email+"_submissions");
 
-      await sendMail(req.user.email,"Paper Submitted | "+title,"Hi, Your paper titled "+title+" has been submitted succesfully and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+      await sendMail(req.user.email,"Paper Submitted | "+title,null,"Hi, <br><br>Your paper titled <b>"+title+"</b> has been submitted succesfully for <b>"+conference_data.rows[0].title+"</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
       return res.redirect("/dashboard?message=Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
