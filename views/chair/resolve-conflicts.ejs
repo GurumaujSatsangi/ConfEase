@@ -5,93 +5,185 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Resolve Conflicts</title>
     <link rel="stylesheet" href="/styles.css">
-    </head>
+</head>
 <body>
     <%- include('../partials/dashboard/header') %>
 
     <div class="container mt-4">
-        <h4>Resolve Conflicts</h4>
-        <h6>Submission Title: <%= submission.title %></h6>
-        <hr>
+        <% const currentData = submission || submission2; %>
 
-        <% if(reviews && reviews.length > 0) { %>
-            <table class="table table-bordered align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>REVIEWER</th>
-                        <th>SCORE</th>
-                        <th>REMARKS</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <% reviews.forEach(function(review, index){ %>
-                    <tr>
-                        <td><%= review.reviewer %></td>
-                        <td>
-                            <div class="accordion" id="accordion-<%= index %>">
-                                <div class="accordion-item">
-                                    <h2 class="accordion-header" id="heading-<%= index %>">
-                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= index %>" aria-expanded="false" aria-controls="collapse-<%= index %>">
-                                            <%= review.mean_score %> &nbsp; <span class="small text-muted">(Click to expand)</span>
-                                        </button>
-                                    </h2>
-                                    <div id="collapse-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= index %>" data-bs-parent="#accordion-<%= index %>">
-                                        <div class="accordion-body p-0">
-                                            <table class="table table-sm m-0 text-center">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Originality</th>
-                                                        <th>Relevance</th>
-                                                        <th>Technical</th>
-                                                        <th>Clarity</th>
-                                                        <th>Impact</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr>
-                                                        <td><%= review.originality_score %></td>
-                                                        <td><%= review.relevance_score %></td>
-                                                        <td><%= review.technical_quality_score %></td>
-                                                        <td><%= review.clarity_score %></td>
-                                                        <td><%= review.impact_score %></td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+        <% if(currentData) { %>
+            <h3 style="color:blue"><%= currentData.title %></h3>
+        <% } %>
+
+        <% if(submission) { %>
+            <h4>Resolve Conflicts</h4>
+            <hr>
+
+            <% if(reviews && reviews.length > 0) { %>
+                <table class="table table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>REVIEWER</th>
+                            <th>SCORE</th>
+                            <th>REMARKS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <% reviews.forEach(function(review, index){ %>
+                        <tr>
+                            <td><%= review.reviewer %></td>
+                            <td>
+                                <div class="accordion" id="accordion-rev-<%= index %>">
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="heading-rev-<%= index %>">
+                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-rev-<%= index %>" aria-expanded="false" aria-controls="collapse-rev-<%= index %>">
+                                                <%= review.mean_score %> &nbsp; <span class="small text-muted">(Click to expand)</span>
+                                            </button>
+                                        </h2>
+                                        <div id="collapse-rev-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-rev-<%= index %>" data-bs-parent="#accordion-rev-<%= index %>">
+                                            <div class="accordion-body p-0">
+                                                <table class="table table-sm m-0 text-center">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Originality</th>
+                                                            <th>Relevance</th>
+                                                            <th>Technical</th>
+                                                            <th>Clarity</th>
+                                                            <th>Impact</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr>
+                                                            <td><%= review.originality_score %></td>
+                                                            <td><%= review.relevance_score %></td>
+                                                            <td><%= review.technical_quality_score %></td>
+                                                            <td><%= review.clarity_score %></td>
+                                                            <td><%= review.impact_score %></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </td>
-                        <td><%= review.remarks %></td>
-                    </tr>
-                <% }) %>
-                </tbody>
-            </table>
-
-            <form action="/resolve-conflict/<%= submission.submission_id %>/<%=submission.conference_id %>" method="POST" class="mt-4">
-                <table class="table borderless">
-                    <tr>
-                        <td>
-                            <textarea class="form-control" name="final_remarks" placeholder="Final Remarks" required></textarea>
-                        </td>
-                        <td>
-                            <select class="form-select" name="status" aria-label="Default select example" required>
-                                <option value="" disabled selected>Select Decision...</option>
-                                <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
-                                <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
-                                <option value="Revision Required">Revision Required</option>
-                                <option value="Rejected">Rejected</option>
-                            </select>
-                        </td>
-                        <td class="align-middle">
-                            <button type="submit" class="btn btn-success w-100">Submit Final Decision</button>
-                        </td>
-                    </tr>
+                            </td>
+                            <td><%= review.remarks %></td>
+                        </tr>
+                    <% }) %>
+                    </tbody>
                 </table>
-            </form>
-        <% } else { %>
-            <div class="alert alert-warning">No reviews found for this submission.</div>
+
+                <form action="/resolve-conflict/<%= currentData.submission_id %>/<%= currentData.conference_id %>" method="POST" class="mt-4">
+                    <table class="table borderless">
+                        <tr>
+                            <td>
+                                <textarea class="form-control" name="final_remarks" placeholder="Final Remarks" required></textarea>
+                            </td>
+                            <td>
+                                <select class="form-select" name="status" aria-label="Default select example" required>
+                                    <option value="" disabled selected>Select Decision...</option>
+                                    <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
+                                    <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+                                    <option value="Revision Required">Revision Required</option>
+                                    <option value="Rejected">Rejected</option>
+                                </select>
+                            </td>
+                            <td class="align-middle">
+                                <button type="submit" class="btn btn-success w-100">Submit Final Decision</button>
+                            </td>
+                        </tr>
+                    </table>
+                </form>
+            <% } else { %>
+                <div class="alert alert-warning">No reviews found for this submission.</div>
+            <% } %>
         <% } %>
+
+        <% if(submission2) { %>
+            <h4 class="mt-5">Resolve Conflicts (Re-Review)</h4>
+            <hr>
+
+            <% if(re_reviews && re_reviews.length > 0) { %>
+                <table class="table table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>REVIEWER</th>
+                            <th>SCORE</th>
+                            <th>REMARKS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <% re_reviews.forEach(function(re_review, index){ %>
+                        <tr>
+                            <td><%= re_review.reviewer %></td>
+                            <td>
+                                <div class="accordion" id="accordion-rerev-<%= index %>">
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="heading-rerev-<%= index %>">
+                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-rerev-<%= index %>" aria-expanded="false" aria-controls="collapse-rerev-<%= index %>">
+                                                <%= re_review.mean_score %> &nbsp; <span class="small text-muted">(Click to expand)</span>
+                                            </button>
+                                        </h2>
+                                        <div id="collapse-rerev-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-rerev-<%= index %>" data-bs-parent="#accordion-rerev-<%= index %>">
+                                            <div class="accordion-body p-0">
+                                                <table class="table table-sm m-0 text-center">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Originality</th>
+                                                            <th>Relevance</th>
+                                                            <th>Technical</th>
+                                                            <th>Clarity</th>
+                                                            <th>Impact</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr>
+                                                            <td><%= re_review.originality_score %></td>
+                                                            <td><%= re_review.relevance_score %></td>
+                                                            <td><%= re_review.technical_quality_score %></td>
+                                                            <td><%= re_review.clarity_score %></td>
+                                                            <td><%= re_review.impact_score %></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><%= re_review.remarks %></td>
+                        </tr>
+                    <% }) %>
+                    </tbody>
+                </table>
+
+                <form action="/resolve-re-review-conflicts/<%= currentData.submission_id %>/<%= currentData.conference_id %>" method="POST" class="mt-4">
+                    <table class="table borderless">
+                        <tr>
+                            <td>
+                                <textarea class="form-control" name="final_remarks" placeholder="Final Remarks" required></textarea>
+                            </td>
+                            <td>
+                                <select class="form-select" name="status" aria-label="Default select example" required>
+                                    <option value="" disabled selected>Select Decision...</option>
+                                    <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
+                                    <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+                                    <option value="Revision Required">Revision Required</option>
+                                    <option value="Rejected">Rejected</option>
+                                </select>
+                            </td>
+                            <td class="align-middle">
+                                <button type="submit" class="btn btn-success w-100">Submit Final Decision</button>
+                            </td>
+                        </tr>
+                    </table>
+                </form>
+            <% } else { %>
+                <div class="alert alert-warning">No re-reviews found for this submission.</div>
+            <% } %>
+        <% } %>
+
     </div>
 
     <%- include('../partials/footer') %>

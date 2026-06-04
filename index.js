@@ -2565,7 +2565,7 @@ app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res
   const data = await pool.query("update submissions set submission_status=$1, remarks=$2 where submission_id=$3 returning *",[status,final_remarks,submission_id]);
 
   if(data.rows[0]){
-    return res.redirect("/chair/dashboard/view-submission/"+conference_id+"?message=Submitted Final Decision!")
+    return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submitted Final Decision!")
   }
 
 })
@@ -4938,23 +4938,66 @@ app.get("/chair/dashboard/resolve-re-review-conflicts/:id",checkChairAuth,async(
 
 })
 
-app.get("/chair/dashboard/resolve-conflicts/:id",checkChairAuth,async(req,res)=>{
+app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, res) => {
+  try {
+    const submission_id = req.params.id;
 
-  const submission_id = req.params.id;
+    // 1. Fetch the submission once
+    const result = await pool.query(
+      "SELECT * FROM submissions WHERE submission_id = $1", 
+      [submission_id]
+    );
 
-  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2 or submission_status=$3 ",[submission_id,'Submitted for Review','Submitted Revised Paper']);
+    // 2. Check if it exists at all
+    if (result.rows.length === 0) {
+      return res.redirect("/chair/dashboard?message=Submission not found!");
+    }
 
-  if(!submission || submission.rows.length==0){
-    return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission!");
+    const currentData = result.rows[0];
+    const status = currentData.submission_status;
+
+    // 3. Define a base payload with null fallbacks so the EJS template doesn't crash
+    const renderPayload = {
+      submission: null,
+      submission2: null,
+      reviews: null,
+      re_reviews: null
+    };
+
+    // 4. Handle based on the specific status
+    if (status === 'Submitted for Review') {
+        const reviews = await pool.query(
+          "SELECT * FROM peer_review WHERE submission_id = $1", 
+          [submission_id]
+        );
+        
+        renderPayload.submission = currentData;
+        renderPayload.reviews = reviews.rows;
+        
+        return res.render("chair/resolve-conflicts.ejs", renderPayload);
+
+    } else if (status === 'Submitted Revised Paper') {
+        const re_reviews = await pool.query(
+          "SELECT * FROM revised_submissions WHERE submission_id = $1", 
+          [submission_id]
+        );
+        
+        renderPayload.submission2 = currentData;
+        renderPayload.re_reviews = re_reviews.rows;
+        
+        return res.render("chair/resolve-conflicts.ejs", renderPayload);
+
+    } else {
+        // 5. If it's neither of the above statuses, a decision was likely already made
+        return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission!");
+    }
+
+  } catch (error) {
+    // 6. Catch any database errors
+    console.error("Error fetching conflict resolution data:", error);
+    return res.status(500).send("Internal Server Error");
   }
-
-  const reviews = await pool.query("select * from peer_review where submission_id=$1",[submission_id]);
-
-  if(reviews){
-    return res.render("chair/resolve-conflicts.ejs",{reviews:reviews.rows,submission:submission.rows[0]});
-  }
-
-})
+});
 
 app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
 

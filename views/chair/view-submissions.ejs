@@ -201,17 +201,22 @@
 
                       <td class="text-center">
                         <div class="d-grid gap-2">
-                          <a href="<%= submission.file_url %>" target="_blank" class="btn btn-outline-primary btn-sm">
+                          <a href="<%= submission.file_url %>" target="_blank" class="btn btn-primary btn-sm">
                             <i class="bi bi-eye-fill"></i> View
                           </a>
                           <a href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
-                             class="btn btn-outline-danger btn-sm"
+                             class="btn btn-danger btn-sm"
                              onclick="return confirm('Delete this submission? This action cannot be undone.');">
                             <i class="bi bi-trash"></i> Delete
                           </a>
-                          <a href="/chair/dashboard/resolve-conflicts/<%= submission.submission_id %>" target="_blank" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-diagram-3-fill"></i> Conflicts
+                          <% if(submission.submission_status!='Submitted for Review' || submission.submission_status!='Submite Revised Paper') { %>
+                          <p class="small" style="color:green"><i class="bi bi-check2-circle"></i> Submitted Final Decision</p>
+                          <% } else { %>
+ <a href="/chair/dashboard/resolve-conflicts/<%= submission.submission_id %>" target="_blank" class="btn btn-success btn-sm">
+                             Final Decision
                           </a>
+                            <% } %>
+                         
                         </div>
                       </td>
                     </tr>
