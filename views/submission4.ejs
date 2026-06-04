@@ -267,7 +267,21 @@
           </div>
         <% } %>
 
-        <h5 >Final Chair Decision: <span style="color:green"><%= submission.submission_status %></span></h5>
+    
+
+        <h5 >Final Chair Feedback:</h5>
+
+        <table class="table">
+          <tr>
+            <th>Acceptance Decision</th>
+            <th>Remarks</th>
+          </tr>
+          <tr>
+            <td><span style="color:green"><%= submission.submission_status %></span></td>
+            <td><%= submission.remarks %></td>
+          </tr>
+        </table>
+
 <hr>
         <div class="form-group mt-4">
           <label for="cameraReadyFile" class="form-label">

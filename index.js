@@ -941,6 +941,9 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
   const conference_id = req.params.conference_id;
   const submission_id = req.params.submission_id;
 
+      await client.del(req.user.email+"_submissions");
+
+
   if (!Number.isInteger(score)) {
     return res.redirect("/score-posters/" + conference_id + "?message=Invalid score value.");
   }
@@ -1131,26 +1134,28 @@ app.get("/dashboard", checkAuth, async (req, res) => {
         poster_presentation_coordinator_role,
         reviewer_role
       ] = await Promise.all([
-        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.panelists)`, [userEmail]),
-        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN invitees ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.email`, [userEmail]),
-        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.coodinators`, [userEmail]),
-        pool.query(`SELECT c.conference_id FROM conferences c LEFT JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.track_reviewers)`, [userEmail])
+        // Since your DB columns are now native arrays, ANY() works perfectly!
+        pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.panelists)`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN invitees ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.email`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.coodinators)`, [userEmail]),
+        pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.track_reviewers)`, [userEmail])
       ]);
 
-      if (session_chair_role && session_chair_role.rows) conference_ids_for_session_chair = session_chair_role.rows.map(row => row.conference_id);
-      if (invited_talk_role && invited_talk_role.rows) conference_ids_for_invited_talk = invited_talk_role.rows.map(row => row.conference_id);
-      if (poster_presentation_coordinator_role && poster_presentation_coordinator_role.rows) conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role.rows.map(row => row.conference_id);
-      if (reviewer_role && reviewer_role.rows) conference_ids_for_reviewer = reviewer_role.rows.map(row => row.conference_id);
+      // CRITICAL FIX: Removed 'const' so we update the variables declared at the top of the route
+      // instead of creating new local variables that get destroyed when this block ends.
+      conference_ids_for_session_chair = session_chair_role?.rows?.map(row => row.conference_id) || [];
+      conference_ids_for_invited_talk = invited_talk_role?.rows?.map(row => row.conference_id) || [];
+      conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role?.rows?.map(row => row.conference_id) || [];
+      conference_ids_for_reviewer = reviewer_role?.rows?.map(row => row.conference_id) || [];
 
-      // Cache EVERYTHING (including empty arrays for negative caching) with a 1-hour expiration (3600 seconds)
-      // Note: If using redis v4+, use client.set(key, value, { EX: 3600 }) if setEx is deprecated in your version
       const CACHE_TTL = 3600; 
 
+      // Cache results using modern Redis v4+ syntax
       await Promise.all([
-        client.setEx(sessionChairKey, CACHE_TTL, JSON.stringify(conference_ids_for_session_chair)),
-        client.setEx(invitedTalkKey, CACHE_TTL, JSON.stringify(conference_ids_for_invited_talk)),
-        client.setEx(posterCoordinatorKey, CACHE_TTL, JSON.stringify(conference_ids_for_poster_presentation_coordinator)),
-        client.setEx(reviewerKey, CACHE_TTL, JSON.stringify(conference_ids_for_reviewer))
+        client.set(sessionChairKey, JSON.stringify(conference_ids_for_session_chair), { EX: CACHE_TTL }),
+        client.set(invitedTalkKey, JSON.stringify(conference_ids_for_invited_talk), { EX: CACHE_TTL }),
+        client.set(posterCoordinatorKey, JSON.stringify(conference_ids_for_poster_presentation_coordinator), { EX: CACHE_TTL }),
+        client.set(reviewerKey, JSON.stringify(conference_ids_for_reviewer), { EX: CACHE_TTL })
       ]);
       
       console.log("CONFERENCE ROLES FETCHED FROM DB AND CACHED FOR 1 HOUR!");
@@ -1298,7 +1303,8 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     
     console.log(pending_acceptance_notifications);
 
-    
+        await client.del(req.user.email+"_submissions");
+
 
     return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
 
@@ -1620,20 +1626,34 @@ app.get(
 
           const leaderboard = await Promise.all(
             trackLeaderboardSubs.map(async (sub) => {
-              // reviewer scores
+              
+              // ==========================================
+              // EDITED: Fetch revised scores if present
+              // ==========================================
               const reviewResult = await pool.query(
-                `SELECT mean_score FROM peer_review WHERE submission_id = $1`,
+                `SELECT 
+                   pr.reviewer, 
+                   COALESCE(rs.mean_score, pr.mean_score) AS final_score,
+                   (rs.mean_score IS NOT NULL) AS is_revised
+                 FROM peer_review pr
+                 LEFT JOIN revised_submissions rs 
+                   ON pr.submission_id = rs.submission_id 
+                   AND pr.reviewer = rs.reviewer
+                 WHERE pr.submission_id = $1`,
                 [sub.submission_id]
               );
 
               let reviewerScore = null;
+              let usedRevisedScore = false;
+
               if (reviewResult.rows.length > 0) {
                 reviewerScore =
-                  reviewResult.rows.reduce(
-                    (sum, r) => sum + (r.mean_score || 0),
-                    0
-                  ) / reviewResult.rows.length;
+                  reviewResult.rows.reduce((sum, r) => {
+                    if (r.is_revised) usedRevisedScore = true;
+                    return sum + (r.final_score || 0);
+                  }, 0) / reviewResult.rows.length;
               }
+              // ==========================================
 
               // panelist score
               const panelistResult = await pool.query(
@@ -1671,6 +1691,7 @@ app.get(
                 ...sub,
                 reviewerScore:
                   reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+                scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // Added this line for the EJS file
                 panelistScore:
                   panelistScore !== null ? +panelistScore.toFixed(2) : null,
                 averageScore:
@@ -1742,9 +1763,7 @@ app.get(
 
 
 
-app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req, res) => {
- 
-
+app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (req, res) => {
   try {
     // Helper function to format dates for display (dd-mm-yyyy)
     const formatDate = (dateString) => {
@@ -1810,20 +1829,34 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
     // Build leaderboard with scores
     const leaderboard = await Promise.all(
       leaderboardSubs.map(async (sub) => {
-        // reviewer scores
+        
+        // ==========================================
+        // EDITED: Fetch all reviewers and override with revised scores if present
+        // ==========================================
         const reviewResult = await pool.query(
-          `SELECT mean_score FROM peer_review WHERE submission_id = $1`,
+          `SELECT 
+             pr.reviewer, 
+             COALESCE(rs.mean_score, pr.mean_score) AS final_score,
+             (rs.mean_score IS NOT NULL) AS is_revised
+           FROM peer_review pr
+           LEFT JOIN revised_submissions rs 
+             ON pr.submission_id = rs.submission_id 
+             AND pr.reviewer = rs.reviewer
+           WHERE pr.submission_id = $1`,
           [sub.submission_id]
         );
 
         let reviewerScore = null;
+        let usedRevisedScore = false; // Track if any revised score was used
+
         if (reviewResult.rows.length > 0) {
           reviewerScore =
-            reviewResult.rows.reduce(
-              (sum, r) => sum + (r.mean_score || 0),
-              0
-            ) / reviewResult.rows.length;
+            reviewResult.rows.reduce((sum, r) => {
+              if (r.is_revised) usedRevisedScore = true;
+              return sum + (r.final_score || 0);
+            }, 0) / reviewResult.rows.length;
         }
+        // ==========================================
 
         // panelist score
         const panelistResult = await pool.query(
@@ -1860,10 +1893,9 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth,async (req
 
         return {
           ...sub,
-          reviewerScore:
-            reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-          panelistScore:
-            panelistScore !== null ? +panelistScore.toFixed(2) : null,
+          reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+          scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // <--- ADD THIS LINE
+          panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
           averageScore:
             averageScore !== null ? +averageScore.toFixed(2) : null,
           primary_author_formatted: fmt(sub.primary_author),
@@ -5183,6 +5215,13 @@ app.get('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, re
   if (!conferenceId) {
     console.error('Conference ID is missing');
     return res.redirect('/chair/dashboard?message=Error: Conference ID is required.');
+  }
+
+
+  const submission = await pool.query("select submission_status from submissions where submission_id=$1",[submissionId]);
+
+  if(submission.rows[0].submission_status!='Submitted for Review'){
+    return res.redirect("/chair/dashboard?message=This submission cannot be deleted at the moment. Any submission can be deleted only when the submission status is 'Submitted for Review'. Current Submission Status: "+submission.rows[0].submission_status);
   }
 
   try {

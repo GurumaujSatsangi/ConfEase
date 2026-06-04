@@ -153,11 +153,11 @@
                           <%= submission.submission_status %>
                         </span>
 
-                        <% if(submission.submission_status=='Submitted Revised Paper') { %>
+                        <!-- <% if(submission.submission_status=='Submitted Revised Paper') { %>
 
                           <a class="small" href="/chair/dashboard/resolve-re-review-conflicts/<%= submission.submission_id %>">Resolve Re-Review Conflicts</a>
                         
-                        <% } %>
+                        <% } %> -->
                        </td>
 
                       <td>
@@ -204,11 +204,25 @@
                           <a href="<%= submission.file_url %>" target="_blank" class="btn btn-primary btn-sm">
                             <i class="bi bi-eye-fill"></i> View
                           </a>
-                          <a href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
+
+                          <% if(submission.submission_status!='Submitted for Review' || submission.submission_status!='Submitted Revised Paper') { %>
+                            
+                            <p class="small" style="color:red">
+                              <i class="bi bi-exclamation-circle"></i> Cannot be Deleted
+                            </p>
+
+                          <% } else { %>
+
+                            <a href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
                              class="btn btn-danger btn-sm"
                              onclick="return confirm('Delete this submission? This action cannot be undone.');">
                             <i class="bi bi-trash"></i> Delete
                           </a>
+
+                            <% } %>
+
+
+                          
                           <% if(submission.submission_status!='Submitted for Review' || submission.submission_status!='Submite Revised Paper') { %>
                           <p class="small" style="color:green"><i class="bi bi-check2-circle"></i> Submitted Final Decision</p>
                           <% } else { %>

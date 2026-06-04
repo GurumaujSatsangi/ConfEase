@@ -147,9 +147,14 @@
                           </td>
                           <td><%= submission.primary_author_formatted %></td>
                           <td><%= submission.co_authors_formatted %></td>
-                          <td style="text-align: center;">
+                         <td style="text-align: center;">
                             <% if (submission.reviewerScore !== null) { %>
                               <span class="badge bg-primary"><%= submission.reviewerScore %>/5</span>
+                              <div class="mt-1">
+                                <small class="text-muted" style="font-size: 0.75rem;">
+                                  (<%= submission.scoreLabel %>)
+                                </small>
+                              </div>
                             <% } else { %>
                               <span class="badge bg-secondary">N/A</span>
                             <% } %>
