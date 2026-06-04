@@ -2555,6 +2555,22 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
 });
 
 
+app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+  const conference_id = req.params.confid;
+
+  const {final_remarks,status} = req.body;
+
+  const data = await pool.query("update submissions set submission_status=$1, remarks=$2 where submission_id=$3 returning *",[status,final_remarks,submission_id]);
+
+  if(data.rows[0]){
+    return res.redirect("/chair/dashboard/view-submission/"+conference_id+"?message=Submitted Final Decision!")
+  }
+
+})
+
+
 
 app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
   if (!req.isAuthenticated() || req.user.role !== "chair") {
