@@ -984,7 +984,11 @@ app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
   const submissions = await pool.query("select * from submissions where submission_id=$1",[req.params.id]);
   const results = await pool.query("select * from co_author_requests where submission_id=$1 and primary_author=$2",[req.params.id,req.user.email]);
 
-  
+  if(submissions.rows[0].status!="Submitted for Review"){
+
+    return res.redirect("/dashboard?message=Co-Author Requests cannot be viewed now. Current Submission Status: "+submissions.rows[0].submission_status);
+
+  }
 
   return res.render("co-author-requests",{
     result:results.rows,
@@ -5313,6 +5317,8 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
       [req.params.id]
     );
 
+    await client.del(req.user.email+"_submissions");
+
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
     console.error("Error deleting submission:", err);
@@ -5394,10 +5400,24 @@ app.post("/submit", checkAuth, async(req, res) => {
         try { await fs.unlink(filePath); } catch (e) { /* ignore cleanup errors */ }
       }
 
-      const paperCode  = generator.generate({
-	length: 6,
-	numbers: true
-});;
+// 1. Get the data, handling the case where it doesn't exist yet
+const rawCodes = await client.get("paper_codes");
+const paper_codes = rawCodes ? JSON.parse(rawCodes) : [];
+
+let paperCode;
+
+// 2. Generate until we find a unique one
+do {
+  paperCode = generator.generate({ length: 6, numbers: true });
+} while (paper_codes.includes(paperCode));
+
+// 3. Add the new code to our array
+paper_codes.push(paperCode);
+
+// 4. Save the ENTIRE updated array back to the database
+await client.set("paper_codes", JSON.stringify(paper_codes));
+
+console.log(`Generated and saved: ${paperCode}`);
 
       const parser = new PDFParse({ url: uploadResult.secure_url });
       const result = await parser.getText();
@@ -5428,7 +5448,7 @@ console.log(confidence);
         ]
       );
 
-    	
+    	await client.del(req.user.email+"_submissions");
 
       await sendMail(req.user.email,"Paper Submitted | "+title,"Hi, Your paper titled "+title+" has been submitted succesfully and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
 

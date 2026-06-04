@@ -360,7 +360,7 @@
                           <% } else { %>
                               <% if (submission.primary_author === user.email) { %>
                                   <div class="d-flex flex-column gap-1">
-                                    <a class="btn btn-primary" href="#"><i class="bi bi-person-fill-add"></i></a>
+                                    <!-- <a class="btn btn-primary" href="#"><i class="bi bi-person-fill-add"></i></a> -->
                                     <a class="btn btn-sm btn-outline-primary request-btn" href="/submission/view-co-author-requests/<%= submission.submission_id %>"><i class="bi bi-bell-fill"></i></a>
                                     <a class="btn btn-sm btn-outline-warning" href="/submission/edit/primary-author/<%= submission.submission_id %>" role="button" title="Edit Submission">
                                         <i class="bi bi-pencil-square"></i>
