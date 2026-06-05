@@ -4214,15 +4214,16 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
     acceptance_notification,
     camera_ready_paper_submission,
     deadline_peer_review,
-    co_chairs
+    co_chairs,
+    communication
   } = req.body;
 
   try {
     // 1. Insert conference and return row
     const confResult = await pool.query(
       `INSERT INTO conferences
-      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,co_chairs,created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,array[$9],$10)
+      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,co_chairs,created_by,communication)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,array[$9],$10,array[$11])
       RETURNING conference_id;`,
       [
         title,
@@ -4234,7 +4235,8 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
         camera_ready_paper_submission,
         deadline_peer_review,
         co_chairs,
-        req.user.email
+        req.user.email,
+        communication
       ]
     );
 

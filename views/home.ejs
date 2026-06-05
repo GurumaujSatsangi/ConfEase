@@ -41,8 +41,20 @@ You are logged in as <b><%=user.name %> (<%=user.email%>)</b>!</div>
                   <tbody>
                     <tr>
                       <td colspan="3">
-                        <p align="justify"><%= conference.description %></p>
-                      </td>
+                        <div class="accordion" id="accordionExample">
+
+<div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOnee" aria-expanded="false" aria-controls="collapseOnee">
+        <Strong>Conference Description</Strong>
+      </button>
+    </h2>
+    <div id="collapseOnee" class="accordion-collapse collapse" data-bs-parent="#accordionExample">
+      <div class="accordion-body">
+        <%= conference.description %>
+      </div>
+    </div>
+  </div>  </div>                      </td>
                     </tr>
 
                     <tr>
