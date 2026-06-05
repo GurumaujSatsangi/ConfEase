@@ -2715,7 +2715,7 @@ if(result==true){
     const activation_code = crypto.randomUUID();
     console.log(activation_code);
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     sendMail(email,name+", Welcome to DEI CMT!","Dear "+name+"! Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter your Account Activation Code which is "+activation_code+" Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+     sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -2781,7 +2781,7 @@ app.post("/activate-account", async (req, res) => {
       [activation_code]
     );
 
-    await sendMail(email,"Account Activated","Hi, Your DEI CMT account linked to this Email Address has been ACTIVATED. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Account Activated",null, "Hi, <br><br>Your DEI CMT account linked to this Email Address has been ACTIVATED. <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
     return res.redirect(
       "/login/user?message=Account Activated Successfully! Please login."
@@ -3356,8 +3356,8 @@ app.post("/update-password", async (req, res) => {
     // 6. Send confirmation email (Removed the stray '+')
     await sendMail(
       verifiedEmail, 
-      "Password Updated", 
-      "Hi, The password for your DEI CMT account linked to this Email ID was successfully updated. In case of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+      "Password Updated", null, 
+      "Hi, <br><br>The password for your DEI CMT account linked to this Email ID was successfully updated. <br><br>In case of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
     );
 
     // 7. Send success response
