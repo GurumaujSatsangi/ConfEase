@@ -359,7 +359,16 @@
                               <span class="badge-reviewed">Your presentation is on <b><%= presentationInfo.date %></b> between <b><%= presentationInfo.start_time %></b> & <b><%= presentationInfo.end_time %></b></span><br>
                           <% } else if (submission.submission_status === "Presentation Completed") { %>
                               <span class="badge-reviewed">Your presentation is over.</span>
-                          <% } else { %> 
+                          
+                          <% } else if(submission.submission_status==="Rejected") { %>
+
+
+                          
+                          <span class="badge-reviewed">Not Eligible</span>
+
+              
+                          
+                              <% } else { %> 
                               <span class="badge-rejected">Not Scheduled Yet</span>
                           <% } %>
                         </td>
