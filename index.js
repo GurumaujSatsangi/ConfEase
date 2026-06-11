@@ -4685,6 +4685,113 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
 });
 
 
+app.get("/remarks/:id", checkAuth, async (req, res) => {
+
+    const isReviewerResult = await isReviewer(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isInviteeResult = await isInvitee(req.user.email);
+
+    if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
+      return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
+    }
+    
+ 
+
+  try {
+    // 1. Fetch submission
+    const submissionResult = await pool.query(
+      `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+      [req.params.id]
+    );
+    const submission = submissionResult.rows[0];
+
+    if (!submission) {
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+
+    // 2. Get track name (optional)
+    let trackName = "Unknown Track";
+
+    if (submission.track_id) {
+      const trackResult = await pool.query(
+        `SELECT track_name FROM conference_tracks WHERE track_id = $1 LIMIT 1;`,
+        [submission.track_id]
+      );
+
+      if (trackResult.rows.length > 0) {
+        trackName = trackResult.rows[0].track_name;
+      }
+    }
+
+    // 3. Fetch reviewer remarks
+    const reviewerResult = await pool.query(
+      `SELECT * FROM peer_review WHERE submission_id = $1;`,
+      [req.params.id]
+    );
+    const reviewerRemarks = reviewerResult.rows;
+
+    // 4. Fetch revised submission if exists
+    let revisedSubmissionData = null;
+    const revisedResult = await pool.query(
+      `SELECT * FROM revised_submissions WHERE submission_id = $1;`,
+      [req.params.id]
+    );
+    if (revisedResult.rows.length > 0) {
+      revisedSubmissionData = revisedResult.rows;
+      console.log("Revised submission found:", revisedSubmissionData);
+    } else {
+      console.log("No revised submission found for:", req.params.id);
+    }
+
+    // 5. Fetch camera-ready deadline
+    const confResult = await pool.query(
+      `SELECT camera_ready_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+      [submission.conference_id]
+    );
+    const conferenceInfo = confResult.rows[0];
+
+    // 6. Deadline check (IST date conversion)
+    if (conferenceInfo && conferenceInfo.camera_ready_paper_submission) {
+      const currentDate = getCurrentDateIST();
+      const deadline = formatDateISO(conferenceInfo.camera_ready_paper_submission);
+
+      // Check if current date is AFTER the deadline (not on the deadline day)
+      if (currentDate > deadline) {
+        return res.redirect("/dashboard?message=The camera-ready submission deadline has passed.");
+      }
+    }
+
+  
+
+    // 7. Status-based access restrictions
+    if (submission.submission_status === "Submitted for Review") {
+      return res.redirect("/dashboard?message=Your submission is under review.");
+    }
+    if (submission.submission_status === "Rejected") {
+      return res.redirect("/dashboard?message=Your submission has been rejected.");
+    }
+    if (submission.submission_status === "Submitted Final Camera Ready Paper") {
+      return res.redirect("/dashboard?message=You have already submitted the final camera ready paper.");
+    }
+    if(submission.submission_status === "Presentation Completed") {
+      return res.redirect("/dashboard?message=You have already submitted your Final Camera Ready Paper and your Presentation is also over.")
+    }
+
+    // 8. Render page
+    res.render("remarks.ejs", {
+      user: req.user,
+      submission: { ...submission, track_name: trackName },
+      reviewerRemarks: reviewerRemarks || [],
+      revisedSubmissionData: revisedSubmissionData || null,
+      message: req.query.message || null,
+    });
+
+  } catch (err) {
+    console.error("Error in final camera ready route:", err);
+    return res.redirect("/dashboard?message=An unexpected error occurred.");
+  }
+});
+
 app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     try {
