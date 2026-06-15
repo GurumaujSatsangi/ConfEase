@@ -166,6 +166,11 @@ table td, table th {
   padding: 1rem;
 }
 
+/* Hide create submission button when accordion is expanded */
+.accordion-button:not(.collapsed) .create-sub-btn {
+  display: none !important;
+}
+
 /* Alerts */
 .alert {
   word-wrap: break-word;
@@ -262,7 +267,7 @@ table td, table th {
     margin-top: 0.5rem;
   }
 
-  /* Responsive table for mobile */
+  /* Responsive table for mobile (Default) */
   .table-responsive {
     font-size: 0.85rem;
   }
@@ -278,6 +283,52 @@ table td, table th {
     padding: 0.5rem;
     font-size: 0.85rem;
   }
+
+  /* --- NEW: Responsive Stacked Table for Mobile (No Horizontal Scroll) --- */
+  .responsive-stacked-table table, 
+  .responsive-stacked-table thead, 
+  .responsive-stacked-table tbody, 
+  .responsive-stacked-table th, 
+  .responsive-stacked-table td, 
+  .responsive-stacked-table tr { 
+    display: block; 
+    width: 100%;
+    white-space: normal; /* Override generic table white-space */
+  }
+  
+  .responsive-stacked-table thead tr { 
+    display: none; /* Hide the top header row on mobile */
+  }
+  
+  .responsive-stacked-table tr { 
+    border: 1px solid #dee2e6; 
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+  }
+  
+  .responsive-stacked-table td { 
+    border: none;
+    border-bottom: 1px solid #f8f9fa; 
+    position: relative;
+    padding: 10px 5px !important;
+    text-align: left !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+  }
+
+  .responsive-stacked-table td:last-child {
+    border-bottom: none;
+  }
+  
+  .responsive-stacked-table td::before { 
+    content: attr(data-label); 
+    display: block;
+    font-weight: bold; 
+    margin-bottom: 5px;
+    color: #495057;
+  }
+  /* ---------------------------------------------------------------------- */
 
   /* Stack form groups vertically */
   .row > [class*='col-'] {
@@ -671,6 +722,44 @@ table td, table th {
     width: 100%;
     margin-bottom: 0.5rem;
   }
+
+  /* --- NEW: Stack Active Conference Details Table on Mobile --- */
+  .accordion-body .card-body table.table-bordered,
+  .accordion-body .card-body table.table-bordered tbody,
+  .accordion-body .card-body table.table-bordered tr,
+  .accordion-body .card-body table.table-bordered td {
+    display: block;
+    width: 100% !important;
+    border: none; /* Strip default rigid table borders */
+  }
+
+  .accordion-body .card-body table.table-bordered tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid #dee2e6; /* Add a subtle card-like border around stacked rows */
+    border-radius: 8px;
+  }
+
+  .accordion-body .card-body table.table-bordered td {
+    padding: 10px !important;
+    border-bottom: 1px solid #f8f9fa; /* Separator between stacked cells */
+    text-align: left !important;
+    /* Prevent any long unbroken text/emails from stretching the container */
+    word-break: break-word; 
+    overflow-wrap: break-word;
+  }
+
+  .accordion-body .card-body table.table-bordered td:last-child {
+    border-bottom: none; /* Remove border from the last item in the stack */
+  }
+  
+  /* Ensure large buttons like 'Submit a Paper' stay inside the bounds and wrap text */
+  .accordion-body .card-body table.table-bordered .btn {
+    width: 100% !important;
+    white-space: normal !important;
+    height: auto;
+    margin-top: 5px;
+  }
+  /* ------------------------------------------------------------ */
 }
 
 /* Improve readability of long email addresses on mobile */
