@@ -89,6 +89,10 @@ cloudinary.config({
 });
 
 
+app.get("/login",async(req,res)=>{
+  return res.redirect("/login/user")
+})
+
 const port = process.env.PORT || 3000;
 const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -1299,7 +1303,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
     }
     else {
-      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
+      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
     }
   }
 
@@ -1982,7 +1986,7 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
 );
 
 
-await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned","Hi, You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT (Session Details are as follows - Date: "+session_date+" | Timings: "+start_time+" - "+end_time+"). If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Hi, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+session_date+"<br><b>Timings:</b> "+start_time+" - "+end_time+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
@@ -2194,7 +2198,7 @@ app.post("/send-password-reset-link",async(req,res)=>{
 
     const resetLink = `http://cmt.gurumaujsatsangi.in/reset-password/${token}`;
 
-    await sendMail(email,"Password Reset Link","Hi, Please click on this link to update your password for your DEI CMT account: "+resetLink+" If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+    await sendMail(email,"Password Reset Link",null,"Hi, <br><br>Please click on this link to update your password for your DEI CMT account:<br> "+resetLink+" <br><br>If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
 
     }
@@ -2720,7 +2724,7 @@ if(result==true){
     const activation_code = crypto.randomUUID();
     console.log(activation_code);
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+     sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -2786,7 +2790,7 @@ app.post("/activate-account", async (req, res) => {
       [activation_code]
     );
 
-    await sendMail(email,"Account Activated",null, "Hi, <br><br>Your DEI CMT account linked to this Email Address has been ACTIVATED. <br><br>Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+    await sendMail(email,"Account Activated",null, "Hi, <br><br>Your DEI CMT account linked to this Email Address has been ACTIVATED. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
     return res.redirect(
       "/login/user?message=Account Activated Successfully! Please login."
@@ -2950,7 +2954,7 @@ app.post("/activation-check",async(req,res)=>{
       console.log(data2.rows[0])
     if(data2.rows[0]){
       return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
-      await sendMail(email,"Account Activation Code [SENT ON REQUEST]","Your Account Activation Code for DEI CMT is "+data2.rows[0].activation_code);
+      await sendMail(email,"Account Activation Code [SENT ON REQUEST]",null,"Your Account Activation Code for DEI CMT is <br><br>"+data2.rows[0].activation_code+"<br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, Team DEI Conference Management Toolkit");
     }
   } else{
     return res.redirect("/account-activation?message=User Not Found with Pending Activation status!");
@@ -3076,7 +3080,8 @@ app.post("/create-chair-credentials",async(req,res)=>{
 
 
   else{
-    await sendMail(email,"DEI CMT Chair Portal Credentials","Dear "+name+" You have been granted DEI CMT - CHAIR PORTAL access. Please use the given credentials to access the portal. Email ID: "+email+" Password: "+password+" Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+    await sendMail(email,"DEI CMT Chair Portal Credentials",null,"Dear "+name+" <br><br>You have been granted DEI CMT - CHAIR PORTAL access. Please use the given credentials to access the portal. <br><br><b>Email ID:</b> "+email+" <br><b>Password:</b> "+password+" <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+
     res.redirect("/admin?message=Chair Portal Access succesfully granted to "+name+" ("+email+")! An auto generated password has been sent to the user.");
   }
 
@@ -3095,7 +3100,7 @@ app.get("/reset-chair-password/:id",async(req,res)=>{
 
   if(data.rows[0]){
 
-    await sendMail(email,"Password Updated","Hi, The Admin has updated the password for your DEI CMT Chair Portal Account ("+email+"). The new password is:"+new_password+".[Full Stop is not part of the password].Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Password Updated",null,"Hi, <br><br>The Admin has updated the password for your DEI CMT Chair Portal Account ("+email+"). The new password is:<b>"+new_password+"</b>.[Full Stop is not part of the password].<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, <br>Team DEI Conference Management Toolkit");
 
     return res.redirect("/admin?message=Password for "+email+" has been reset and the user has been notified via Email.");
 
@@ -3110,7 +3115,7 @@ app.get("/grant-access/:id",async(req,res)=>{
 
   if(data.rows[0]){
 
-    await sendMail(email,"Chair Portal Access Re-Granted","Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Chair Portal Access Re-Granted",null,"Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=Chair Portal Access Re-Granted to "+email+"!");
   }
 
@@ -3137,7 +3142,7 @@ app.get("/revoke-access/:id",async(req,res)=>{
      const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCESS REVOKED",email]);
   if(data.rows[0]){
 
-    await sendMail(email,"Chair Portal Access Revoked","Hi, The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Chair Portal Access Revoked",null,"Hi, The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=Chair Access Revoked for "+ email);
   }
 
@@ -3362,7 +3367,7 @@ app.post("/update-password", async (req, res) => {
     await sendMail(
       verifiedEmail, 
       "Password Updated", null, 
-      "Hi, <br><br>The password for your DEI CMT account linked to this Email ID was successfully updated. <br><br>In case of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+      "Hi, <br><br>The password for your DEI CMT account linked to this Email ID was successfully updated. <br><br>In case of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
     );
 
     // 7. Send success response
@@ -3566,7 +3571,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-     await sendMail(email,name+", You are invited!","Dear "+name+" Greetings from DEI CMT! You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. Incase of any queries, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.")
+     await sendMail(email,name+", You are invited!",null,"Dear "+name+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
     else if (data.rows[0] && data2.rows[0]){
@@ -3613,7 +3618,7 @@ await pool.query(
       <p>Dear ${invitee_name}</p>
       <p>Hope you are doing well!</p>
       <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
-      <p>You may sign in (using Google) using this email: <strong>${email}</strong>.</p>
+      <p>Please visit https://cmt.gurumaujsatsangi.in.
       <p>For support, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
       <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>
     `;
@@ -3808,17 +3813,18 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     for (const reviewerEmail of reviewersArray) {
       await sendMail(
-        reviewerEmail,
+        reviewerEmail,null,
         "Reviewer Role Assigned",
-        "Hi, You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+        "Hi,<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
     for (const chairEmail of sessionChairsArray) {
       await sendMail(
         chairEmail,
+        null,
         "Session Chair Role Assigned",
-        "Hi, You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. Incase of any technical assistance,please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340."
+        "Hi, <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
@@ -4148,7 +4154,7 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
     );
 
     // 7. Send email to co-author
-   await sendMail(coAuthorRequest.co_author,+"Co-Author Request Approved | "+submission.title,"Hi, your request to join the paper titled "+ submission.title+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.",submission.primary_author);
+   await sendMail(coAuthorRequest.co_author,null,"Co-Author Request Approved | "+submission.title,"Hi, <br><br>your request to join the paper titled "+ submission.title+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
     return res.redirect("/dashboard?message=Co-author request accepted successfully.");
 
@@ -4197,7 +4203,7 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
     );
 
     // 5. Notify via email
-       await sendMail(coAuthorRequest.co_author,+"Co-Author Request Rejected | "+submission.title,"Hi, your request to join the paper titled "+ submission.title+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. Incase of any technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.",submission.primary_author);
+       await sendMail(coAuthorRequest.co_author,null,"Co-Author Request Rejected | "+submission.title,"Hi, <br><br>your request to join the paper titled "+ submission.title+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
 
     return res.redirect("/dashboard?message=Co-author request rejected successfully.");
@@ -5681,7 +5687,7 @@ console.log(confidence);
 
       await redisClient.del(req.user.email+"_submissions");
 
-      await sendMail(req.user.email,"Paper Submitted | "+title,null,"Hi, <br><br>Your paper titled <b>"+title+"</b> has been submitted succesfully for <b>"+conference_data.rows[0].title+"</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+      await sendMail(req.user.email,"Paper Submitted | "+title,null,"Hi, <br><br>Your paper titled <b>"+title+"</b> has been submitted succesfully for <b>"+conference_data.rows[0].title+"</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>Incase of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
       return res.redirect("/dashboard?message=Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
