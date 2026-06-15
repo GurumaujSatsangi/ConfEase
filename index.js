@@ -3,6 +3,7 @@ import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
 import { createClient } from 'redis';
 import passport from "passport";
+import { RedisStore } from "connect-redis";
 import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
@@ -98,13 +99,32 @@ app.set("view engine", "ejs");
 app.use("/static", express.static(path.join(__dirname, "public")));
 
 app.set("views", path.join(__dirname, "views"));
+const redisClient = createClient({
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD,
+  socket: {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+  },
+});
+
+redisClient.on("error", (err) => console.log("Redis Client Error", err));
+
+await redisClient.connect();
+
 // Session middleware must be registered before passport.session()
 const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET || "confease-dev-session-secret";
 app.use(
   session({
+    store: new RedisStore({ client: redisClient }), 
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production", // Must be true if you are using HTTPS via Nginx
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24 // 1 day expiration
+    }
   })
 );
 
@@ -445,21 +465,6 @@ const MAX_TIME = 60;
 
 
 
-const client = createClient({
-    username: process.env.REDIS_USERNAME,
-    password: process.env.REDIS_PASSWORD,
-    socket: {
-        host: process.env.REDIS_HOST,
-        port: process.env.REDIS_PORT
-    }
-});
-
-client.on('error', err => console.log('Redis Client Error', err));
-
-await client.connect();
-
-
-
 
 
 app.set('trust proxy', true);
@@ -468,10 +473,10 @@ app.use(async (req, res, next) => {
 
   const my_ip = req.ip;
 
-  const request = await client.incr(my_ip);
+  const request = await redisClient.incr(my_ip);
 
   if (request === 1) {
-    await client.expire(my_ip, MAX_TIME);
+    await redisClient.expire(my_ip, MAX_TIME);
   }
 
   if (request > MAX_ALLOWED_REQ) {
@@ -941,7 +946,7 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
   const conference_id = req.params.conference_id;
   const submission_id = req.params.submission_id;
 
-      await client.del(req.user.email+"_submissions");
+      await redisClient.del(req.user.email+"_submissions");
 
 
   if (!Number.isInteger(score)) {
@@ -1112,10 +1117,10 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       cached_poster_coordinator,
       cached_reviewer
     ] = await Promise.all([
-      client.get(sessionChairKey),
-      client.get(invitedTalkKey),
-      client.get(posterCoordinatorKey),
-      client.get(reviewerKey)
+      redisClient.get(sessionChairKey),
+      redisClient.get(invitedTalkKey),
+      redisClient.get(posterCoordinatorKey),
+      redisClient.get(reviewerKey)
     ]);
 
     // Because we will cache empty arrays ("[]"), this check accurately reflects if we have checked the DB before.
@@ -1152,10 +1157,10 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
       // Cache results using modern Redis v4+ syntax
       await Promise.all([
-        client.set(sessionChairKey, JSON.stringify(conference_ids_for_session_chair), { EX: CACHE_TTL }),
-        client.set(invitedTalkKey, JSON.stringify(conference_ids_for_invited_talk), { EX: CACHE_TTL }),
-        client.set(posterCoordinatorKey, JSON.stringify(conference_ids_for_poster_presentation_coordinator), { EX: CACHE_TTL }),
-        client.set(reviewerKey, JSON.stringify(conference_ids_for_reviewer), { EX: CACHE_TTL })
+        redisClient.set(sessionChairKey, JSON.stringify(conference_ids_for_session_chair), { EX: CACHE_TTL }),
+        redisClient.set(invitedTalkKey, JSON.stringify(conference_ids_for_invited_talk), { EX: CACHE_TTL }),
+        redisClient.set(posterCoordinatorKey, JSON.stringify(conference_ids_for_poster_presentation_coordinator), { EX: CACHE_TTL }),
+        redisClient.set(reviewerKey, JSON.stringify(conference_ids_for_reviewer), { EX: CACHE_TTL })
       ]);
       
       console.log("CONFERENCE ROLES FETCHED FROM DB AND CACHED FOR 1 HOUR!");
@@ -1177,7 +1182,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     // 3. SUBMISSIONS CACHING & FETCHING
     // ==========================================
     const submissionsCacheKey = `${userEmail}_submissions`;
-    const cachedSubmissionsData = await client.get(submissionsCacheKey);
+    const cachedSubmissionsData = await redisClient.get(submissionsCacheKey);
     let submissions;
 
     if (cachedSubmissionsData) {
@@ -1185,7 +1190,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       submissions = JSON.parse(cachedSubmissionsData);
     } else {
       submissions = await fetchUserSubmissions(userEmail);
-      await client.set(submissionsCacheKey, JSON.stringify(submissions || []),{ EX: 3600 });
+      await redisClient.set(submissionsCacheKey, JSON.stringify(submissions || []),{ EX: 3600 });
       console.log("SUBMISSIONS FETCHED FROM DB AND CACHED!");
     }
 
@@ -1303,7 +1308,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     
     console.log(pending_acceptance_notifications);
 
-        await client.del(req.user.email+"_submissions");
+        await redisClient.del(req.user.email+"_submissions");
 
 
     return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
@@ -1480,7 +1485,7 @@ app.post("/upvote-poster/:id",async(req,res)=>{
 
   console.log(req.ip+" -> "+submission_id);
 
-   const increment_vote_count = await client.incr(submission_id);
+  const increment_vote_count = await redisClient.incr(submission_id);
 
     const vpp_vote_token = jwt.sign(
       {
@@ -3115,7 +3120,7 @@ app.post("/select-room/:id",async(req,res)=>{
 
   const uid = req.params.id;
 
-  await client.set("S-101",uid);
+  await redisClient.set("S-101",uid);
 
 })
 
@@ -3427,12 +3432,12 @@ app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
 
     // Queue up cache deletion for Reviewers
     affectedReviewers.forEach(email => {
-      cacheDeletionPromises.push(client.del(`reviewer_role_${email}`));
+      cacheDeletionPromises.push(redisClient.del(`reviewer_role_${email}`));
     });
 
     // Queue up cache deletion for Session Chairs (Panelists)
     affectedPanelists.forEach(email => {
-      cacheDeletionPromises.push(client.del(`session_chair_role_${email}`));
+      cacheDeletionPromises.push(redisClient.del(`session_chair_role_${email}`));
     });
 
     // Execute all cache deletions concurrently
@@ -4915,7 +4920,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
     };
     const result = await pool.query("SELECT * FROM conferences where created_by = $1",[req.user.email]);
     var conferences;
-    const data = client.get(req.user.email+"_initiated_conferences");
+    const data = redisClient.get(req.user.email+"_initiated_conferences");
     if(data && data.length>0){
       const parsed_data =  JSON.parse(data);
       conferences = parsed_data.rows.map(conference => ({
@@ -4940,7 +4945,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
     }));
 
-      const enter_data = client.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences));
+      const enter_data = redisClient.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences));
 
     }
 
@@ -5541,7 +5546,7 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
       [req.params.id]
     );
 
-    await client.del(req.user.email+"_submissions");
+    await redisClient.del(req.user.email+"_submissions");
 
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
@@ -5625,7 +5630,7 @@ app.post("/submit", checkAuth, async(req, res) => {
       }
 
 // 1. Get the data, handling the case where it doesn't exist yet
-const rawCodes = await client.get("paper_codes");
+const rawCodes = await redisClient.get("paper_codes");
 const paper_codes = rawCodes ? JSON.parse(rawCodes) : [];
 
 let paperCode;
@@ -5639,7 +5644,7 @@ do {
 paper_codes.push(paperCode);
 
 // 4. Save the ENTIRE updated array back to the database
-await client.set("paper_codes", JSON.stringify(paper_codes));
+await redisClient.set("paper_codes", JSON.stringify(paper_codes));
 
 console.log(`Generated and saved: ${paperCode}`);
 
@@ -5674,7 +5679,7 @@ console.log(confidence);
 
       const conference_data = await pool.query("select * from conferences where conference_id=$1",[id]); 
 
-    	await client.del(req.user.email+"_submissions");
+      await redisClient.del(req.user.email+"_submissions");
 
       await sendMail(req.user.email,"Paper Submitted | "+title,null,"Hi, <br><br>Your paper titled <b>"+title+"</b> has been submitted succesfully for <b>"+conference_data.rows[0].title+"</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>Incase of technical assistance, please feel free to reach out to us at cmt@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
