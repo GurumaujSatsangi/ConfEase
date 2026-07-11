@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import ip from 'ip';
-import pool from "./config/db.js";
+import pool from "../config/db.js";
 import requestIp from 'request-ip';
 import {PDFParse} from 'pdf-parse';
 import passwordValidator from 'password-validator';
@@ -31,7 +31,7 @@ import multer from "multer";
 import fs from "fs/promises";
 import { name } from "ejs";
 import crypto from "crypto";
-import { sendMail } from "./mailer.js"
+import { sendMail } from "../mailer.js"
 import events from 'events';
 // import { send } from "process";
 // Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
