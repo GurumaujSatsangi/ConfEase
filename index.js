@@ -5833,7 +5833,11 @@ app.use(function(req, res) {
     res.render("error.ejs");
 });
 
+if (process.env.VERCEL !== "1") {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
+}
+
+export default app;
 
