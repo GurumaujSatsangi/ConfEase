@@ -45,8 +45,9 @@ const app = express();
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, "..");
 const upload = multer({
-  dest: "uploads/",
+  dest: path.join(rootDir, "uploads"),
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
 });
 
@@ -98,39 +99,51 @@ const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
-app.use(express.static("public"));
+app.use(express.static(path.join(rootDir, "public")));
 app.set("view engine", "ejs");
-app.use("/static", express.static(path.join(__dirname, "public")));
+app.use("/static", express.static(path.join(rootDir, "public")));
 
-app.set("views", path.join(__dirname, "views"));
-const redisClient = createClient({
-  username: process.env.REDIS_USERNAME,
-  password: process.env.REDIS_PASSWORD,
-  socket: {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT,
-  },
-});
+app.set("views", path.join(rootDir, "views"));
+let redisClient = null;
 
-redisClient.on("error", (err) => console.log("Redis Client Error", err));
+if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
+  const client = createClient({
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
+    socket: {
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT,
+    },
+  });
 
-await redisClient.connect();
+  client.on("error", (err) => console.log("Redis Client Error", err));
+
+  try {
+    await client.connect();
+    redisClient = client;
+  } catch (err) {
+    console.warn("Redis unavailable; falling back to session/rate-limit bypass.", err.message);
+  }
+}
 
 // Session middleware must be registered before passport.session()
 const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET || "confease-dev-session-secret";
-app.use(
-  session({
-    store: new RedisStore({ client: redisClient }), 
-    secret: sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === "production", // Must be true if you are using HTTPS via Nginx
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 // 1 day expiration
-    }
-  })
-);
+const sessionOptions = {
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === "production", // Must be true if you are using HTTPS via Nginx
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24 // 1 day expiration
+  }
+};
+
+if (redisClient) {
+  sessionOptions.store = new RedisStore({ client: redisClient });
+}
+
+app.use(session(sessionOptions));
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -474,20 +487,28 @@ const MAX_TIME = 60;
 app.set('trust proxy', true);
 
 app.use(async (req, res, next) => {
-
-  const my_ip = req.ip;
-
-  const request = await redisClient.incr(my_ip);
-
-  if (request === 1) {
-    await redisClient.expire(my_ip, MAX_TIME);
+  if (!redisClient) {
+    return next();
   }
 
-  if (request > MAX_ALLOWED_REQ) {
-    return res.send("Too Many Requests!");
-  }
+  try {
+    const my_ip = req.ip;
 
-  next();
+    const request = await redisClient.incr(my_ip);
+
+    if (request === 1) {
+      await redisClient.expire(my_ip, MAX_TIME);
+    }
+
+    if (request > MAX_ALLOWED_REQ) {
+      return res.send("Too Many Requests!");
+    }
+
+    next();
+  } catch (err) {
+    console.warn("Rate limit unavailable; continuing without Redis.", err.message);
+    next();
+  }
 });
 
 
