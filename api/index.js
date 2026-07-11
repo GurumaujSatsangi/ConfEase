@@ -106,7 +106,7 @@ app.use("/static", express.static(path.join(rootDir, "public")));
 app.set("views", path.join(rootDir, "views"));
 let redisClient = null;
 
-if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
+if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PORT) {
   const client = createClient({
     username: process.env.REDIS_USERNAME,
     password: process.env.REDIS_PASSWORD,
@@ -513,33 +513,38 @@ app.use(async (req, res, next) => {
 
 
 app.get("/", async (req, res) => {
-
   const message = req.query.message || null;
-  const result = await pool.query("SELECT * FROM conferences");
-  const data = result.rows;
-  
-  // Format dates to dd-mm-yyyy
-  const formattedData = data.map(conference => {
-    const formatDate = (dateString) => {
-      if (!dateString) return dateString;
-      const date = new Date(dateString);
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const year = date.getUTCFullYear();
-      return `${day}-${month}-${year}`;
-    };
 
-    return {
-      ...conference,
-      conference_start_date: formatDate(conference.conference_start_date),
-      conference_end_date: formatDate(conference.conference_end_date),
-      full_paper_submission: formatDate(conference.full_paper_submission),
-      acceptance_notification: formatDate(conference.acceptance_notification),
-      camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission)
-    };
-  });
-  
-  res.render("home.ejs", { conferences: formattedData, message: message,user: req.user });
+  try {
+    const result = await pool.query("SELECT * FROM conferences");
+    const data = result.rows;
+    
+    // Format dates to dd-mm-yyyy
+    const formattedData = data.map(conference => {
+      const formatDate = (dateString) => {
+        if (!dateString) return dateString;
+        const date = new Date(dateString);
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const year = date.getUTCFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      return {
+        ...conference,
+        conference_start_date: formatDate(conference.conference_start_date),
+        conference_end_date: formatDate(conference.conference_end_date),
+        full_paper_submission: formatDate(conference.full_paper_submission),
+        acceptance_notification: formatDate(conference.acceptance_notification),
+        camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission)
+      };
+    });
+    
+    return res.render("home.ejs", { conferences: formattedData, message: message, user: req.user });
+  } catch (err) {
+    console.error("Home page load failed:", err);
+    return res.status(200).render("home.ejs", { conferences: [], message: message, user: req.user });
+  }
 });
 
 
@@ -5852,6 +5857,16 @@ app.get("/logout", handleLogout);
 
 app.use(function(req, res) {
     res.render("error.ejs");
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled application error:", err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  return res.status(500).render("error.ejs");
 });
 
 if (process.env.VERCEL !== "1") {
