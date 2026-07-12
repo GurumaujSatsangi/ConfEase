@@ -10,7 +10,6 @@ import bcrypt from "bcrypt";
 import ip from 'ip';
 import pool from "../config/db.js";
 import requestIp from 'request-ip';
-import {PDFParse} from 'pdf-parse';
 import passwordValidator from 'password-validator';
 import generator from 'generate-password';
 
