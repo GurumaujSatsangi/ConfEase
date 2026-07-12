@@ -27,7 +27,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 import path from "path";
 import multer from "multer";
-import fs from "fs/promises";
+import { Readable } from "stream";
 import { name } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "../mailer.js"
@@ -46,9 +46,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const upload = multer({
-  dest: path.join(rootDir, "uploads"),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
 });
+
+function uploadBufferToCloudinary(buffer, options) {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(result);
+    });
+
+    Readable.from([buffer]).pipe(uploadStream);
+  });
+}
 
 
 const schema = new passwordValidator();
@@ -4870,14 +4885,11 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       }
 
       // 2. Upload to Cloudinary
-      const filePath = req.file.path;
-      const uploadResult = await cloudinary.uploader.upload(filePath, {
+      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
         public_id: `${req.user.uid}-${Date.now()}-Final`,
       });
-
-      try { await fs.unlink(filePath); } catch {}
 
       // 3. Insert into final_camera_ready_submissions
       await pool.query(
@@ -5460,8 +5472,7 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         //
         // 3. Upload File
         //
-        const filePath = req.file.path;
-        const uploadResult = await cloudinary.uploader.upload(filePath, {
+        const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "revised_submissions",
           public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
@@ -5482,12 +5493,6 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
           `UPDATE submissions SET submission_status = 'Submitted Revised Paper', file_url = $1 WHERE submission_id = $2`,
           [uploadResult.secure_url, submission_id]
         );
-
-        //
-        // 6. Local file cleanup
-        //
-        try { await fs.unlink(filePath); } 
-        catch (cleanupError) { console.error("Cleanup error:", cleanupError); }
 
         return res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
 
@@ -5530,8 +5535,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 
       // If user uploaded a new file
       if (req.file) {
-        const filePath = req.file.path;
-        const uploadResult = await cloudinary.uploader.upload(filePath, {
+        const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "submissions",
           public_id: `${req.user.uid}-${Date.now()}`,
@@ -5539,12 +5543,6 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 
         updateFields.push(`file_url = $${index++}`);
         updateValues.push(uploadResult.secure_url);
-
-        try {
-          await fs.unlink(filePath);
-        } catch (cleanupErr) {
-          console.error("File cleanup error:", cleanupErr);
-        }
       }
 
       // Add WHERE clause argument
@@ -5646,19 +5644,15 @@ app.post("/submit", checkAuth, async(req, res) => {
         return res.redirect("/dashboard?message=" + encodeURIComponent("Unable to validate track selection right now."));
       }
 
-      const filePath = req.file.path;
-
       // Upload to Cloudinary
       let uploadResult;
       try {
-        uploadResult = await cloudinary.uploader.upload(filePath, {
+        uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "submissions",
           public_id: `${(req.user && (req.user.uid || req.user.email)) || "user"}-${Date.now()}`,
         });
-      } finally {
-        try { await fs.unlink(filePath); } catch (e) { /* ignore cleanup errors */ }
-      }
+      } finally {}
 
 // 1. Get the data, handling the case where it doesn't exist yet
 const rawCodes = await redisClient.get("paper_codes");
@@ -5746,8 +5740,7 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required"));
       }
 
-      const filePath = req.file.path;
-      const uploadResult = await cloudinary.uploader.upload(filePath, {
+      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
         public_id: `${req.user.email}-${Date.now()}`,
