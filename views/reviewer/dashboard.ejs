@@ -56,12 +56,12 @@
                   <td><%= submission.title %></td>
                   <td><%= getTrackName(submission.track_id) %></td>
                   <td>
-                    <% if (submission.submission_status === 'Submitted for Review') { %>
+                    <% if (submission.submission_status == 'DESK ACCEPT') { %>
                       <a type="button" class="btn btn-success" href="/reviewer/dashboard/review/<%= submission.paper_code %>">
                         <i class="bi bi-box-arrow-in-right"></i> &nbsp; Start Review
                       </a>
                     <% } else { %>
-                      <b><i class="bi bi-check-circle-fill"></i> <%= submission.submission_status %></b>
+                      <b><i class="bi bi-check-circle-fill"></i> REVIEWED</b>
                     <% } %>
                   </td>
                 </tr>
