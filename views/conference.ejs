@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DEI CMT</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <%- include('partials/dashboard/header') %>
+
+    <div class="container">
+
+        <h4><%= conference.title %></h4>
+
+         <div class="btn-group" role="group">
+    <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+      Create New Submission
+    </button>
+    <ul class="dropdown-menu">
+      <li><a class="dropdown-item" href="/submission/primary-author/<%= conference.conference_id %>">Submit a Paper as Primary Author</a></li>
+      <li><a class="dropdown-item" href="/submission/co-author/<%= conference.conference_id %>">Join a Paper as Co-Author</a></li>
+    </ul>
+     
+
+   </div>
+
+   <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
+  My Submissions
+</button>
+
+<div class="modal fade" id="MySubmissions" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">My Submissions</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <% if(submissions && submissions.length>0) { %>
+            <table class="table">
+            <tr>
+                <th>Submission Title</th>
+                <th>Paper Code</th>
+                <th>View Paper</th>
+                <th>Co-Authors</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+
+            <% submissions.forEach(function(submission){ %>
+
+                <tr>
+                    <td><%= submission.title %></td>
+                    <td><%= submission.paper_code %></td>
+                    <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
+                    <td><%= submission.co_authors %></td>
+                    <td><%= submission.submission_status %></td>
+                    <td>
+                        
+                        <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
+                    </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
+                
+                <li><a href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
+            
+            </p></td>
+                </tr>
+            
+            <%}) %>
+
+                    </table>
+
+        
+        <% } %>
+
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+  
+        <hr>
+
+        <h5>Important Dates</h5>
+        <p class="small">(All timings are in IST)</p>
+        <table class="table">
+            
+            <tr>
+                <th>FULL PAPER SUBMISSION</th>
+                <th>ACCEPTANCE NOTIFICATION</th>
+                <th>FINAL CAMERA READY PAPER SUBMISSION</th>
+                <th>REGISTRATION</th>
+            </tr>
+            <tr>
+                <td><%= conference.full_paper_submission %> (11:59 PM)</td>
+                <td><%= conference.acceptance_notification %></td>
+                <td><%= conference.camera_ready_paper_submission %> (11:59 PM)</td>
+                <td><%= conference.registration %> (11:59 PM)</td>
+            </tr>
+        </table>
+
+        <h5>Tracks</h5>
+
+        <% if(conference_tracks && conference_tracks.length>0){ %>
+            <ul>
+
+            <% conference_tracks.forEach(function(conference_tracks){ %>
+
+                <li><%= conference_tracks.track_name %></li>
+            
+            <% }) %>
+        </ul>
+        <% } else { %>
+
+            <p class="small">No Tracks have been added by the Chair! If you think this is an error, please contact the conference Chair.</p>
+
+            <% } %>
+
+    </div>
+    
+    <%- include('partials/footer') %>
+</body>
+</html>

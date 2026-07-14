@@ -1350,7 +1350,9 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
 app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
-  return res.render("conference.ejs",{conference: conference.rows})
+  const conference_tracks = await pool.query("select * from conference_tracks where conference_id=$1",[req.params.id]);
+  const submissions = await pool.query("select * from submissions where conference_id = $1 and primary_author = $2",[req.params.id, req.user.email]);
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions:submissions.rows})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
