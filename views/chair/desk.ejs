@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <%- include('../partials/dashboard/header') %>
+
+    <div class="container">
+        <h4>Desk Review</h4>
+        <h6><%= conference.title %></h6><hr>
+
+        <% if(submissions && submissions.length>0) { %>
+
+            
+            <table class="table">
+                <tr>
+                    <th>TITLE</th>
+                    <th>ABSTRACT</th>
+                    <th>VIEW PAPER</th>
+                    <th>DECISION</th>
+                    <th>ACTION</th>
+                </tr>
+            <% submissions.forEach(function(submission){ %>
+
+<form action="/submit-desk-decision/<%= submission.submission_id %>" method="post">
+              <tr>
+                <td><%= submission.title %></td>
+                <td><a class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#exampleModal1">Read</a></td>
+                <td><a target="_blank" href="<%= submission.file_url %>" class="btn btn-primary btn-sm">View</a></td>
+                <td>
+
+    <div class="form-check">
+  <input class="form-check-input" value="DESK ACCEPT" type="radio" name="decision" id="radioDefault1">
+  <label class="form-check-label" for="radioDefault1">
+    ACCEPTED
+  </label>
+</div>
+<div class="form-check">
+  <input class="form-check-input" value="DESK REJECT" type="radio" name="decision" id="radioDefault2">
+  <label class="form-check-label" for="radioDefault2">
+    REJECTED
+  </label>
+</div>
+                </td>
+                <td>
+                  <button type="submit" value="Save" class="btn btn-success btn-sm">Save</button>
+                </td>
+            </tr></form>
+
+            <div class="modal fade" id="exampleModal1" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel"><%= submission.title %></h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <p class="small" align="justify">
+
+            <%= submission.abstract %>
+
+        </p>
+
+    </div>
+   
+    </div>
+  </div>
+</div>
+            
+            <% }) %>
+                    </table>
+
+        <% } else { %>
+<p class="small">No Submissions Found!</p>
+            <% } %>
+
+    </div>
+
+    
+
+    <%- include('../partials/footer') %>
+    <script src="/script.js"></script>
+</body>
+</html>

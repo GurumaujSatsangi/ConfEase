@@ -2,7 +2,14 @@ import pkg from "pg";
 const { Pool, types } = pkg;
 
 import dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// This tells dotenv to look in the parent directory (the root ConfEase folder)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // Return date columns as raw 'YYYY-MM-DD' strings instead of JS Date objects
 // This prevents timezone-related off-by-one errors
@@ -15,8 +22,8 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD ,
   port: parseInt(process.env.DB_PORT),
   ssl: {
-        rejectUnauthorized: false // This is required for AWS RDS
-    }
+    rejectUnauthorized: false // <--- Change this!
+  }
 });
 
 export default pool;

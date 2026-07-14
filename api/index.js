@@ -5,6 +5,7 @@ import { createClient } from 'redis';
 import passport from "passport";
 import { RedisStore } from "connect-redis";
 import { v4 as uuidv4 } from "uuid";
+import {PDFParse} from 'pdf-parse';
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import ip from 'ip';
@@ -1127,6 +1128,34 @@ app.get("/my-profile",checkAuth,async(req,res)=>{
   const session_history = await pool.query("select * from sessions where user_id=$1",[user_data.rows[0].id]);
   return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows});
 })
+
+app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
+
+
+  const conference_id = req.params.id;
+
+  const conference = await pool.query("select * from conferences where conference_id=$1",[conference_id]);
+  const submissions = await pool.query("select * from submissions where conference_id=$1 and submission_status=$2",[conference_id,"Submitted for Review"]);
+
+  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows});
+
+})
+
+app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+  const {decision} = req.body;
+
+  const data = await pool.query("update submissions set submission_status=$1 where submission_id=$2 returning *",[decision,submission_id]);
+
+  if(data){
+    return res.redirect("/chair/dashboard/desk/"+data.rows[0].conference_id+"?message=Submission Status Updated ("+decision+")");
+  }
+
+
+})
+
+
 
 
 
