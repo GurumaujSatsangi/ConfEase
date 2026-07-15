@@ -66,6 +66,46 @@ function uploadBufferToCloudinary(buffer, options) {
   });
 }
 
+async function getJsonCacheValue(key) {
+  if (!redisClient) {
+    return null;
+  }
+
+  try {
+    const cachedValue = await redisClient.get(key);
+    return cachedValue ? JSON.parse(cachedValue) : null;
+  } catch (error) {
+    if (!String(error?.message || "").includes("WRONGTYPE")) {
+      throw error;
+    }
+
+    try {
+      const keyType = await redisClient.type(key);
+
+      if (keyType === "list") {
+        const listValues = await redisClient.lRange(key, 0, -1);
+        const normalizedValues = listValues.flatMap((item) => {
+          try {
+            const parsedItem = JSON.parse(item);
+            return Array.isArray(parsedItem) ? parsedItem : [parsedItem];
+          } catch {
+            return [];
+          }
+        });
+
+        await redisClient.set(key, JSON.stringify(normalizedValues));
+        return normalizedValues;
+      }
+
+      await redisClient.del(key);
+      return null;
+    } catch (repairError) {
+      console.warn(`Unable to repair Redis cache key ${key}:`, repairError.message);
+      return null;
+    }
+  }
+}
+
 
 const schema = new passwordValidator();
 
@@ -1049,7 +1089,7 @@ app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
   const submissions = await pool.query("select * from submissions where submission_id=$1",[req.params.id]);
   const results = await pool.query("select * from co_author_requests where submission_id=$1 and primary_author=$2",[req.params.id,req.user.email]);
 
-  if(submissions.rows[0].status!="Submitted for Review"){
+  if(submissions.rows[0].submission_status!="Submitted for Review"){
 
     return res.redirect("/dashboard?message=Co-Author Requests cannot be viewed now. Current Submission Status: "+submissions.rows[0].submission_status);
 
@@ -1173,59 +1213,71 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
 
 
 app.get("/dashboard", checkAuth, async (req, res) => {
-
-
   try {
-
-    
-
     const userEmail = req.user.email;
-    const userRole = req.user.role;
-
-    let conferences=[]
-
-
-
-    const cache_conference = await redisClient.get("conferences");
-
-    if(cache_conference){
-      conferences=JSON.parse(cache_conference);
-    }
-    else{
-
-      const dbresult = await pool.query("select * from conferences");
-      conferences =  dbresult.rows
-
-
-      await redisClient.set("conferences", JSON.stringify(conferences),{EX:3600});
-    }
-
-
-    
+    const userRole = req.user.role; // Kept in case your EJS template needs it
 
     // ==========================================
-    // 6. RENDER DASHBOARD
+    // 1. FETCH GLOBAL CONFERENCES (WITH CACHE)
+    // ==========================================
+    let conferences = [];
+    const cache_conference = await redisClient.get("conferences");
+
+    if (cache_conference) {
+      conferences = JSON.parse(cache_conference);
+    } else {
+      const dbresult = await pool.query("SELECT * FROM conferences");
+      conferences = dbresult.rows;
+      // Cached for 1 hour
+      await redisClient.set("conferences", JSON.stringify(conferences), { EX: 3600 });
+    }
+
+  
+
+    // ==========================================
+    // 3. RENDER DASHBOARD
     // ==========================================
     res.render("dashboard.ejs", {
       user: req.user,
-      conferences,
+      userRole,       // Sent to template
+      conferences,   // Sent to template
       message: req.query.message || null,
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("Dashboard Route Error:", err);
     res.redirect(
-      "/?message=We are facing issues connecting to the database. Please try again later."
+      "/?message=We are facing issues connecting to the dashboard. Please try again later."
     );
   }
 });
 
+
 app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
   const conference_tracks = await pool.query("select * from conference_tracks where conference_id=$1",[req.params.id]);
-  const submissions = await pool.query("select * from submissions where conference_id = $1 and primary_author = $2",[req.params.id, req.user.email]);
+  let submissions = [];
+  const conferenceSubmissionsCacheKey = `${req.user.email}_submissions_conference_${req.params.id}`;
+
+  const cachedConferenceSubmissions = await getJsonCacheValue(conferenceSubmissionsCacheKey);
+  if (cachedConferenceSubmissions) {
+    submissions = cachedConferenceSubmissions;
+  } else {
+  
+      const dbresult = await pool.query(
+        "select * from submissions where conference_id = $1 and primary_author = $2",
+        [req.params.id, req.user.email]
+      );
+      submissions = dbresult.rows;
+    
+
+    if (redisClient) {
+      await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions));
+    }
+  }
+
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions:submissions.rows, invited_talk_submissions:invited_talk_submissions.rows})
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
@@ -5533,8 +5585,7 @@ app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/submit", checkAuth, async(req, res) => {
-
+app.post("/submit", checkAuth, async (req, res) => {
   upload.single("file")(req, res, async (err) => {
     try {
       if (err instanceof multer.MulterError) {
@@ -5544,80 +5595,60 @@ app.post("/submit", checkAuth, async(req, res) => {
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
 
-
       if (!req.file) {
         return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
       }
 
       const { title, abstract, areas, id } = req.body;
 
-      // Server-side validation of required fields
       if (!title || !abstract || !areas || !id) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required: Title, Abstract, Area and Conference."));
       }
 
-      // Ensure Cloudinary is configured
       if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("Upload service is not configured. Please contact the administrator."));
       }
 
-      // Validate that the selected track belongs to the selected conference
-      try {
-        const trackCheck = await pool.query(
-          `SELECT 1 FROM conference_tracks WHERE track_id = $1 AND conference_id = $2 LIMIT 1;`,
-          [areas, id]
-        );
-        if (trackCheck.rows.length === 0) {
-          return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid track selection for the chosen conference."));
-        }
-      } catch (trackErr) {
-        console.error("Track validation error:", trackErr);
-        return res.redirect("/dashboard?message=" + encodeURIComponent("Unable to validate track selection right now."));
+      // Track Validation
+      const trackCheck = await pool.query(
+        `SELECT 1 FROM conference_tracks WHERE track_id = $1 AND conference_id = $2 LIMIT 1;`,
+        [areas, id]
+      );
+      if (trackCheck.rows.length === 0) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid track selection for the chosen conference."));
       }
 
-      // Upload to Cloudinary
-      let uploadResult;
-      try {
-        uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
-          resource_type: "auto",
-          folder: "submissions",
-          public_id: `${(req.user && (req.user.uid || req.user.email)) || "user"}-${Date.now()}`,
-        });
-      } finally {}
+      // Cloudinary Upload
+      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
+        resource_type: "auto",
+        folder: "submissions",
+        public_id: `${(req.user && (req.user.uid || req.user.email)) || "user"}-${Date.now()}`,
+      });
 
-// 1. Get the data, handling the case where it doesn't exist yet
-const rawCodes = await redisClient.get("paper_codes");
-const paper_codes = rawCodes ? JSON.parse(rawCodes) : [];
+      // --- FIXED: Thread-safe Unique Paper Code Generation via Redis Sets ---
+      let paperCode;
+      let isUnique = false;
+      while (!isUnique) {
+        paperCode = generator.generate({ length: 6, numbers: true });
+        // SADD adds to a Set and returns 1 if element is new, or 0 if it already exists
+        const addedCount = await redisClient.sAdd("paper_codes_set", paperCode);
+        if (addedCount === 1) {
+          isUnique = true;
+        }
+      }
+      console.log(`Generated and safely saved unique code: ${paperCode}`);
 
-let paperCode;
-
-// 2. Generate until we find a unique one
-do {
-  paperCode = generator.generate({ length: 6, numbers: true });
-} while (paper_codes.includes(paperCode));
-
-// 3. Add the new code to our array
-paper_codes.push(paperCode);
-
-// 4. Save the ENTIRE updated array back to the database
-await redisClient.set("paper_codes", JSON.stringify(paper_codes));
-
-console.log(`Generated and saved: ${paperCode}`);
-
+      // PDF & AI Text Parsing
       const parser = new PDFParse({ url: uploadResult.secure_url });
       const result = await parser.getText();
-	    console.log(result.text);
-
-const aidetection = detectAIText(result.text);
-console.log(aidetection.isAIGenerated);
-const confidence = getConfidenceScore(result.text);
-console.log(confidence);
+      const aidetection = detectAIText(result.text);
+      const confidence = getConfidenceScore(result.text);
 
       // Insert into PostgreSQL
-     const submission_result =  await pool.query(
+      const submission_result = await pool.query(
         `INSERT INTO submissions 
          (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai)
-         VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9) returning *;`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`,
         [
           id,
           req.user.email,
@@ -5628,25 +5659,49 @@ console.log(confidence);
           paperCode,
           confidence,
           aidetection.isAIGenerated
-        
-
         ]
       );
 
-      const conference_data = await pool.query("select * from conferences where conference_id=$1",[id]); 
+      const conference_data = await pool.query("select * from conferences where conference_id=$1", [id]); 
+      console.log("ADDED TO DB!");
 
-      console.log("ADDED TO DB!")
-await redisClient.set(req.user.email+"_submissions",JSON.stringify(submission_result.rows[0]));
-console.log("ADDED TO CACHE!")
-await sendMail(req.user.email,"Submission Created | "+title,null,"Hi, <br><br>Your paper titled <b>"+title+"</b> has been submitted succesfully for <b>"+conference_data.rows[0].title+"</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>Incase of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+      // --- FIXED: Consistent User Submissions Cache handling ---
+      const cacheKey = `${req.user.email}_submissions_conference_${id}`;
+      const newSubmissionItem = submission_result.rows[0];
 
-      return res.redirect("/dashboard?message=Paper Submitted Succesfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
+      const cacheSubmissions = await getJsonCacheValue(cacheKey);
+
+      if (cacheSubmissions) {
+        // If cache exists, parse it, push item, rewrite string
+        const submissionsArray = cacheSubmissions;
+        submissionsArray.push(newSubmissionItem);
+        if (redisClient) {
+          await redisClient.set(cacheKey, JSON.stringify(submissionsArray));
+        }
+      } else {
+        // If cache is empty, seed a brand new array containing the item
+        if (redisClient) {
+          await redisClient.set(cacheKey, JSON.stringify([newSubmissionItem]));
+        }
+      }
+      console.log("ADDED TO CACHE!");
+
+      // Send Confirmation Email
+      await sendMail(
+        req.user.email,
+        "Submission Created | " + title,
+        null,
+        `Hi, <br><br>Your paper titled <b>${title}</b> has been submitted successfully for <b>${conference_data.rows[0].title}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+      );
+
+      return res.redirect("/dashboard?message=Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
     } catch (error) {
       console.error("Submit error:", error);
       return res.redirect("/dashboard?message=Something went wrong while submitting the paper.");
     }
   });
 });
+
 
 
 

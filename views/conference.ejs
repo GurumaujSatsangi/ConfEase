@@ -127,6 +127,8 @@
             <tr>
                 <th>Submission Title</th>
                 <th>View Paper</th>
+                <th>Paper Code</th>
+                <th>Co-Authors</th>
                 <th>Status</th>
                 <th>Action</th>
             </tr>
@@ -136,12 +138,25 @@
                 <tr>
                     <td><%= submission.title %></td>
                     <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
+                    <td><button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.paper_code %>">View</button></td>
+                    <td>
+                        <% if(submission.co_authors && submission.co_authors.length>0) { %>
+
+                        <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.co_authors %>">View</button></td>
+
+                        
+                        <% } else{ %>
+
+                            <p class="small">None</p>
+
+                            <% } %>
+
                     <td><%= submission.submission_status %></td>
                     <td>
                         
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
                     </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
-                
+                <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
             
             </p></td>
                 </tr>
@@ -206,5 +221,7 @@
     </div>
     
     <%- include('partials/footer') %>
+
+    <script src="/script.js"></script>
 </body>
 </html>
