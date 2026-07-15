@@ -5553,12 +5553,12 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
   
 
   try {
-    await pool.query(
-      `DELETE FROM submissions WHERE submission_id = $1;`,
+    const conference = await pool.query(
+      `DELETE FROM submissions WHERE submission_id = $1 returning conference_id;`,
       [req.params.id]
     );
 
-    await redisClient.del(req.user.email+"_submissions");
+    await redisClient.del(req.user.email+"_submissions_conference_"+conference.rows[0].conference_id);
 
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
@@ -5566,8 +5566,6 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
     return res.redirect("/dashboard?message=Error deleting submission.");
   }
 });
-
-
 
 app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
 
