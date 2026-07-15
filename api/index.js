@@ -574,7 +574,7 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
-  if (req.user.role !== "reviewer") {
+  if (!req.user.role .includes("reviewer")) {
     return res.redirect("/dashboard?message=Reviewer role not assigned to you by Chair. If you think this is an error, please reach out to the conference chair.");
   }
 
@@ -1182,142 +1182,26 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     const userEmail = req.user.email;
     const userRole = req.user.role;
 
-    // ==========================================
-    // 1. ROLE CACHING & FETCHING
-    // ==========================================
-    // let conference_ids_for_reviewer = [];
-    // let conference_ids_for_session_chair = [];
-    // let conference_ids_for_poster_presentation_coordinator = [];
-    // let conference_ids_for_invited_talk = [];
-
-   
-
-    // const sessionChairKey = `session_chair_role_${userEmail}`;
-    // const invitedTalkKey = `invited_talk_role_${userEmail}`;
-    // const posterCoordinatorKey = `poster_coordinator_role_${userEmail}`;
-    // const reviewerKey = `reviewer_role_${userEmail}`;
-
-    // const [
-    //   cached_session_chair,
-    //   cached_invited_talk,
-    //   cached_poster_coordinator,
-    //   cached_reviewer
-    // ] = await Promise.all([
-    //   redisClient.get(sessionChairKey),
-    //   redisClient.get(invitedTalkKey),
-    //   redisClient.get(posterCoordinatorKey),
-    //   redisClient.get(reviewerKey)
-    // ]);
-
-    // // Because we will cache empty arrays ("[]"), this check accurately reflects if we have checked the DB before.
-    // if (cached_session_chair && cached_invited_talk && cached_poster_coordinator && cached_reviewer) {
-    //   conference_ids_for_session_chair = JSON.parse(cached_session_chair);
-    //   conference_ids_for_invited_talk = JSON.parse(cached_invited_talk);
-    //   conference_ids_for_poster_presentation_coordinator = JSON.parse(cached_poster_coordinator);
-    //   conference_ids_for_reviewer = JSON.parse(cached_reviewer);
-
-    //   console.log("CONFERENCE ROLES FETCHED FROM REDIS CACHE!");
-    // } else {
-    //   // Cache Miss: Run all database queries in parallel
-    //   const [
-    //     session_chair_role,
-    //     invited_talk_role,
-    //     poster_presentation_coordinator_role,
-    //     reviewer_role
-    //   ] = await Promise.all([
-    //     // Since your DB columns are now native arrays, ANY() works perfectly!
-    //     pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.panelists)`, [userEmail]),
-    //     pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN invitees ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ct.email`, [userEmail]),
-    //     pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN poster_session ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.coodinators)`, [userEmail]),
-    //     pool.query(`SELECT c.conference_id FROM conferences c INNER JOIN conference_tracks ct ON c.conference_id = ct.conference_id::uuid WHERE $1 = ANY(ct.track_reviewers)`, [userEmail])
-    //   ]);
-
-    //   // CRITICAL FIX: Removed 'const' so we update the variables declared at the top of the route
-    //   // instead of creating new local variables that get destroyed when this block ends.
-    //   conference_ids_for_session_chair = session_chair_role?.rows?.map(row => row.conference_id) || [];
-    //   conference_ids_for_invited_talk = invited_talk_role?.rows?.map(row => row.conference_id) || [];
-    //   conference_ids_for_poster_presentation_coordinator = poster_presentation_coordinator_role?.rows?.map(row => row.conference_id) || [];
-    //   conference_ids_for_reviewer = reviewer_role?.rows?.map(row => row.conference_id) || [];
-
-    //   const CACHE_TTL = 3600; 
-
-    //   // Cache results using modern Redis v4+ syntax
-    //   await Promise.all([
-    //     redisClient.set(sessionChairKey, JSON.stringify(conference_ids_for_session_chair), { EX: CACHE_TTL }),
-    //     redisClient.set(invitedTalkKey, JSON.stringify(conference_ids_for_invited_talk), { EX: CACHE_TTL }),
-    //     redisClient.set(posterCoordinatorKey, JSON.stringify(conference_ids_for_poster_presentation_coordinator), { EX: CACHE_TTL }),
-    //     redisClient.set(reviewerKey, JSON.stringify(conference_ids_for_reviewer), { EX: CACHE_TTL })
-    //   ]);
-      
-    //   console.log("CONFERENCE ROLES FETCHED FROM DB AND CACHED FOR 1 HOUR!");
-    // }
-
-    // ==========================================
-    // 2. FETCH INDEPENDENT DATA IN PARALLEL
-    // ==========================================
-    const [conferences, trackIds, invitedTalksResult] = await Promise.all([
-      fetchAllConferences(),
-      fetchTrackIds(userEmail),
-      pool.query("SELECT * FROM invited_talk_submissions WHERE invitee_email = $1", [userEmail])
-    ]);
-
-    const presentationTracks = await fetchPresentationTracks(trackIds);
+    let conferences=[]
 
 
-    // ==========================================
-    // 3. SUBMISSIONS CACHING & FETCHING
-    // ==========================================
-    const submissionsCacheKey = `${userEmail}_submissions`;
-    const cachedSubmissionsData = redisClient ? await redisClient.get(submissionsCacheKey) : null;
-    let submissions = [];
 
-    if (cachedSubmissionsData) {
-      console.log("SUBMISSIONS FETCHED FROM REDIS CACHE!");
-      try {
-        const parsed = JSON.parse(cachedSubmissionsData);
-        submissions = normalizeSubmissionsData(parsed);
-      } catch (err) {
-        console.warn("Invalid submissions cache payload, falling back to DB", err.message);
-      }
+    const cache_conference = await redisClient.get("conferences");
+
+    if(cache_conference){
+      conferences=JSON.parse(cache_conference);
+    }
+    else{
+
+      const dbresult = await pool.query("select * from conferences");
+      conferences =  dbresult.rows
+
+
+      await redisClient.set("conferences", JSON.stringify(conferences),{EX:3600});
     }
 
-    if (!Array.isArray(submissions) || submissions.length === 0) {
-      submissions = await fetchUserSubmissions(userEmail);
-      if (redisClient) {
-        await redisClient.set(submissionsCacheKey, JSON.stringify(submissions || []), { EX: 3600 });
-      }
-      console.log("SUBMISSIONS FETCHED FROM DB AND CACHED!");
-    }
 
-    // ==========================================
-    // 4. ENRICH DATA
-    // ==========================================
-    const emailSet = new Set();
-    if (submissions && submissions.length > 0) {
-      submissions.forEach(s => {  
-        emailSet.add(s.primary_author);
-        if (Array.isArray(s.co_authors)) s.co_authors.forEach(e => emailSet.add(e));
-      });
-    }
-
-    const emailToNameMap = await fetchUserNamesByEmails([...emailSet]);
-    const userSubmissions = enrichSubmissions(submissions || [], presentationTracks, emailToNameMap);
-
-    // ==========================================
-    // 5. FETCH DEPENDENT MAPS IN PARALLEL
-    // ==========================================
-    const primarySubmissionIds = (submissions || [])
-      .filter(s => s.primary_author === userEmail)
-      .map(s => s.submission_id);
-
-    const [coAuthorRequests, revisedSubmissionsMap, posterSessionsMap] = await Promise.all([
-      fetchCoAuthorRequests(primarySubmissionIds),
-      fetchRevisedSubmissions(primarySubmissionIds),
-      fetchPosterSessions(submissions || [])
-    ]);
-
-    const trackDetailsMap = buildTrackDetailsMap(presentationTracks);
-
+    
 
     // ==========================================
     // 6. RENDER DASHBOARD
@@ -1325,18 +1209,6 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     res.render("dashboard.ejs", {
       user: req.user,
       conferences,
-      userSubmissions,
-      // conference_ids_for_reviewer,
-      // conference_ids_for_session_chair,
-      // conference_ids_for_invited_talk,
-      // conference_ids_for_poster_presentation_coordinator,
-      invitedTalkSubmissions: invitedTalksResult.rows,
-      presentationdata: presentationTracks,
-      coAuthorRequests,
-      revisedSubmissionsMap,
-      posterSessionsMap,
-      trackDetailsMap,
-      currentDate: getCurrentDateIST(),
       message: req.query.message || null,
     });
 
@@ -1352,7 +1224,8 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
   const conference_tracks = await pool.query("select * from conference_tracks where conference_id=$1",[req.params.id]);
   const submissions = await pool.query("select * from submissions where conference_id = $1 and primary_author = $2",[req.params.id, req.user.email]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions:submissions.rows})
+  const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions:submissions.rows, invited_talk_submissions:invited_talk_submissions.rows})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{

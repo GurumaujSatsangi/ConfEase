@@ -13,7 +13,10 @@
 
         <h4><%= conference.title %></h4>
 
-         <div class="btn-group" role="group">
+        <% if(user.role && user.role.includes('author')) { %>
+
+
+             <div class="btn-group" role="group">
     <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
       Create New Submission
     </button>
@@ -24,10 +27,91 @@
      
 
    </div>
-
+        
    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
   My Submissions
 </button>
+        
+        <% } if(user.role && user.role.includes('reviewer')) { %>
+
+          
+                    <a target="_blank" href="/reviewer/dashboard" class="btn btn-warning btn-sm">
+  Review Submissions
+                    </a>
+             
+
+    
+
+<% } if(user.role && user.role.includes('invitee')) { %>
+
+    <a href="/submission/invited-talk/<%= conference.conference_id %>" type="button" class="btn btn-primary btn-sm">
+  Submit Invited Talk Paper
+    </a>
+
+    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions2">
+  My Invited Talk Submissions
+</button>
+
+    <% } if(user.role && user.role=='poster_presentation_coordinator'){%>
+
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
+  Score Posters
+</button>
+
+        <% } %>
+
+<div class="modal fade" id="MySubmissions2" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">My Submissions</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <% if(invited_talk_submissions && invited_talk_submissions.length>0) { %>
+            <table class="table">
+            <tr>
+                <th>Submission Title</th>
+                <th>View Paper</th>
+                <th>Action</th>
+            </tr>
+
+            <% invited_talk_submissions.forEach(function(submission){ %>
+
+                <tr>
+                    <td><%= submission.title %></td>
+                    <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
+                    <td><%= submission.submission_status %></td>
+                    <td>
+                        
+                        <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
+                    </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
+                
+            
+            </p></td>
+                </tr>
+            
+            <%}) %>
+
+                    </table>
+
+        
+        <% } else { %>
+
+            <p class="small">You have not made any submissions.</p>
+
+            <% } %>
+
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <div class="modal fade" id="MySubmissions" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl">
@@ -42,9 +126,7 @@
             <table class="table">
             <tr>
                 <th>Submission Title</th>
-                <th>Paper Code</th>
                 <th>View Paper</th>
-                <th>Co-Authors</th>
                 <th>Status</th>
                 <th>Action</th>
             </tr>
@@ -53,16 +135,13 @@
 
                 <tr>
                     <td><%= submission.title %></td>
-                    <td><%= submission.paper_code %></td>
                     <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
-                    <td><%= submission.co_authors %></td>
                     <td><%= submission.submission_status %></td>
                     <td>
                         
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
                     </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
                 
-                <li><a href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
             
             </p></td>
                 </tr>
@@ -72,7 +151,11 @@
                     </table>
 
         
-        <% } %>
+        <% } else { %>
+
+            <p class="small">You have not made any submissions.</p>
+
+            <% } %>
 
         
       </div>
