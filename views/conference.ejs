@@ -13,8 +13,24 @@
 
         <h4><%= conference.title %></h4>
 
-        <% if(user.role && user.role.includes('author')) { %>
+        <% 
+          let roleStr = "";
+          
+          if (user && user.roles) {
+            // Check if user.roles is a raw array of database rows
+            if (Array.isArray(user.roles)) {
+              // Filter roles that match the current conference_id
+              const matchedRoles = user.roles.filter(r => r.conference_id === conference.conference_id);
+              roleStr = JSON.stringify(matchedRoles).toLowerCase();
+            } else {
+              // Fallback to object key notation if it is mapped by conference_id
+              const myRole = user.roles[conference.conference_id];
+              roleStr = myRole ? JSON.stringify(myRole).toLowerCase() : "";
+            }
+          }
+        %>
 
+        <% if(!roleStr){ %>
 
              <div class="btn-group" role="group">
     <button type="button" class="btn btn-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
@@ -32,7 +48,9 @@
   My Submissions
 </button>
         
-        <% } if(user.role && user.role.includes('reviewer')) { %>
+        <% } %>
+        
+        <% if(roleStr && roleStr.includes('reviewer')) { %>
 
           
                     <a target="_blank" href="/reviewer/dashboard" class="btn btn-warning btn-sm">
@@ -42,7 +60,9 @@
 
     
 
-<% } if(user.role && user.role.includes('invitee')) { %>
+<% } %>
+
+<% if(roleStr && roleStr.includes('invitee')) { %>
 
     <a href="/submission/invited-talk/<%= conference.conference_id %>" type="button" class="btn btn-primary btn-sm">
   Submit Invited Talk Paper
@@ -52,13 +72,31 @@
   My Invited Talk Submissions
 </button>
 
-    <% } if(user.role && user.role=='poster_presentation_coordinator'){%>
+    <% } %>
+    
+    <% if(roleStr && roleStr.includes('poster_presentation_coordinator')){%>
 
         <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
-  Score Posters
+  Start Poster Presentations
 </button>
 
+
+
+
+
         <% } %>
+        
+        <% if(roleStr && roleStr.includes('session_chair')){ %>
+
+
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
+  Start Oral Presentation
+</button>
+        
+        <% }%>
+
+        <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle-fill"></i>
+</button>
 
 <div class="modal fade" id="MySubmissions2" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl">

@@ -106,6 +106,51 @@ async function getJsonCacheValue(key) {
   }
 }
 
+async function loadConferenceRoles(email) {
+  const userRoles = await pool.query(
+    "select conference_id, role from conference_roles where email_id = $1",
+    [email]
+  );
+
+  return userRoles.rows.reduce((acc, row) => {
+    // 1. If the conference_id key doesn't exist yet, create it with an empty array
+    if (!acc[row.conference_id]) {
+      acc[row.conference_id] = [];
+    }
+    
+    // 2. Push the current role into the array
+    acc[row.conference_id].push(row.role);
+    
+    return acc;
+  }, {});
+}
+
+function getConferenceRolesFromUser(user) {
+  if (user && user.roles && typeof user.roles === "object") {
+    return user.roles;
+  }
+
+  if (user && user.role && typeof user.role === "object") {
+    return user.role;
+  }
+
+  return {};
+}
+
+function userHasRole(user, roleName) {
+  if (!user) {
+    return false;
+  }
+
+  if (typeof user.role === "string" && user.role.includes(roleName)) {
+    return true;
+  }
+
+  return Object.values(getConferenceRolesFromUser(user)).some(
+    (role) => typeof role === "string" && role.includes(roleName)
+  );
+}
+
 
 const schema = new passwordValidator();
 
@@ -310,13 +355,18 @@ async function refreshUserSessionFromCookie(req, res) {
       return null;
     }
 
-    const accessToken = jwt.sign(
-      {
-        email: user.email,
-        name: user.name,
-        user_id: user.id,
-        role:user.role,
-      },
+    const conferenceRolesDict = await loadConferenceRoles(user.email);
+
+// 5. Sign the JWT with the nested dictionary
+const accessToken = jwt.sign(
+  {
+    email: user.email,
+    name: user.name,
+    user_id: user.id,
+    role: user.role,
+    roles: conferenceRolesDict, // <-- Attached as a dictionary object
+  },
+
       process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret",
       {
         expiresIn: "15m",
@@ -330,7 +380,8 @@ async function refreshUserSessionFromCookie(req, res) {
       email: user.email,
       name: user.name,
       user_id: user.id,
-      role:user.role,
+      role: user.role,
+      roles: conferenceRolesDict,
     };
   } catch (err) {
     return null;
@@ -614,7 +665,7 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
-  if (!req.user.role .includes("reviewer")) {
+  if (!userHasRole(req.user, "reviewer")) {
     return res.redirect("/dashboard?message=Reviewer role not assigned to you by Chair. If you think this is an error, please reach out to the conference chair.");
   }
 
@@ -1277,7 +1328,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   }
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows})
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
@@ -2006,6 +2057,9 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
   [session_date, start_time, end_time, coordinatorArray, conference_id]
 );
 
+for(const coordinator of coordinatorArray){
+  await pool.query("insert into conference_roles values($1, $2 $3),",[req.params.id, coordinator,"poster_presentation_coordinator"]);
+}
 
 await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Hi, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+session_date+"<br><b>Timings:</b> "+start_time+" - "+end_time+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
@@ -2870,6 +2924,7 @@ app.post("/user-login", async (req, res) => {
 
     const user = userResult.rows[0];
 
+
     // CHECK ACTIVATION
     if (user.status === "ACTIVATION PENDING") {
       return res.redirect(
@@ -2890,12 +2945,14 @@ app.post("/user-login", async (req, res) => {
     }
 
     // ACCESS TOKEN
+    const conferenceRolesDict = await loadConferenceRoles(user.email);
     const access_token = jwt.sign(
       {
         email: user.email,
         name: user.name,
         user_id: user.id,
-        role: user.role
+        role: user.role,
+        roles: conferenceRolesDict,
       },
       process.env.JWT_ACCESS_TOKEN_SECRET,
       {
@@ -3040,12 +3097,14 @@ async function handleRefresh(req, res) {
     }
 
     // CREATE NEW ACCESS TOKEN
+    const conferenceRolesDict = await loadConferenceRoles(user.email);
     const accessToken = jwt.sign(
       {
         email: user.email,
         name: user.name,
         user_id: user.id,
-        role: user.role
+        role: user.role,
+        roles: conferenceRolesDict
       },
       process.env.JWT_ACCESS_TOKEN_SECRET,
       {
@@ -3213,7 +3272,7 @@ app.post("/chair-login", async (req, res) => {
 
     // generate jwt
     const chairAccessToken = jwt.sign(
-      { email: user.email, name: user.name, user_id: user.user_id },
+      { email: user.email, name: user.name, user_id: user.user_id, role: "chair" },
       process.env.JWT_ACCESS_TOKEN_SECRET,
       { expiresIn: "15m" }
     );
@@ -3834,7 +3893,11 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       ]
     );
 
+
     for (const reviewerEmail of reviewersArray) {
+
+    await pool.query("insert into conference_roles values($1, $2, $3)",[req.params.id, reviewerEmail, "reviewer"]);
+
       await sendMail(
         reviewerEmail,null,
         "Reviewer Role Assigned",
@@ -3843,6 +3906,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
     }
 
     for (const chairEmail of sessionChairsArray) {
+
+      await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
       await sendMail(
         chairEmail,
         null,
