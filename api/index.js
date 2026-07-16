@@ -1249,19 +1249,43 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
   const submission_id = req.params.id;
   const {decision} = req.body;
 
+  
+
+
   const data = await pool.query("update submissions set submission_status=$1 where submission_id=$2 returning *",[decision,submission_id]);
 
-  if(data){
+  await pool.query("insert into desk_review(paper_id,decision,user_email)values($1,$2,$3)",[data.rows[0].submission_id,decision,req.user.email]);
+
+  if(decision=='DESK REJECT'){
+    return res.redirect("/chair/dashboard/desk/remarks-for-rejection/"+submission_id);
+  }else {
+    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+data.rows[0].title+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
     return res.redirect("/chair/dashboard/desk/"+data.rows[0].conference_id+"?message=Submission Status Updated ("+decision+")");
   }
+})
 
+app.get("/chair/dashboard/desk/remarks-for-rejection/:id",checkChairAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+
+  return res.render("chair/desk-rejection-remarks.ejs",{submission_id});
 
 })
 
+app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
 
+  const submission_id = req.params.id;
+  const {remarks} = req.body;
 
+  const conference = await pool.query("select conference_id from submissions where submission_id = $1",[submission_id]);
 
+  const data = await pool.query("select title, primary_author from submissions where submission_id=$1",[submission_id]);
 
+  await pool.query("update desk_review set remarks=$1 where paper_id = $2",[remarks,submission_id]);
+      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+data.rows[0].title+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+remarks+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+
+  return res.redirect("/chair/dashboard/desk/"+conference.rows[0].conference_id+"?message=Remarks Saved and Status Updated!");
+})
 
 app.get("/dashboard", checkAuth, async (req, res) => {
   try {
@@ -1326,6 +1350,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions));
     }
   }
+
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
   return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})

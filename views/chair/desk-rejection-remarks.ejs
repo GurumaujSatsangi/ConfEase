@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+        <%- include('../partials/dashboard/header') %>
+
+    <h4>Remarks for Desk Rejection</h4>
+    <p class="small">Inorder to maintain transparency in the entire review process, submitting a reason for Desk Rejection is mandatory.</p>
+    <div class="container">
+<form action="/submit-desk-rejection-remarks/<%= submission_id %>" method="post">
+        <textarea class="form-control" name="remarks"></textarea>
+        <button class="btn btn-primary btn-sm" type="submit">Save Remarks & Submit Desk Decision</button>
+    </form>
+
+    </div>
+    
+    <%- include('../partials/footer') %>
+
+    <script src="/script.js"></script>
+    
+</body>
+</html>
