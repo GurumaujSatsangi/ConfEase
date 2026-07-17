@@ -33,6 +33,7 @@ import { name } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "../mailer.js"
 import events from 'events';
+import { redis } from "googleapis/build/src/apis/redis/index.js";
 // import { send } from "process";
 // Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
 events.defaultMaxListeners = 20;
@@ -1286,6 +1287,10 @@ app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
 
   return res.redirect("/chair/dashboard/desk/"+conference.rows[0].conference_id+"?message=Remarks Saved and Status Updated!");
 })
+
+
+
+
 
 app.get("/dashboard", checkAuth, async (req, res) => {
   try {
@@ -3889,7 +3894,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       session_date,
       session_start_time,
       session_end_time,
-      session_chairs
+      session_chairs,
+      meta_reviewers
     } = req.body;
 
     const normalizeEmails = (value) => {
@@ -3905,8 +3911,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     await pool.query(
       `INSERT INTO conference_tracks
-       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,$8)`,
       [
         track_title,
         reviewersArray,
@@ -3914,7 +3920,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
         session_start_time,
         session_end_time,
         sessionChairsArray,
-        req.params.id
+        req.params.id,
+        meta_reviewers
       ]
     );
 
@@ -3930,6 +3937,12 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       );
     }
 
+  await sendMail(
+        meta_reviewer,null,
+        "Meta-Reviewer Role Assigned",
+        "Hi,<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+      );
+    
     for (const chairEmail of sessionChairsArray) {
 
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
@@ -3941,6 +3954,9 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       );
     }
 
+
+      await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,meta_reviewers,"meta_reviewer"]);
+
     return res.redirect("/chair/dashboard?message=Track Added Succesfully!");
   } catch (err) {
     console.error("create-track error:", err);
@@ -3948,6 +3964,50 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
   }
 });
 // ...existing code...
+
+app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
+
+  const conference_id = req.params.id;
+
+
+    const cache_data = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
+
+    if(cache_data){
+      console.log("Conference ID already present in cache.");
+    }
+    else{
+
+      await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
+      
+    }
+
+
+  const peer_review = await pool.query("select * from peer_review where conference_id = $1",[conference_id]);
+
+  return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows});
+
+})
+
+app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+
+  const conferenceid_cache = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
+
+
+  const {decision, remarks} = req.body;
+
+  const data = await pool.query("insert into meta_reviewer_decision values($1,$2,$3)",[submission_id,decision,remarks]);
+
+
+if(data){
+  return res.redirect("/meta-reviewer/dashboard/"+JSON.parse(conferenceid_cache)+"?message=Meta-Reviewer recommendation successfully saved!");
+}
+
+
+
+
+})
 
 app.get("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
