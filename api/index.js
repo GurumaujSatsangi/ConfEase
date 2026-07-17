@@ -666,7 +666,7 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
-  if (!userHasRole(req.user, "reviewer")) {
+  if (!req.user.role.includes('reviewer')) {
     return res.redirect("/dashboard?message=Reviewer role not assigned to you by Chair. If you think this is an error, please reach out to the conference chair.");
   }
 
@@ -2394,7 +2394,7 @@ app.post("/start-session", async (req, res) => {
 });
 
 
-app.get("/review/:id", checkAuth, async (req, res) => {
+app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
  
 
   try {
@@ -3969,6 +3969,8 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 
   const conference_id = req.params.id;
 
+  const assigned_tracks = await pool.query("select * from conference_tracks where meta_reviewer=$1 and conference_id = $2",[req.user.email,conference_id]);
+
 
     const cache_data = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
 
@@ -3984,7 +3986,17 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 
   const peer_review = await pool.query("select * from peer_review where conference_id = $1",[conference_id]);
 
-  return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows});
+  return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows,assigned_tracks:assigned_tracks.rows});
+
+})
+
+app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async(req,res)=>{
+
+  const submission_id = req.params.id;
+
+  const peer_review = await pool.query("select * from peer_review where submission_id = $1",[submission_id]);
+
+  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows});
 
 })
 

@@ -95,6 +95,15 @@
         
         <% }%>
 
+          <% if(roleStr && roleStr.includes('meta_reviewer')){ %>
+
+
+        <a target="_blank" href="/meta-reviewer/dashboard/<%= conference.conference_id %>" class="btn btn-primary btn-sm">
+  Meta-Reviewer Dashboard
+        </a>
+        
+        <% }%>
+
         <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle-fill"></i>
 </button>
 

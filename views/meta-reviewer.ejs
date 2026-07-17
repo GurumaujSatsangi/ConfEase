@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <%- include('partials/dashboard/header') %>
+    <div class="container">
+        <h4>Welcome to Meta-Reviewer's Dashboard, <%= user.name %>!</h4>
+        <hr>
+        <h5>Assigned Tracks</h5>
+        <% if(assigned_tracks && assigned_tracks.length>0) { %>
+
+            <table class="table">
+                <tr>
+                    <th>NAME OF THE TRACK</th>
+                </tr>
+
+                <% assigned_tracks.forEach(function(assigned_tracks){ %>
+
+                    <tr>
+                        <td>
+                            <%= assigned_tracks.track_name %>
+                        </td>
+                    </tr>
+                
+                <% }) %>
+            </table>
+        
+        <% } else { %>
+
+            <p class="small">No Tracks have been assigned to you!</p>
+            <% } %>
+
+            <hr><h5>Peer-Reviews requiring attention</h5>
+        <% if(peer_review && peer_review.length>0) { %>
+
+            <table class="table">
+                <tr>
+                    <th>
+                        PEER REVIEW ID
+                    </th>
+                    <th>
+ACTION
+                    </th>
+                </tr>
+           
+
+            <% peer_review.forEach(function(peer_review){ %>
+
+
+<tr>
+    <td>
+        <%= peer_review.id %>
+    </td>
+    <td>
+        <a href="/meta-reviewer/dashboard/recommendation-submission/<%= peer_review.submission_id%>" disabled class="btn btn-primary btn-sm">
+  Submit Recommendation
+        </a>
+
+
+
+
+    </td>
+</tr>
+            
+            <% }) %>
+
+             </table>
+        
+        <% } else { %>
+
+            <p class="small">No Submissions Found!<br>Either you have submitted the recommendation for all submissions or there is some error. If you think this is an error, please reach out to the conference chairs.</p>
+
+            <% } %>
+    </div>
+    
+    <%- include('partials/footer') %>
+</body>
+</html>

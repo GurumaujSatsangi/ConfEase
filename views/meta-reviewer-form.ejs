@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+    <%- include('partials/dashboard/header') %>
+
+
+    <div class="container">
+        <h4>
+            Recommendation Submission
+        </h4><hr>
+
+        <table class="table">
+            <tr>
+                <th>PEER REVIEW ID</th>
+                <th>ORIGINALITY SCORE</th>
+                <th>RELEVANCE SCORE</th>
+                <TH>TECHNICAL QUALITY SCORE</TH>
+                <TH>CLARIY SCORE</TH>
+                <tH>IMPACT SCORE</tH>
+                <TH>MEAN SCORE</TH>
+                <TH>REMARKS</TH>
+                <TH>DECISION</TH>
+            </tr>
+        
+
+        <% peer_review.forEach(function(peer_review){ %>
+
+            <tr>
+                <td><%= peer_review.id %></td>
+                <td><%= peer_review.originality_score %></td>
+                <td><%= peer_review.relevance_score %></td>
+                <td><%= peer_review.technical_quality_score %></td>
+                <td><%= peer_review.clarity_score %></td>
+                <td><%= peer_review.impact_score %></td>
+                <td><%= peer_review.mean_score %></td>
+                <td><%= peer_review.remarks %></td>
+                <td><%= peer_review.acceptance_status %></td>
+
+            </tr>
+</table>
+
+<form action="/submit-meta-reviewer-decision/<%= peer_review.submission_id%>">
+    <textarea class="form-control" placeholder="Remarks" value="Please enter your remarks here. Incase of a rejection, submitting a valid comment is mandatory." required>
+
+    </textarea>
+    <button type="submit" class="btn btn-primary btn-sm">Submit Recommendation</button>
+</form>
+
+        
+        
+        <% }) %>
+
+    </div>
+
+    <%- include('partials/footer') %>
+    
+</body>
+</html>
