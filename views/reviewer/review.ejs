@@ -74,7 +74,7 @@
               <td>Remarks</td>
               <td colspan="3">
 
-              <textarea class="form-control" id="remarks" name="remarks" required></textarea>
+              <textarea class="form-control" id="remarks" name="remarks"></textarea>
 
 
 
@@ -149,6 +149,31 @@ document.querySelector("form").addEventListener("submit", function() {
       </div>
 
     <script src="/script.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js"></script>
+<script>
+  tinymce.init({
+    selector: "textarea[name=remarks]",
+    height: 260,
+    menubar: false,
+    branding: false,
+    license_key: "gpl",
+    plugins: "lists link table code",
+    toolbar: "undo redo | blocks | bold italic underline | bullist numlist | link table | removeformat | code",
+    content_style: "body { font-family: Helvetica, Arial, sans-serif; font-size: 14px; }"
+  });
+  document.addEventListener("DOMContentLoaded", function () {
+    var field = document.querySelector("textarea[name=remarks]");
+    if (!field || !field.form) return;
+    field.form.addEventListener("submit", function (e) {
+      var ed = window.tinymce && tinymce.get(field.id);
+      var text = ed ? ed.getContent({ format: "text" }).trim() : field.value.trim();
+      if (!text) {
+        e.preventDefault();
+        alert("Please enter your remarks.");
+      }
+    });
+  });
+</script>
   <%- include('../partials/footer') %>
   </body>
 </html>

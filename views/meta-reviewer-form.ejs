@@ -40,7 +40,7 @@
                 <td><%= peer_review.clarity_score %></td>
                 <td><%= peer_review.impact_score %></td>
                 <td><%= peer_review.mean_score %></td>
-                <td><%= peer_review.remarks %></td>
+                <td><%- sanitizeDescription(peer_review.remarks) %></td>
                 <td><%= peer_review.acceptance_status %></td>
 
             </tr>

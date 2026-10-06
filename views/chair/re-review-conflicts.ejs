@@ -62,7 +62,7 @@
                                 </div>
                             </div>
                         </td>
-                        <td><%= re_reviews.remarks %></td>
+                        <td><%- sanitizeDescription(re_reviews.remarks) %></td>
                     </tr>
                 <% }) %>
                 </tbody>

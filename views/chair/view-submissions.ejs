@@ -182,7 +182,7 @@
                                     <div class="accordion-body bg-white">
                                       <p class="mb-1 text-muted" style="font-size: 0.8rem;"><%= review.email %></p>
                                       <% if (review.remarks) { %>
-                                        <p class="mb-0"><strong>Remarks:</strong> <%= review.remarks %></p>
+                                        <p class="mb-0"><strong>Remarks:</strong> <%- sanitizeDescription(review.remarks) %></p>
                                       <% } else { %>
                                         <p class="mb-0 text-muted"><em>No remarks provided.</em></p>
                                       <% } %>

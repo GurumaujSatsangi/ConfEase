@@ -106,7 +106,7 @@ Reviewer & Chair Remarks
                         <h6><strong>Remarks</strong></h6>
                         <div class="p-3 bg-light rounded">
                           <% if (review.remarks && review.remarks.trim() !== '') { %>
-                            <%= review.remarks %>
+                            <%- sanitizeDescription(review.remarks) %>
                           <% } else { %>
                             <span class="text-muted"><em>No remarks provided by the reviewer.</em></span>
                           <% } %>
@@ -227,7 +227,7 @@ Reviewer & Chair Remarks
                         <h6><strong>Remarks</strong></h6>
                         <div class="p-3 bg-light rounded">
                           <% if (revisedData.remarks && revisedData.remarks.trim() !== '') { %>
-                            <%= revisedData.remarks %>
+                            <%- sanitizeDescription(revisedData.remarks) %>
                           <% } else { %>
                             <span class="text-muted"><em>No remarks provided by the reviewer.</em></span>
                           <% } %>

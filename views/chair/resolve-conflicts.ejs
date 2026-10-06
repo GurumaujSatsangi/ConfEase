@@ -68,7 +68,7 @@
                                     </div>
                                 </div>
                             </td>
-                            <td><%= review.remarks %></td>
+                            <td><%- sanitizeDescription(review.remarks) %></td>
                         </tr>
                     <% }) %>
                     </tbody>
@@ -152,7 +152,7 @@
                                     </div>
                                 </div>
                             </td>
-                            <td><%= re_review.remarks %></td>
+                            <td><%- sanitizeDescription(re_review.remarks) %></td>
                         </tr>
                     <% }) %>
                     </tbody>
