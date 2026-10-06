@@ -7,7 +7,6 @@ import { RedisStore } from "connect-redis";
 import {PDFParse} from 'pdf-parse';
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
-import requestIp from 'request-ip';
 import passwordValidator from 'password-validator';
 import generator from 'generate-password';
 
@@ -168,6 +167,12 @@ const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  next();
+});
 app.use(express.static(path.join(rootDir, "public")));
 app.set("view engine", "ejs");
 app.use("/static", express.static(path.join(rootDir, "public")));
@@ -556,6 +561,39 @@ app.use((req, res, next) => {
     next();
 });
 
+
+// Missing deadline = closed (fail closed); otherwise closed once the IST date is past the deadline
+function deadlineClosed(deadlineValue) {
+  const deadline = formatDateISO(deadlineValue);
+  return !deadline || getCurrentDateIST() > deadline;
+}
+
+// Bounded in-memory limiter for authentication-sensitive POSTs. Used only when Redis is unavailable.
+const authAttempts = new Map();
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_MAX_ATTEMPTS = 10;
+const AUTH_MAX_KEYS = 10000;
+function authRateLimitMemory(req, res, next) {
+  if (redisClient) return next();
+  const now = Date.now();
+  if (authAttempts.size >= AUTH_MAX_KEYS) {
+    for (const [key, entry] of authAttempts) {
+      if (entry.resetAt <= now) authAttempts.delete(key);
+    }
+    if (authAttempts.size >= AUTH_MAX_KEYS) authAttempts.clear();
+  }
+  const key = req.path + "|" + req.ip;
+  let entry = authAttempts.get(key);
+  if (!entry || entry.resetAt <= now) {
+    entry = { count: 0, resetAt: now + AUTH_WINDOW_MS };
+    authAttempts.set(key, entry);
+  }
+  entry.count += 1;
+  if (entry.count > AUTH_MAX_ATTEMPTS) {
+    return res.status(429).send("Too Many Requests!");
+  }
+  return next();
+}
 
 const MAX_ALLOWED_REQ = 50;
 const MAX_TIME = 60;
@@ -968,6 +1006,14 @@ async function isTrackReviewer(email, trackId) {
 
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
+const posterAccess = await pool.query(
+  "select 1 from poster_session p where p.conference_id = $1 and $2 = any(p.coodinators) union all select 1 from conference_tracks tr where tr.conference_id = $1 and $2 = any(tr.panelists) limit 1",
+  [req.params.id, req.user.email]
+);
+if (posterAccess.rows.length === 0) {
+  return res.redirect("/dashboard?message=You are not authorized to view this page.");
+}
+
 const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
 const  result = data.rows;
 res.render("score-posters.ejs",{result, user:req.user})
@@ -1022,6 +1068,10 @@ async function fetchConference(id){
 app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
 
   const submissions = await pool.query("select * from submissions where submission_id=$1",[req.params.id]);
+  if (!submissions.rows[0] || submissions.rows[0].primary_author !== req.user.email) {
+    return res.redirect("/dashboard?message=You are not authorized to view these co-author requests.");
+  }
+
   const results = await pool.query("select * from co_author_requests where submission_id=$1 and primary_author=$2",[req.params.id,req.user.email]);
 
   if(submissions.rows[0].submission_status!="Submitted for Review"){
@@ -1117,6 +1167,9 @@ app.get("/my-profile",checkAuth,async(req,res)=>{
 })
 
 app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
 
 
   const conference_id = req.params.id;
@@ -1327,6 +1380,10 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 });
 
 app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) => {
+  const sessionTrack = await pool.query("select conference_id from conference_tracks where track_id = $1", [req.params.id]);
+  if (!sessionTrack.rows[0] || !(await chairOwnsConference(req.user.email, sessionTrack.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this track.");
+  }
   try {
     // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
     const formatDateForInput = (dateString) => {
@@ -1374,7 +1431,17 @@ app.post("/upvote-poster/:id",async(req,res)=>{
 
   console.log(req.ip+" -> "+submission_id);
 
-  const increment_vote_count = redisClient ? await redisClient.incr(submission_id) : null;
+  if (!conference_id) {
+    return res.redirect("/?message=Submission not found.");
+  }
+
+  // One counted vote per voter per submission (atomic set membership in Redis)
+  if (redisClient) {
+    const firstVote = await redisClient.sAdd("votes_" + submission_id, String(req.ip));
+    if (firstVote === 1) {
+      await redisClient.incr(submission_id);
+    }
+  }
 
     const vpp_vote_token = jwt.sign(
       {
@@ -1445,6 +1512,9 @@ app.get(
   "/chair/dashboard/manage-sessions/:id",
   checkChairAuth,
   async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
     try {
       // ---------- helper ----------
       const formatDate = (dateString) => {
@@ -1658,6 +1728,9 @@ app.get(
 
 
 app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   try {
     // Helper function to format dates for display (dd-mm-yyyy)
     const formatDate = (dateString) => {
@@ -1851,6 +1924,9 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (re
 
 
 app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   
 
   const { session_date, start_time, end_time, conference_id,coordinators } = req.body;
@@ -1883,7 +1959,7 @@ try {
   posterClient.release();
 }
 
-await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Hi, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+session_date+"<br><b>Timings:</b> "+start_time+" - "+end_time+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Hi, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+escapeHtml(session_date)+"<br><b>Timings:</b> "+escapeHtml(start_time)+" - "+escapeHtml(end_time)+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
 
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
@@ -2062,7 +2138,7 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/send-password-reset-link",async(req,res)=>{
+app.post("/send-password-reset-link", authRateLimitMemory, async(req,res)=>{
 
   const {email} = req.body;
 
@@ -2582,9 +2658,9 @@ app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res
             `You have been assigned as a Session Chair for the track "${track.track_name}".`,
             `<p>Dear Session Chair,</p>
              <p>You have been assigned as a session chair for the following:</p>
-             <p><strong>Track:</strong> ${track.track_name}</p>
-             <p><strong>Presentation Date:</strong> ${session_date}</p>
-             <p><strong>Time:</strong> ${session_start_time} to ${session_end_time}</p>
+             <p><strong>Track:</strong> ${escapeHtml(track.track_name)}</p>
+             <p><strong>Presentation Date:</strong> ${escapeHtml(session_date)}</p>
+             <p><strong>Time:</strong> ${escapeHtml(session_start_time)} to ${escapeHtml(session_end_time)}</p>
              <p>Please be available during the scheduled time to evaluate the presentations.</p>
              <p>In case of any technical assistance, please email <strong>multimedia@dei.ac.in</strong> or call <strong>+91 9875691340</strong>.</p>
              <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
@@ -2734,14 +2810,13 @@ app.get("/registration/user", async (req,res)=>{
 })
 
 
-app.use(requestIp.mw())
 
 app.get("/user-login", (req, res) => {
   return res.redirect("/login/user");
 });
 
 
-app.post("/user-login", async (req, res) => {
+app.post("/user-login", authRateLimitMemory, async (req, res) => {
   try {
 
     const { email, password } = req.body;
@@ -2970,62 +3045,122 @@ app.post("/auth/refresh", handleRefresh);
 
 
 
-app.get("/admin", async(req,res)=>{
+app.get("/admin", checkAuth, requireAdmin, async(req,res)=>{
 
 
-const chairs = await pool.query("select name, email, contact_number, faculty, department from chairs");
-const conferences = await pool.query("select * from conferences");
+const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
+const conferences = await pool.query("select conference_id, title, created_by from conferences");
 res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null});
 })
 
-app.post("/create-chair-credentials",async(req,res)=>{
+// Admin authorization: explicit allow-list in ADMIN_EMAILS (comma-separated). Fails closed when unset or empty.
+// Chair status, reviewer roles, and client-supplied fields never grant admin access.
+function isAdmin(req) {
+  const allowed = (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const email = String(req.user?.email || "").trim().toLowerCase();
+  return email !== "" && allowed.includes(email);
+}
+
+function requireAdmin(req, res, next) {
+  if (!isAdmin(req)) {
+    return res.status(403).render("error.ejs");
+  }
+  return next();
+}
+
+// Issues a 24-hour one-time setup link for a chair. Only the SHA-256 hash of the token is stored.
+async function issueAccountSetupLink(email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await pool.query("DELETE FROM password_resets WHERE email = $1", [email]);
+  await pool.query(
+    "INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)",
+    [email, hashToken(token), new Date(Date.now() + 1000 * 60 * 60 * 24)]
+  );
+  return `${process.env.APP_URL}/chair-password-setup?token=${token}`;
+}
+
+app.post("/create-chair-credentials", checkAuth, requireAdmin, async(req,res)=>{
 
   const {name,email,contact_number, faculty, department} = req.body;
 
-  var password = generator.generate({
-	length: 10,
-	numbers: true
-});
+  if (!process.env.APP_URL) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is not configured; the setup link cannot be sent."));
+  }
 
-  const hashed_password= await bcrypt.hash(password, 10);
-  const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password,status) values($1,$2,$3,$4,$5,$6,$7)",[name,email,contact_number, faculty,department, hashed_password,"ACCOUNT ACTIVATED"]);
+  // The chair starts with an unusable random password and sets their own via the setup link
+  const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+  const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password,status) values($1,$2,$3,$4,$5,$6,$7)",[name,email,contact_number, faculty,department, unusablePassword,"ACCOUNT ACTIVATED"]);
 
   if(!result.rowCount){
-    res.send("Error");
+    return res.send("Error");
   }
 
+  const setupLink = await issueAccountSetupLink(email);
+  await sendMail(email,"DEI CMT Chair Portal Access",null,"Dear "+escapeHtml(name)+" <br><br>You have been granted DEI CMT - CHAIR PORTAL access. Please set your password using the link below. The link is valid for 24 hours. <br><br><a href=\"" + setupLink + "\">Set your password</a> <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
-  else{
-    await sendMail(email,"DEI CMT Chair Portal Credentials",null,"Dear "+name+" <br><br>You have been granted DEI CMT - CHAIR PORTAL access. Please use the given credentials to access the portal. <br><br><b>Email ID:</b> "+email+" <br><b>Password:</b> "+password+" <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
-
-    res.redirect("/admin?message=Chair Portal Access succesfully granted to "+name+" ("+email+")! An auto generated password has been sent to the user.");
-  }
-
+  res.redirect("/admin?message=" + encodeURIComponent("Chair Portal access granted to " + name + " (" + email + "). A password setup link has been sent to the user."));
 });
 
-app.get("/reset-chair-password/:id",async(req,res)=>{
+app.get("/chair-password-setup", async (req, res) => {
+  const token = String(req.query.token || "");
+  const result = token ? await pool.query("select 1 from password_resets where token=$1 and expires_at > NOW()", [hashToken(token)]) : { rows: [] };
+  if (result.rows.length === 0) {
+    return res.redirect("/login/user?message=This setup link is invalid or has expired.");
+  }
+  return res.render("chair-password-setup.ejs", { token, message: req.query.message || null });
+});
+
+app.post("/chair-password-setup", authRateLimitMemory, async (req, res) => {
+  const { token, password } = req.body;
+  const policy = new passwordValidator()
+    .is().min(8)
+    .is().max(100)
+    .has().uppercase()
+    .has().lowercase()
+    .has().digits(2)
+    .has().not().spaces()
+    .is().not().oneOf(['Passw0rd', 'Password123']);
+  if (!policy.validate(String(password || ""))) {
+    return res.redirect("/chair-password-setup?token=" + encodeURIComponent(String(token || "")) + "&message=" + encodeURIComponent("Your password does not match our policy. Ensure it is 8-100 characters long, contains uppercase and lowercase letters, at least 2 digits, and no spaces."));
+  }
+
+  const tokenResult = await pool.query("select email from password_resets where token=$1 and expires_at > NOW()", [hashToken(String(token || ""))]);
+  const tokenRow = tokenResult.rows[0];
+  if (!tokenRow) {
+    return res.redirect("/login/user?message=This setup link is invalid or has expired.");
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const updated = await pool.query("update chairs set password=$1 where email=$2 returning email", [hashedPassword, tokenRow.email]);
+  await pool.query("DELETE FROM password_resets WHERE email = $1", [tokenRow.email]);
+
+  if (!updated.rowCount) {
+    return res.redirect("/login/user?message=This setup link is invalid or has expired.");
+  }
+  return res.redirect("/login/user?message=Password set. Please log in to the chair portal.");
+});
+
+app.post("/reset-chair-password/:id", checkAuth, requireAdmin, async(req,res)=>{
   const email = req.params.id;
 
-  const new_password = generator.generate({
-	length: 10,
-	numbers: true
+  if (!process.env.APP_URL) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is not configured; the setup link cannot be sent."));
+  }
+
+  const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+  const data = await pool.query("update chairs set password=$1 where email=$2 returning email",[unusablePassword,email]);
+
+  if(!data.rows[0]){
+    return res.redirect("/admin?message=Chair not found.");
+  }
+
+  const setupLink = await issueAccountSetupLink(email);
+  await sendMail(email,"Chair Portal Password Reset",null,"Hi, <br><br>The Admin has reset your DEI CMT Chair Portal password. Please set a new password using the link below. The link is valid for 24 hours. <br><br><a href=\"" + setupLink + "\">Set your password</a> <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, <br>Team DEI Conference Management Toolkit");
+
+  return res.redirect("/admin?message=" + encodeURIComponent("A password setup link has been sent to " + email + "."));
 });
 
-  const hashed_password = await bcrypt.hash(new_password,10);
-  const data = await pool.query("update chairs set password=$1 where email=$2 returning *",[hashed_password,email]);
-
-  if(data.rows[0]){
-
-    await sendMail(email,"Password Updated",null,"Hi, <br><br>The Admin has updated the password for your DEI CMT Chair Portal Account ("+email+"). The new password is:<b>"+new_password+"</b>.[Full Stop is not part of the password].<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, <br>Team DEI Conference Management Toolkit");
-
-    return res.redirect("/admin?message=Password for "+email+" has been reset and the user has been notified via Email.");
-
-  }
-  return res.redirect("/admin?message=Chair not found.");
-})
-
-
-app.get("/grant-access/:id",async(req,res)=>{
+app.post("/grant-access/:id", checkAuth, requireAdmin, async(req,res)=>{
 
   const email = req.params.id;
   const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCOUNT ACTIVATED",email]);
@@ -3033,7 +3168,7 @@ app.get("/grant-access/:id",async(req,res)=>{
   if(data.rows[0]){
 
     await sendMail(email,"Chair Portal Access Re-Granted",null,"Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
-    return res.redirect("/admin?message=Chair Portal Access Re-Granted to "+email+"!");
+    return res.redirect("/admin?message=" + encodeURIComponent("Chair Portal Access Re-Granted to " + email + "!"));
   }
   return res.redirect("/admin?message=Chair not found.");
 
@@ -3048,9 +3183,7 @@ app.post("/select-room/:id", checkChairAuth, async(req,res)=>{
 
 })
 
-
-
-app.get("/revoke-access/:id",async(req,res)=>{
+app.post("/revoke-access/:id", checkAuth, requireAdmin, async(req,res)=>{
 
   const email = req.params.id;
 
@@ -3062,30 +3195,28 @@ app.get("/revoke-access/:id",async(req,res)=>{
   if(data.rows[0]){
 
     await sendMail(email,"Chair Portal Access Revoked",null,"Hi, The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
-    return res.redirect("/admin?message=Chair Access Revoked for "+ email);
+    return res.redirect("/admin?message=" + encodeURIComponent("Chair Access Revoked for " + email));
   }
 
   } else{
     return res.redirect("/admin?message=User not Found with 'Account Activated' status!");
   }
 
- 
-
 })
 
-app.get("/delete-account/:id",async(req,res)=>{
+app.post("/delete-account/:id", checkAuth, requireAdmin, async(req,res)=>{
   const email = req.params.id;
 
   const data = await pool.query("delete from chairs where email = $1 returning *",[email]);
 
   if(data.rows[0]){
-    return res.redirect("/admin?message=Account ("+email+") Deleted!");
+    return res.redirect("/admin?message=" + encodeURIComponent("Account (" + email + ") Deleted!"));
   }
   return res.redirect("/admin?message=Chair not found.");
 })
 
 
-app.post("/chair-login", async (req, res) => {
+app.post("/chair-login", authRateLimitMemory, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -3233,7 +3364,7 @@ async function handleChairRefresh(req, res) {
 app.post("/chair/refresh", handleChairRefresh);
 app.post("/auth/chair/refresh", handleChairRefresh);
 
-app.post("/update-password", async (req, res) => {
+app.post("/update-password", authRateLimitMemory, async (req, res) => {
   try {
     // SECURITY: Do not accept 'email' from req.body. Rely entirely on the token.
     const { new_password, token } = req.body;
@@ -3365,6 +3496,9 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
 
 
 app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   
 
   try {
@@ -3493,7 +3627,7 @@ await pool.query(
           `INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)`,
           [email, hashToken(inviteToken), new Date(Date.now() + 1000 * 60 * 60 * 24)]
         );
-        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='https://cmt.gurumaujsatsangi.in/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
+        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='"+process.env.APP_URL+"/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
         return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
     }
@@ -3506,7 +3640,6 @@ await pool.query(
   }
 
 
-  res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Invitee added successfully.`);
 });
 
 
@@ -3537,7 +3670,7 @@ app.get("/invited-user/password-update/:email",async(req,res)=>{
 
 })
 
-app.post("/update-invited-user-password",async(req,res)=>{
+app.post("/update-invited-user-password", authRateLimitMemory, async(req,res)=>{
 
   const { email, password, token } = req.body;
 
@@ -3664,6 +3797,9 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
 
 // ...existing code...
 app.post("/create-track/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   try {
     const {
       track_title,
@@ -3811,7 +3947,11 @@ if(data){
 
 })
 
-app.get("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
+app.post("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
+  const trackOwner = await pool.query("select conference_id from conference_tracks where track_id = $1", [req.params.id]);
+  if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to delete this track.");
+  }
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
   if(!result.rowCount){
     return res.redirect("/chair/dashboard?message=Error deleting Track!");
@@ -3900,6 +4040,9 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
 });
 
 app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
 
   const conference = await fetchConference(req.params.id);
   const tracks = await pool.query("select * from conference_tracks where conference_id = $1",[req.params.id]);
@@ -3933,6 +4076,7 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
     await conferenceClient.query(`DELETE FROM conferences WHERE conference_id = $1;`, [req.params.id]);
     await conferenceClient.query("COMMIT");
 
+    if (redisClient) await redisClient.del("conferences");
     res.redirect("/chair/dashboard?message=Conference Deleted Succesfully.");
   } catch (err) {
     await conferenceClient.query("ROLLBACK");
@@ -3981,7 +4125,7 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
-      if (currentDate > deadline) {
+      if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
 
@@ -4078,7 +4222,7 @@ app.post("/join", checkAuth, async (req, res) => {
         `A co-author request for your paper "${submission.title}" has been submitted.`,
         `<p>Dear Author,</p>
          <p>A co-author has requested to join your paper titled <strong>"${escapeHtml(submission.title)}"</strong>.</p>
-         <p><strong>Co-Author Email:</strong> ${req.user.email}</p>
+         <p><strong>Co-Author Email:</strong> ${escapeHtml(req.user.email)}</p>
          <p>Please review and accept or reject this request from your dashboard.</p>
          <p>For assistance, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
          <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
@@ -4267,6 +4411,10 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
 
 
 
+    if (redisClient) await redisClient.del("conferences");
+
+
+
     res.redirect("/chair/dashboard?message=Congratulations!!! Conference Created Successfully. Now you can proceed with configuring the tracks for the conference, once this is done you will be able to schedule the oral and poster presentation sessions.");
 
   } catch (err) {
@@ -4323,7 +4471,7 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
-      if (currentDate > deadline) {
+      if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
 
@@ -4406,7 +4554,7 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
-      if (currentDate > deadline) {
+      if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
 
@@ -4662,12 +4810,15 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     const conferenceInfo = confResult.rows[0];
 
     // 6. Deadline check (IST date conversion)
-    if (conferenceInfo && conferenceInfo.camera_ready_paper_submission) {
+    if (!conferenceInfo || !conferenceInfo.camera_ready_paper_submission) {
+      return res.redirect("/dashboard?message=The camera-ready deadline is not configured for this conference.");
+    }
+    {
       const currentDate = getCurrentDateIST();
       const deadline = formatDateISO(conferenceInfo.camera_ready_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
-      if (currentDate > deadline) {
+      if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The camera-ready submission deadline has passed.");
       }
     }
@@ -4773,12 +4924,15 @@ app.get("/remarks/:id", checkAuth, async (req, res) => {
     const conferenceInfo = confResult.rows[0];
 
     // 6. Deadline check (IST date conversion)
-    if (conferenceInfo && conferenceInfo.camera_ready_paper_submission) {
+    if (!conferenceInfo || !conferenceInfo.camera_ready_paper_submission) {
+      return res.redirect("/dashboard?message=The camera-ready deadline is not configured for this conference.");
+    }
+    {
       const currentDate = getCurrentDateIST();
       const deadline = formatDateISO(conferenceInfo.camera_ready_paper_submission);
 
       // Check if current date is AFTER the deadline (not on the deadline day)
-      if (currentDate > deadline) {
+      if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The camera-ready submission deadline has passed.");
       }
     }
@@ -4855,12 +5009,15 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
         const confRow = confResult.rows[0];
 
-        if (confRow && confRow.camera_ready_paper_submission) {
+        if (!confRow || !confRow.camera_ready_paper_submission) {
+          return res.redirect("/dashboard?message=The camera-ready deadline is not configured for this conference.");
+        }
+        {
           const currentDate = getCurrentDateIST();
           const deadline = formatDateISO(confRow.camera_ready_paper_submission);
 
           // Check if current date is AFTER the deadline (not on the deadline day)
-          if (currentDate > deadline) {
+          if (!deadline || currentDate > deadline) {
             return res.redirect("/dashboard?message=The camera-ready submission deadline has passed.");
           }
         }
@@ -4996,6 +5153,9 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
 
 
 app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   
 
   try {
@@ -5094,7 +5254,8 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
     );
 
 
-    return res.redirect("/chair/dashboard?message=Conference Updated Successfully!");
+    if (redisClient) await redisClient.del("conferences");
+  return res.redirect("/chair/dashboard?message=Conference Updated Successfully!");
 
   } catch (err) {
     console.error("Update conference error:", err);
@@ -5210,6 +5371,9 @@ app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
 
 
 app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
   try {
     // Helper function to format dates
     const formatDate = (dateString) => {
@@ -5550,7 +5714,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         `SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
         [editRow.conference_id]
       );
-      if (!editConfResult.rows[0] || getCurrentDateIST() > formatDateISO(editConfResult.rows[0].full_paper_submission)) {
+      if (!editConfResult.rows[0] || deadlineClosed(editConfResult.rows[0].full_paper_submission)) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
 
@@ -5699,7 +5863,7 @@ app.post("/submit", checkAuth, async (req, res) => {
 
       // Deadline (same full-paper deadline enforced by the submission page); fail closed
       const submitConfResult = await pool.query(`SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`, [id]);
-      if (!submitConfResult.rows[0] || getCurrentDateIST() > formatDateISO(submitConfResult.rows[0].full_paper_submission)) {
+      if (!submitConfResult.rows[0] || deadlineClosed(submitConfResult.rows[0].full_paper_submission)) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
@@ -5731,12 +5895,18 @@ app.post("/submit", checkAuth, async (req, res) => {
 
       // PDF & AI Text Parsing
       const parser = new PDFParse({ url: uploadResult.secure_url });
-      const result = await parser.getText();
+      const result = await Promise.race([
+        parser.getText(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("PDF parsing timed out")), 20000)),
+      ]);
       const aidetection = detectAIText(result.text);
       const confidence = getConfidenceScore(result.text);
 
       // Insert into PostgreSQL
-      const submission_result = await pool.query(
+      let submission_result;
+      for (let insertAttempt = 1; ; insertAttempt++) {
+      try {
+      submission_result = await pool.query(
         `INSERT INTO submissions 
          (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`,
@@ -5752,6 +5922,12 @@ app.post("/submit", checkAuth, async (req, res) => {
           aidetection.isAIGenerated
         ]
       );
+      break;
+      } catch (insertErr) {
+        if (insertErr.code !== "23505" || insertAttempt >= 5) throw insertErr;
+        paperCode = generator.generate({ length: 6, numbers: true });
+      }
+      }
 
       const conference_data = await pool.query("select * from conferences where conference_id=$1", [id]); 
       console.log("ADDED TO DB!");
@@ -5830,7 +6006,7 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         `SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
         [conference_id]
       );
-      if (!inviteConfResult.rows[0] || getCurrentDateIST() > formatDateISO(inviteConfResult.rows[0].full_paper_submission)) {
+      if (!inviteConfResult.rows[0] || deadlineClosed(inviteConfResult.rows[0].full_paper_submission)) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
       }
 

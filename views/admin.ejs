@@ -72,10 +72,10 @@
         <%= chairs.department %>
     </td>
     <td>
-        <a href="/delete-account/<%=chairs.email%>"  class="btn btn-danger">Delete Account</a><% if(chairs.status=="ACCESS REVOKED"){ %>
-          <a href="/grant-access/<%=chairs.email%>" class="btn btn-success">Re-Grant Access</a> <% } else { %>
-          <a href="/revoke-access/<%=chairs.email%>" class="btn btn-warning">Revoke Access</a>
-          <a href="/reset-chair-password/<%=chairs.email%>" class="btn btn-secondary">Reset Password</a>
+        <form method="post" action="/delete-account/<%= encodeURIComponent(chairs.email) %>" class="d-inline"><button type="submit" class="btn btn-danger">Delete Account</button></form><% if(chairs.status=="ACCESS REVOKED"){ %>
+          <form method="post" action="/grant-access/<%= encodeURIComponent(chairs.email) %>" class="d-inline"><button type="submit" class="btn btn-success">Re-Grant Access</button></form> <% } else { %>
+          <form method="post" action="/revoke-access/<%= encodeURIComponent(chairs.email) %>" class="d-inline"><button type="submit" class="btn btn-warning">Revoke Access</button></form>
+          <form method="post" action="/reset-chair-password/<%= encodeURIComponent(chairs.email) %>" class="d-inline"><button type="submit" class="btn btn-secondary">Reset Password</button></form>
           <% } %>
     </td>
 

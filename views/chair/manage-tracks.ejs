@@ -133,12 +133,9 @@
               Update
             </button>
             <br>
-            <a
-              class="btn btn-danger"
-              href="/chair/dashboard/delete-track/<%= track.track_id %>"
-            >
-              Delete
-            </a>
+            <form method="post" action="/chair/dashboard/delete-track/<%= track.track_id %>" class="d-inline">
+              <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
           </td>
 
         </form>

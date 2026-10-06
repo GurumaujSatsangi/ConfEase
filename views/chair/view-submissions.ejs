@@ -205,7 +205,7 @@
                             <i class="bi bi-eye-fill"></i> View
                           </a>
 
-                          <% if(submission.submission_status!='Submitted for Review' || submission.submission_status!='Submitted Revised Paper') { %>
+                          <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper') { %>
                             
                             <p class="small" style="color:red">
                               <i class="bi bi-exclamation-circle"></i> Cannot be Deleted
