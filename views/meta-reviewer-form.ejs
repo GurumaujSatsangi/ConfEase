@@ -46,16 +46,25 @@
             </tr>
 </table>
 
-<form action="/submit-meta-reviewer-decision/<%= peer_review.submission_id%>">
-    <textarea class="form-control" placeholder="Remarks" value="Please enter your remarks here. Incase of a rejection, submitting a valid comment is mandatory." required>
 
-    </textarea>
-    <button type="submit" class="btn btn-primary btn-sm">Submit Recommendation</button>
-</form>
 
         
         
         <% }) %>
+
+        <form action="/submit-meta-reviewer-decision/<%= submission_id %>" method="post">
+
+          <select class="form-select" name="status" aria-label="Default select example" required>
+                                    <option value="" disabled selected>Select Decision...</option>
+                                    <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
+                                    <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+                                    <option value="Revision Required">Revision Required</option>
+                                    <option value="Rejected">Rejected</option>
+        </select>
+    <textarea class="form-control" placeholder="Remarks" name="remarks" required>
+    </textarea>
+    <button type="submit" class="btn btn-primary btn-sm">Submit Recommendation</button>
+</form>
 
     </div>
 

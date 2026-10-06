@@ -29,7 +29,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import multer from "multer";
 import { Readable } from "stream";
-import { name } from "ejs";
+import { name, render } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "../mailer.js"
 import events from 'events';
@@ -228,7 +228,7 @@ if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PO
 }
 
 // Session middleware must be registered before passport.session()
-const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET || "confease-dev-session-secret";
+const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET;
 const sessionOptions = {
   secret: sessionSecret,
   resave: false,
@@ -261,14 +261,14 @@ function getAccessTokenFromRequest(req) {
 function verifyAccessToken(token) {
   return jwt.verify(
     token,
-    process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+    process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
   );
 }
 
 function setAccessTokenCookies(res, accessToken) {
   const cookieOptions = {
     httpOnly: true,
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge: 15 * 60 * 1000,
   };
@@ -288,21 +288,21 @@ function getChairAccessTokenFromRequest(req) {
 
 function verifyChairAccessToken(token) {
   // Prefer the dedicated access token secret, fall back to legacy JWT_SECRET for compatibility
-  const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret";
+  const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET;
   return jwt.verify(token, secret);
 }
 
 function setChairTokenCookies(res, accessToken, refreshToken) {
   const accessCookieOptions = {
     httpOnly: true,
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge: 15 * 60 * 1000,
   };
 
   const refreshCookieOptions = {
     httpOnly: true,
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
@@ -321,7 +321,7 @@ async function refreshUserSessionFromCookie(req, res) {
   try {
     jwt.verify(
       refreshToken,
-      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
     );
 
     const refreshTokenHash = crypto
@@ -368,7 +368,7 @@ const accessToken = jwt.sign(
     roles: conferenceRolesDict, // <-- Attached as a dictionary object
   },
 
-      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret",
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "15m",
       }
@@ -399,7 +399,7 @@ async function refreshChairSessionFromCookie(req, res) {
   try {
     jwt.verify(
       refreshToken,
-      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret"
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
     );
 
     const refreshTokenHash = crypto
@@ -441,7 +441,7 @@ async function refreshChairSessionFromCookie(req, res) {
         user_id: chair.user_id,
         role: "chair",
       },
-      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "dev_jwt_secret",
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "15m",
       }
@@ -594,7 +594,8 @@ const MAX_TIME = 60;
 
 
 
-app.set('trust proxy', true);
+// Vercel is a single trusted proxy hop: only trust the last X-Forwarded-For entry it appends
+app.set('trust proxy', 1);
 
 app.use(async (req, res, next) => {
   if (!redisClient) {
@@ -611,7 +612,7 @@ app.use(async (req, res, next) => {
     }
 
     if (request > MAX_ALLOWED_REQ) {
-      return res.send("Too Many Requests!");
+      return res.status(429).send("Too Many Requests!");
     }
 
     next();
@@ -1081,6 +1082,23 @@ else{
 return result;
 }
 
+// Ownership helpers (use existing data: conferences.created_by/co_chairs, track_reviewers, panelists)
+async function chairOwnsConference(email, conferenceId) {
+  const result = await pool.query(
+    "select 1 from conferences where conference_id = $1 and (created_by = $2 or $2 = any(co_chairs))",
+    [conferenceId, email]
+  );
+  return result.rows.length > 0;
+}
+
+async function isTrackReviewer(email, trackId) {
+  const result = await pool.query(
+    "select 1 from conference_tracks where track_id = $1 and $2 = any(track_reviewers)",
+    [trackId, email]
+  );
+  return result.rows.length > 0;
+}
+
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
 const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
@@ -1095,7 +1113,16 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
   const conference_id = req.params.conference_id;
   const submission_id = req.params.submission_id;
 
-      await redisClient.del(req.user.email+"_submissions");
+  // Authorization: only panelists of this submission's track or poster coordinators of its conference may score it
+  const scorerCheck = await pool.query(
+    "select 1 from submissions s left join conference_tracks t on t.track_id = s.track_id left join poster_session p on p.conference_id = s.conference_id where s.submission_id = $1 and s.conference_id::text = $2::text and ($3 = any(t.panelists) or $3 = any(p.coodinators)) limit 1",
+    [submission_id, conference_id, req.user.email]
+  );
+  if (scorerCheck.rows.length === 0) {
+    return res.redirect("/score-posters/" + conference_id + "?message=You are not authorized to score this poster.");
+  }
+
+      if (redisClient) await redisClient.del(req.user.email+"_submissions");
 
 
   if (!Number.isInteger(score)) {
@@ -1301,7 +1328,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     // 1. FETCH GLOBAL CONFERENCES (WITH CACHE)
     // ==========================================
     let conferences = [];
-    const cache_conference = await redisClient.get("conferences");
+    const cache_conference = redisClient ? await redisClient.get("conferences") : null;
 
     if (cache_conference) {
       conferences = JSON.parse(cache_conference);
@@ -1309,7 +1336,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
       const dbresult = await pool.query("SELECT * FROM conferences");
       conferences = dbresult.rows;
       // Cached for 1 hour
-      await redisClient.set("conferences", JSON.stringify(conferences), { EX: 3600 });
+      if (redisClient) await redisClient.set("conferences", JSON.stringify(conferences), { EX: 3600 });
     }
 
   
@@ -1383,11 +1410,11 @@ app.get("/announcements", checkAuthOrChair, async(req,res)=>{
   res.render("announcements.ejs",{announcements:data.rows})
 })
 
-let pending_acceptance_notifications = [];
-let pending_acceptance_notifications_titles = [];
-
 app.post("/publish/review-results", checkChairAuth, async (req, res) => {
- 
+
+  const pending_acceptance_notifications = [];
+  const pending_acceptance_notifications_titles = [];
+
   const {conference_id} = req.body;
 
 
@@ -1414,7 +1441,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     
     console.log(pending_acceptance_notifications);
 
-        await redisClient.del(req.user.email+"_submissions");
+        if (redisClient) await redisClient.del(req.user.email+"_submissions");
 
 
     return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
@@ -1539,11 +1566,7 @@ app.get("/reviewer/dashboard", async (req, res) => {
   }
 });
 
-app.get("/chair/dashboard/edit-sessions/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
-
+app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) => {
   try {
     // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
     const formatDateForInput = (dateString) => {
@@ -1591,7 +1614,7 @@ app.post("/upvote-poster/:id",async(req,res)=>{
 
   console.log(req.ip+" -> "+submission_id);
 
-  const increment_vote_count = await redisClient.incr(submission_id);
+  const increment_vote_count = redisClient ? await redisClient.incr(submission_id) : null;
 
     const vpp_vote_token = jwt.sign(
       {
@@ -1605,7 +1628,7 @@ app.post("/upvote-poster/:id",async(req,res)=>{
     );
 
 
-    res.cookie("vpp_vote_token", vpp_vote_token, { httpOnly: true, secure: false, sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie("vpp_vote_token", vpp_vote_token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
 
 
     return res.redirect("/virtual-poster-presentation/"+conference_id+"?message=Your Vote has been submitted Successfully!");
@@ -2077,7 +2100,10 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
     ? coordinators.split(',').map(e => e.trim()).filter(e => e !== '')
     : [];
 
-  await pool.query(
+const posterClient = await pool.connect();
+try {
+  await posterClient.query("BEGIN");
+  await posterClient.query(
   `UPDATE poster_session
    SET date = $1,
        start_time = $2,
@@ -2085,10 +2111,16 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
        coodinators = $4
    WHERE conference_id = $5;`,
   [session_date, start_time, end_time, coordinatorArray, conference_id]
-);
-
-for(const coordinator of coordinatorArray){
-  await pool.query("insert into conference_roles values($1, $2 $3),",[req.params.id, coordinator,"poster_presentation_coordinator"]);
+  );
+  for(const coordinator of coordinatorArray){
+    await posterClient.query("insert into conference_roles values($1, $2, $3)",[req.params.id, coordinator,"poster_presentation_coordinator"]);
+  }
+  await posterClient.query("COMMIT");
+} catch (txErr) {
+  await posterClient.query("ROLLBACK");
+  throw txErr;
+} finally {
+  posterClient.release();
 }
 
 await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Hi, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+session_date+"<br><b>Timings:</b> "+start_time+" - "+end_time+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
@@ -2106,11 +2138,7 @@ await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",
 });
 
 
-app.post("/chair/dashboard/set-session/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
-
+app.post("/chair/dashboard/set-session/:id", checkChairAuth, async (req, res) => {
   try {
     const { session_date, start_time, end_time, panelists, conference_id } = req.body;
     const trackId = req.params.id;
@@ -2381,7 +2409,7 @@ app.post("/start-session", async (req, res) => {
           [track.track_id]
         );
 
-        return res.redirect(`/panelist/dashboard/active-session/${track.track_id}`);
+        return res.redirect(`/panelist/active-session/${track.conference_id}`);
       }
     } else {
       return res.redirect("/panelist/dashboard?message=Session date mismatch.");
@@ -2424,6 +2452,13 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
     }
 
     //
+    // Authorization: only reviewers assigned to this paper's track may review it
+    if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+      return res.render("error.ejs", {
+        message: "You are not assigned as a reviewer for this submission.",
+      });
+    }
+
     // 3. Check if it was already reviewed
     //
     if (submissionData.submission_status === "Reviewed") {
@@ -2516,6 +2551,13 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
     //
     // 3. Check status
     //
+    // Authorization: only reviewers assigned to this paper's track may re-review it
+    if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+      return res.render("error.ejs", {
+        message: "You are not assigned as a reviewer for this submission.",
+      });
+    }
+
     if (submissionData.submission_status !== "Submitted Revised Paper") {
       return res.render("error.ejs", {
         message: "This submission does not have a revised paper to review.",
@@ -2610,6 +2652,10 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     if (!submissionData) {
       return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
     }
+      // Authorization: only reviewers assigned to this paper's track may review it
+      if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+        return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
+      }
 
     //
     // 2. Compute mean score
@@ -2718,11 +2764,7 @@ app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res
 
 
 
-app.post("/chair/dashboard/manage-sessions/:id", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "chair") {
-    return res.redirect("/");
-  }
-
+app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res) => {
   const conferenceId = req.params.id;
 
   try {
@@ -2827,9 +2869,8 @@ if(result==true){
     );
 
     const activation_code = crypto.randomUUID();
-    console.log(activation_code);
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+     await sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -3034,7 +3075,7 @@ app.post("/user-login", async (req, res) => {
     );
 
     // STORE REFRESH TOKEN COOKIE
-    res.cookie("refresh_token", refresh_token, { httpOnly: true, secure: false, sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie("refresh_token", refresh_token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", maxAge: 7 * 24 * 60 * 60 * 1000 });
 
     // STORE ACCESS TOKEN COOKIE
     setAccessTokenCookies(res, access_token);
@@ -3055,12 +3096,10 @@ app.post("/user-login", async (req, res) => {
 app.post("/activation-check",async(req,res)=>{
   const {email} = req.body;
   const data = await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
-  console.log(data.rows[0]);
   
   if(data.rows[0]){
 
       const data2 = await pool.query("select * from activation_requests where email=$1",[email]);
-      console.log(data2.rows[0])
     if(data2.rows[0]){
       return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
       await sendMail(email,"Account Activation Code [SENT ON REQUEST]",null,"Your Account Activation Code for DEI CMT is <br><br>"+data2.rows[0].activation_code+"<br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, Team DEI Conference Management Toolkit");
@@ -3233,11 +3272,12 @@ app.get("/grant-access/:id",async(req,res)=>{
 
 })
 
-app.post("/select-room/:id",async(req,res)=>{
+app.post("/select-room/:id", checkChairAuth, async(req,res)=>{
 
   const uid = req.params.id;
 
-  await redisClient.set("S-101",uid);
+  if (redisClient) await redisClient.set("S-101",uid);
+  return res.sendStatus(204);
 
 })
 
@@ -3449,7 +3489,7 @@ app.post("/update-password", async (req, res) => {
 
     // 2. Validate the token and get the associated email FIRST
     const tokenRecord = await pool.query(
-      "SELECT email FROM password_resets WHERE token=$1", 
+      "SELECT email FROM password_resets WHERE token=$1 AND expires_at > NOW()",
       [token]
     );
 
@@ -3494,9 +3534,14 @@ app.post("/update-password", async (req, res) => {
 
 
 
-app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
+app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, res) => {
   try {
     const { trackId } = req.params;
+
+    const trackOwner = await pool.query("select conference_id from conference_tracks where track_id = $1", [trackId]);
+    if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to modify this track.");
+    }
     const {
       track_title,
       reviewers,
@@ -3549,12 +3594,12 @@ app.post("/chair/dashboard/update-track/:trackId", async (req, res) => {
 
     // Queue up cache deletion for Reviewers
     affectedReviewers.forEach(email => {
-      cacheDeletionPromises.push(redisClient.del(`reviewer_role_${email}`));
+      redisClient && cacheDeletionPromises.push(redisClient.del(`reviewer_role_${email}`));
     });
 
     // Queue up cache deletion for Session Chairs (Panelists)
     affectedPanelists.forEach(email => {
-      cacheDeletionPromises.push(redisClient.del(`session_chair_role_${email}`));
+      redisClient && cacheDeletionPromises.push(redisClient.del(`session_chair_role_${email}`));
     });
 
     // Execute all cache deletions concurrently
@@ -3703,6 +3748,13 @@ await pool.query(
        VALUES ($1, $2, $3);`,
       [name, email,"Invited User"]
     );
+        // One-time setup token (valid 24 hours), bound to this invitee's email
+        const inviteToken = crypto.randomBytes(32).toString("hex");
+        await pool.query(
+          `INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)`,
+          [email, inviteToken, new Date(Date.now() + 1000 * 60 * 60 * 24)]
+        );
+        await sendMail(email,name+", You are invited!",null,"Dear "+name+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='https://cmt.gurumaujsatsangi.in/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
         return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
     }
@@ -3758,17 +3810,24 @@ await pool.query(
 app.get("/invited-user/password-update/:email",async(req,res)=>{
 
   const email = req.params.email;
+  const token = req.query.token || "";
+
+  const tokenResult = await pool.query('select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()',[email,token]);
+  if (tokenResult.rows.length === 0) {
+    return res.redirect("/?message=Not Eligible!");
+  }
 
   const result = await pool.query('select * from users where email=$1 and password=$2',[email,"Invited User"]);
-  
+
      if (result.rows.length === 0) {
       return res.redirect("/?message=Not Eligible!");
     }
 
-    else{ 
+    else{
 
        res.render("invited-user-password-update.ejs", {
-      user: email
+      user: email,
+      token: token
     });
 
     }
@@ -3777,11 +3836,18 @@ app.get("/invited-user/password-update/:email",async(req,res)=>{
 
 app.post("/update-invited-user-password",async(req,res)=>{
 
-  const { email, password } = req.body;
+  const { email, password, token } = req.body;
+
+  const tokenResult = await pool.query("select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()",[email,token || ""]);
+  if (tokenResult.rows.length === 0) {
+    return res.redirect("/login/user?message=Your password setup link is invalid or has expired.");
+  }
 
   const hashed_password = await bcrypt.hash(password, 10);
 
-  const result = await pool.query("update users set password = $1 where email = $2",[hashed_password,email]);
+  const result = await pool.query("update users set password = $1 where email = $2 and password = $3",[hashed_password,email,"Invited User"]);
+
+  await pool.query("DELETE FROM password_resets WHERE email = $1",[email]);
 
   if(result){
     return res.redirect("/login/user?message=Password for your account has been updated. Please login with the login credentials.");
@@ -3831,6 +3897,10 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
     if (!submissionData) {
       return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
     }
+      // Authorization: only reviewers assigned to this paper's track may review it
+      if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+        return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
+      }
 
     //
     // 3. Insert review into peer_review
@@ -3972,19 +4042,22 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
   const assigned_tracks = await pool.query("select * from conference_tracks where meta_reviewer=$1 and conference_id = $2",[req.user.email,conference_id]);
 
 
-    const cache_data = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
+    const cache_data = redisClient ? await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id") : null;
 
     if(cache_data){
       console.log("Conference ID already present in cache.");
     }
     else{
 
-      await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
+      if (redisClient) await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
       
     }
 
-
+  const data = await pool.query("select submission_id from submissions where track_id = $1",[assigned_tracks.rows[0]?.track_id]);
   const peer_review = await pool.query("select * from peer_review where conference_id = $1",[conference_id]);
+
+
+  
 
   return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows,assigned_tracks:assigned_tracks.rows});
 
@@ -3996,24 +4069,34 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
 
   const peer_review = await pool.query("select * from peer_review where submission_id = $1",[submission_id]);
 
-  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows});
+  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id});
 
 })
 
 app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
+  // Authorization: only the meta-reviewer assigned to this submission's track may submit a decision
+  const metaCheck = await pool.query(
+    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and t.meta_reviewer = $2 limit 1",
+    [req.params.id, req.user.email]
+  );
+  if (metaCheck.rows.length === 0) {
+    return res.redirect("/dashboard?message=You are not assigned as the meta-reviewer for this submission.");
+  }
+
   const submission_id = req.params.id;
 
-  const conferenceid_cache = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
+  // const conferenceid_cache = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
 
 
-  const {decision, remarks} = req.body;
+  const {status, remarks} = req.body;
 
-  const data = await pool.query("insert into meta_reviewer_decision values($1,$2,$3)",[submission_id,decision,remarks]);
+
+  const data = await pool.query("insert into meta_reviewer_decision values($1,$2,$3)",[submission_id,status,remarks]);
 
 
 if(data){
-  return res.redirect("/meta-reviewer/dashboard/"+JSON.parse(conferenceid_cache)+"?message=Meta-Reviewer recommendation successfully saved!");
+  return res.redirect("/dashboard?message=Meta-Reviewer recommendation successfully saved!");
 }
 
 
@@ -4069,6 +4152,17 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
 
     const conference_id = submissionResult.rows[0].conference_id;
 
+    // Authorization: only a panelist assigned to this submission's track may mark it complete
+    const panelistCheck = await pool.query(
+      "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and $2 = any(t.panelists) limit 1",
+      [paper_id, req.user.email]
+    );
+    if (panelistCheck.rows.length === 0) {
+      return res.render("error.ejs", {
+        message: "You are not an assigned panelist for this submission.",
+      });
+    }
+
     // Update submissions table
     await pool.query(
       `UPDATE submissions
@@ -4109,25 +4203,36 @@ app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
 
 })
 
-app.post("/send-email-alert",async(req,res)=>{
+app.post("/send-email-alert", checkChairAuth, async(req,res)=>{
 
   const data = await pool.query("SELECT email FROM users WHERE email NOT IN ( SELECT primary_author FROM submissions);");
   console.log(data.rows[0]);
+  return res.sendStatus(204);
 
 })
 
 
-app.get("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res) => {
-  
+app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, res) => {
 
+
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to delete this conference.");
+  }
+
+  const conferenceClient = await pool.connect();
   try {
-    await pool.query(`DELETE FROM conference_tracks WHERE conference_id = $1;`, [req.params.id]);
-    await pool.query(`DELETE FROM conferences WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query("BEGIN");
+    await conferenceClient.query(`DELETE FROM conference_tracks WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM conferences WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query("COMMIT");
 
     res.redirect("/chair/dashboard?message=Conference Deleted Succesfully.");
   } catch (err) {
+    await conferenceClient.query("ROLLBACK");
     console.error("Error deleting conference:", err);
     res.status(500).send("Error deleting conference.");
+  } finally {
+    conferenceClient.release();
   }
 });
 
@@ -4796,6 +4901,9 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     if (!submission) {
       return res.redirect("/dashboard?message=Submission not found.");
     }
+    if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
+      return res.redirect("/dashboard?message=You are not authorized to view this submission.");
+    }
 
     // 2. Get track name (optional)
     let trackName = "Unknown Track";
@@ -4904,6 +5012,9 @@ app.get("/remarks/:id", checkAuth, async (req, res) => {
     if (!submission) {
       return res.redirect("/dashboard?message=Submission not found.");
     }
+    if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
+      return res.redirect("/dashboard?message=You are not authorized to view this submission.");
+    }
 
     // 2. Get track name (optional)
     let trackName = "Unknown Track";
@@ -5005,6 +5116,19 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
       const { confid, title, abstract, areas, id, co_authors } = req.body;
 
+      // Authorization: only the primary author of this submission (in this conference) may submit its camera-ready paper
+      const finalOwnerResult = await pool.query(
+        `SELECT primary_author, submission_status FROM submissions WHERE submission_id = $1 AND conference_id = $2 LIMIT 1;`,
+        [id, confid]
+      );
+      const finalOwnerRow = finalOwnerResult.rows[0];
+      if (!finalOwnerRow || finalOwnerRow.primary_author !== req.user.email) {
+        return res.redirect("/dashboard?message=You are not authorized to submit a camera-ready paper for this submission.");
+      }
+      if (["Submitted for Review", "Rejected", "Submitted Final Camera Ready Paper", "Presentation Completed"].includes(finalOwnerRow.submission_status)) {
+        return res.redirect("/dashboard?message=Camera-ready paper cannot be submitted at the current submission status.");
+      }
+
       // 1. Verify camera-ready deadline
       try {
         const confResult = await pool.query(
@@ -5027,6 +5151,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
         }
       } catch (deadlineErr) {
         console.error("Deadline check error:", deadlineErr);
+        return res.redirect("/dashboard?message=Unable to verify the camera-ready deadline. Please try again later.");
       }
 
       // 2. Upload to Cloudinary
@@ -5108,7 +5233,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
     };
     const result = await pool.query("SELECT * FROM conferences where created_by = $1",[req.user.email]);
     var conferences;
-    const data = redisClient.get(req.user.email+"_initiated_conferences");
+    const data = redisClient ? redisClient.get(req.user.email+"_initiated_conferences") : null;
     if(data && data.length>0){
       const parsed_data =  JSON.parse(data);
       conferences = parsed_data.rows.map(conference => ({
@@ -5133,7 +5258,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
     }));
 
-      const enter_data = redisClient.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences));
+      const enter_data = redisClient ? redisClient.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences)) : null;
 
     }
 
@@ -5207,8 +5332,12 @@ app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) 
 });
 
 
-app.post("/chair/dashboard/update-conference/:id", async (req, res) => {
+app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, res) => {
   const conferenceId = req.params.id;
+
+  if (!(await chairOwnsConference(req.user.email, conferenceId))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to modify this conference.");
+  }
 
   const {
     title,
@@ -5295,6 +5424,7 @@ app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, re
       submission: null,
       submission2: null,
       reviews: null,
+      meta_reviewer:null,
       re_reviews: null
     };
 
@@ -5304,9 +5434,12 @@ app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, re
           "SELECT * FROM peer_review WHERE submission_id = $1", 
           [submission_id]
         );
+
+        const meta_reviewer = await pool.query("select * from meta_reviewer_decision where submission_id=$1",[submission_id]);
         
         renderPayload.submission = currentData;
         renderPayload.reviews = reviews.rows;
+        renderPayload.meta_reviewer = meta_reviewer.rows;
         
         return res.render("chair/resolve-conflicts.ejs", renderPayload);
 
@@ -5315,9 +5448,14 @@ app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, re
           "SELECT * FROM revised_submissions WHERE submission_id = $1", 
           [submission_id]
         );
+
+                const meta_reviewer = await pool.query("select * from meta_reviewer_decision where submission_id=$1",[submission_id]);
+
         
         renderPayload.submission2 = currentData;
         renderPayload.re_reviews = re_reviews.rows;
+                renderPayload.meta_reviewer = meta_reviewer.rows;
+
         
         return res.render("chair/resolve-conflicts.ejs", renderPayload);
 
@@ -5507,7 +5645,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
 });
 
 
-app.get('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
+app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
   
   const submissionId = req.params.id;
   const conferenceId = req.query.conference_id;
@@ -5520,53 +5658,63 @@ app.get('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, re
   }
 
 
-  const submission = await pool.query("select submission_status from submissions where submission_id=$1",[submissionId]);
+  const submission = await deleteClient.query("select submission_status, conference_id from submissions where submission_id=$1",[submissionId]);
+
+  if (!submission.rows[0] || !(await chairOwnsConference(req.user.email, submission.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to delete this submission.");
+  }
 
   if(submission.rows[0].submission_status!='Submitted for Review'){
     return res.redirect("/chair/dashboard?message=This submission cannot be deleted at the moment. Any submission can be deleted only when the submission status is 'Submitted for Review'. Current Submission Status: "+submission.rows[0].submission_status);
   }
 
+  const deleteClient = await pool.connect();
   try {
+    await deleteClient.query("BEGIN");
     // 1. Delete co-author requests
-    await pool.query(
+    await deleteClient.query(
       `DELETE FROM co_author_requests WHERE submission_id = $1;`,
       [submissionId]
     );
 
     // 2. Delete revised submissions
-    await pool.query(
+    await deleteClient.query(
       `DELETE FROM revised_submissions WHERE submission_id = $1;`,
       [submissionId]
     );
 
     // 3. Delete related peer reviews
-    await pool.query(
+    await deleteClient.query(
       `DELETE FROM peer_review WHERE submission_id = $1;`,
       [submissionId]
     );
 
     // 4. Delete any final camera-ready submission entry
-    await pool.query(
+    await deleteClient.query(
       `DELETE FROM final_camera_ready_submissions WHERE submission_id = $1;`,
       [submissionId]
     );
 
     // 5. Delete submission itself
-    await pool.query(
+    await deleteClient.query(
       `DELETE FROM submissions WHERE submission_id = $1;`,
       [submissionId]
     );
 
+    await deleteClient.query("COMMIT");
     console.log('Submission deleted successfully:', submissionId);
     return res.redirect(
       `/chair/dashboard/view-submissions/${conferenceId}?message=Submission deleted successfully.`
     );
 
   } catch (err) {
+    await deleteClient.query("ROLLBACK");
     console.error('Error deleting submission:', err);
     return res.redirect(
       `/chair/dashboard/view-submissions/${conferenceId}?message=Error deleting submission.`
     );
+  } finally {
+    deleteClient.release();
   }
 });
 
@@ -5661,6 +5809,39 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       }
 
       let { title, abstract, areas, id } = req.body;
+
+      // Authorization: only the primary author or a co-author may edit this submission
+      const editOwnerResult = await pool.query(
+        `SELECT primary_author, co_authors, submission_status, conference_id FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+        [id]
+      );
+      const editRow = editOwnerResult.rows[0];
+      if (!editRow || (editRow.primary_author !== req.user.email && !(Array.isArray(editRow.co_authors) && editRow.co_authors.includes(req.user.email)))) {
+        return res.redirect("/dashboard?message=You can only edit your own submissions.");
+      }
+      if (editRow.submission_status !== "Submitted for Review") {
+        return res.redirect("/dashboard?message=Papers can only be edited when status is Submitted for Review.");
+      }
+
+      // Deadline (same full-paper deadline enforced by the submission pages); fail closed
+      const editConfResult = await pool.query(
+        `SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+        [editRow.conference_id]
+      );
+      if (!editConfResult.rows[0] || getCurrentDateIST() > formatDateISO(editConfResult.rows[0].full_paper_submission)) {
+        return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
+      }
+
+      // Track must belong to the submission's conference
+      if (areas && areas !== "undefined" && areas !== "") {
+        const editTrackResult = await pool.query(
+          `SELECT 1 FROM conference_tracks WHERE track_id = $1 AND conference_id = $2 LIMIT 1;`,
+          [areas, editRow.conference_id]
+        );
+        if (editTrackResult.rows.length === 0) {
+          return res.redirect("/dashboard?message=Invalid track selection for the chosen conference.");
+        }
+      }
       if (typeof areas !== "string") areas = String(areas).trim();
 
       const updateFields = [];
@@ -5711,16 +5892,29 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 });
 
 
-app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => {
-  
+app.post("/submission/delete/primary-author/:id", checkAuth, async (req, res) => {
+
 
   try {
-    const conference = await pool.query(
-      `DELETE FROM submissions WHERE submission_id = $1 returning conference_id;`,
+    // Authorization: only the primary author may delete, and only while the paper is awaiting review
+    const ownerResult = await pool.query(
+      `SELECT primary_author, submission_status FROM submissions WHERE submission_id = $1 LIMIT 1;`,
       [req.params.id]
     );
+    const ownerRow = ownerResult.rows[0];
+    if (!ownerRow || ownerRow.primary_author !== req.user.email) {
+      return res.redirect("/dashboard?message=You are not authorized to delete this submission.");
+    }
+    if (ownerRow.submission_status !== "Submitted for Review") {
+      return res.redirect("/dashboard?message=This submission cannot be deleted at its current status.");
+    }
 
-    await redisClient.del(req.user.email+"_submissions_conference_"+conference.rows[0].conference_id);
+    const conference = await pool.query(
+      `DELETE FROM submissions WHERE submission_id = $1 AND primary_author = $2 returning conference_id;`,
+      [req.params.id, req.user.email]
+    );
+
+    if (redisClient && conference.rows[0]) await redisClient.del(req.user.email+"_submissions_conference_"+conference.rows[0].conference_id);
 
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
@@ -5729,13 +5923,13 @@ app.get("/submission/delete/primary-author/:id", checkAuth, async (req, res) => 
   }
 });
 
-app.get("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
+app.post("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
 
 
   try {
     await pool.query(
-      `DELETE FROM invited_talk_submissions WHERE paper_id = $1`,
-      [req.params.id]
+      `DELETE FROM invited_talk_submissions WHERE paper_id = $1 AND invitee_email = $2`,
+      [req.params.id, req.user.email]
     );
 
     return res.redirect("/dashboard?message=Submission deleted successfully!");
@@ -5778,6 +5972,12 @@ app.post("/submit", checkAuth, async (req, res) => {
         return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid track selection for the chosen conference."));
       }
 
+      // Deadline (same full-paper deadline enforced by the submission page); fail closed
+      const submitConfResult = await pool.query(`SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`, [id]);
+      if (!submitConfResult.rows[0] || getCurrentDateIST() > formatDateISO(submitConfResult.rows[0].full_paper_submission)) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
+      }
+
       // Cloudinary Upload
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
@@ -5791,7 +5991,9 @@ app.post("/submit", checkAuth, async (req, res) => {
       while (!isUnique) {
         paperCode = generator.generate({ length: 6, numbers: true });
         // SADD adds to a Set and returns 1 if element is new, or 0 if it already exists
-        const addedCount = await redisClient.sAdd("paper_codes_set", paperCode);
+        const addedCount = redisClient
+          ? await redisClient.sAdd("paper_codes_set", paperCode)
+          : ((await pool.query("select 1 from submissions where paper_code = $1 limit 1", [paperCode])).rows.length === 0 ? 1 : 0);
         if (addedCount === 1) {
           isUnique = true;
         }
@@ -5885,6 +6087,22 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
       const { title, abstract, areas, conference_id } = req.body;
       if (!title || !abstract || !areas) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required"));
+      }
+
+      // Only invitees of this conference may submit an invited talk, and only before the deadline
+      const inviteeCheckResult = await pool.query(
+        `SELECT 1 FROM invitees WHERE conference_id = $1 AND email = $2 LIMIT 1;`,
+        [conference_id, req.user.email]
+      );
+      if (inviteeCheckResult.rows.length === 0) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("We could not find your Email ID in the list of Invited Speakers."));
+      }
+      const inviteConfResult = await pool.query(
+        `SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+        [conference_id]
+      );
+      if (!inviteConfResult.rows[0] || getCurrentDateIST() > formatDateISO(inviteConfResult.rows[0].full_paper_submission)) {
+        return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {

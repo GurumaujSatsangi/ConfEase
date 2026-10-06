@@ -213,17 +213,18 @@
 
                           <% } else { %>
 
-                            <a href="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" 
-                             class="btn btn-danger btn-sm"
-                             onclick="return confirm('Delete this submission? This action cannot be undone.');">
+                            <form method="POST" action="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" class="d-inline"
+                             onsubmit="return confirm('Delete this submission? This action cannot be undone.');">
+                            <button type="submit" class="btn btn-danger btn-sm">
                             <i class="bi bi-trash"></i> Delete
-                          </a>
+                            </button>
+                          </form>
 
                             <% } %>
 
 
                           
-                          <% if(submission.submission_status!='Submitted for Review' || submission.submission_status!='Submite Revised Paper') { %>
+                          <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper' && submission.submission_status!='DESK ACCEPT') { %>
                           <p class="small" style="color:green"><i class="bi bi-check2-circle"></i> Submitted Final Decision</p>
                           <% } else { %>
  <a href="/chair/dashboard/resolve-conflicts/<%= submission.submission_id %>" target="_blank" class="btn btn-success btn-sm">

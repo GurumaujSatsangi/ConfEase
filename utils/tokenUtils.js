@@ -13,7 +13,7 @@ const REFRESH_TOKEN_EXPIRY = "7d"; // 7 days
 export function generateAccessToken(email, id) {
   return jwt.sign(
     { email, id },
-    process.env.JWT_SECRET || "dev_jwt_secret",
+    process.env.JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_EXPIRY }
   );
 }
@@ -27,7 +27,7 @@ export function generateAccessToken(email, id) {
 export function generateRefreshToken(email, id) {
   return jwt.sign(
     { email, id },
-    process.env.JWT_SECRET || "dev_jwt_secret",
+    process.env.JWT_SECRET,
     { expiresIn: REFRESH_TOKEN_EXPIRY }
   );
 }
@@ -48,7 +48,7 @@ export function hashRefreshToken(token) {
  */
 export function verifyAccessToken(token) {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+    return jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
     return null;
   }
@@ -61,7 +61,7 @@ export function verifyAccessToken(token) {
  */
 export function verifyRefreshToken(token) {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET || "dev_jwt_secret");
+    return jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
     return null;
   }

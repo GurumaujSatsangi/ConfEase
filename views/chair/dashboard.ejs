@@ -106,10 +106,13 @@
                 >Edit Conference </a>
 
               <br />
-              <a
-                href="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
-                class="btn btn-danger btn-uniform"
-                >Delete Conference </a>
+              <form
+                method="POST"
+                action="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
+                class="d-inline"
+                >
+                <button type="submit" class="btn btn-danger btn-uniform">Delete Conference </button>
+              </form>
             </td>
           </tr>
         </tbody>

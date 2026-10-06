@@ -133,7 +133,7 @@
                     <td>
                         
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
+                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
                 
             
             </p></td>
@@ -202,7 +202,7 @@
                     <td>
                         
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><a href="/submission/delete/primary-author/<%= submission.submission_id %>">Delete Submission</a></li>
+                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
                 <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
             
             </p></td>
