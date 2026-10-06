@@ -51,7 +51,7 @@ You are logged in as <b><%=user.name %> (<%=user.email%>)</b>!</div>
     </h2>
     <div id="collapseOnee" class="accordion-collapse collapse" data-bs-parent="#accordionExample">
       <div class="accordion-body">
-        <%= conference.description %>
+        <%- sanitizeDescription(conference.description) %>
       </div>
     </div>
   </div>  </div>                      </td>

@@ -43,7 +43,7 @@ Conference Description                </label>
             class="form-control"
             id="exampleFormControlTextarea1"
             name="description"
-            rows="3"
+            rows="8"
             placeholder="A few lines about the conference..."
           ></textarea>
         </div>
@@ -213,4 +213,17 @@ Communication Email ID                </label>
     <%- include('../partials/footer') %>
   </body>
   <script src="/script.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js"></script>
+<script>
+  tinymce.init({
+    selector: "textarea[name=description]",
+    height: 320,
+    menubar: false,
+    branding: false,
+    license_key: "gpl",
+    plugins: "lists link table code",
+    toolbar: "undo redo | blocks | bold italic underline | bullist numlist | link table | removeformat | code",
+    content_style: "body { font-family: Helvetica, Arial, sans-serif; font-size: 14px; }"
+  });
+</script>
 </html>

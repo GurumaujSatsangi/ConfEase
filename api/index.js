@@ -25,13 +25,33 @@ import multer from "multer";
 import { Readable } from "stream";
 import { name } from "ejs";
 import crypto from "crypto";
+import sanitizeHtml from "sanitize-html";
 import { sendMail } from "../mailer.js"
+
+// Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
+const DESCRIPTION_OPTIONS = {
+  allowedTags: ["p","br","h1","h2","h3","h4","strong","b","em","i","u","s","ul","ol","li","blockquote","a","table","thead","tbody","tfoot","tr","th","td","caption","span","div","hr"],
+  allowedAttributes: {
+    a: ["href", "name", "target", "rel"],
+    td: ["colspan", "rowspan"],
+    th: ["colspan", "rowspan", "scope"],
+    "*": ["style"]
+  },
+  allowedStyles: { "*": { "text-align": [/^(left|right|center|justify)$/], "font-weight": [/^(bold|normal|[1-9]00)$/] } },
+  allowedSchemes: ["http", "https", "mailto"],
+  allowProtocolRelative: false,
+  transformTags: { a: (tagName, attribs) => ({ tagName, attribs: { ...attribs, rel: "noopener noreferrer", target: "_blank" } }) }
+};
+function sanitizeDescription(html) {
+  return sanitizeHtml(String(html || ""), DESCRIPTION_OPTIONS);
+}
 import events from 'events';
 // import { send } from "process";
 // Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
 events.defaultMaxListeners = 20;
 
 const app = express();
+app.locals.sanitizeDescription = sanitizeDescription;
 
 
 
@@ -4406,7 +4426,7 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
       RETURNING conference_id;`,
       [
         title,
-        description,
+        sanitizeDescription(description),
         conference_start_date,
         conference_end_date,
         full_paper_submission,
@@ -5262,7 +5282,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
        WHERE conference_id = $8;`,
       [
         title,
-        description,
+        sanitizeDescription(description),
         conference_start_date,
         conference_end_date,
         full_paper_submission,
