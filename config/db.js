@@ -21,9 +21,8 @@ const pool = new Pool({
   database: process.env.DB_NAME ,
   password: process.env.DB_PASSWORD ,
   port: parseInt(process.env.DB_PORT),
-  ssl: {
-    rejectUnauthorized: false // <--- Change this!
-  }
+  // Local PostgreSQL does not use SSL; set DB_SSL=true for a remote server that requires it
+  ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false
 });
 
 export default pool;
