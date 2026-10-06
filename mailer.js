@@ -15,7 +15,7 @@ const transporter = nodemailer.createTransport({
 
 export async function sendMail(to, subject, text, html, cc = null) {
   const mailOptions = {
-    from: `"DEI Conference Management Toolkit" <gurumaujsatsangi@gmail.com>`,
+    from: `"DEI Conference Management Toolkit" <${process.env.EMAIL_FROM || "gurumaujsatsangi@gmail.com"}>`,
     to,
     subject,
     text,

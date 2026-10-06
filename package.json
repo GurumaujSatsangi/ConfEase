@@ -2,12 +2,12 @@
   "name": "confease",
   "version": "1.0.0",
   "description": "Conference Mangement Toolkit",
-  "main": "index.js",
+  "main": "api/index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+    "start": "node api/index.js",
     "dev": "nodemon",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test \"test/**/*.test.mjs\""
   },
   "author": "Gurumauj Satsangi",
   "license": "ISC",

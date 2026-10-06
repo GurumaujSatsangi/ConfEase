@@ -4,11 +4,8 @@ import cookieParser from "cookie-parser";
 import { createClient } from 'redis';
 import passport from "passport";
 import { RedisStore } from "connect-redis";
-import { v4 as uuidv4 } from "uuid";
 import {PDFParse} from 'pdf-parse';
-import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
-import ip from 'ip';
 import pool from "../config/db.js";
 import requestIp from 'request-ip';
 import passwordValidator from 'password-validator';
@@ -16,11 +13,9 @@ import generator from 'generate-password';
 
 import {
   detectAIText,
-  isAIGenerated,
   getConfidenceScore,
 } from "ai-text-detector";
 
-import { Strategy as LocalStrategy } from "passport-local";
 import jwt from "jsonwebtoken";
 import session from "express-session";
 import dotenv from "dotenv";
@@ -29,11 +24,10 @@ import { fileURLToPath } from "url";
 import path from "path";
 import multer from "multer";
 import { Readable } from "stream";
-import { name, render } from "ejs";
+import { name } from "ejs";
 import crypto from "crypto";
 import { sendMail } from "../mailer.js"
 import events from 'events';
-import { redis } from "googleapis/build/src/apis/redis/index.js";
 // import { send } from "process";
 // Increase EventEmitter default listener limit to avoid MaxListenersExceededWarning in long-running dev flow
 events.defaultMaxListeners = 20;
@@ -126,32 +120,6 @@ async function loadConferenceRoles(email) {
   }, {});
 }
 
-function getConferenceRolesFromUser(user) {
-  if (user && user.roles && typeof user.roles === "object") {
-    return user.roles;
-  }
-
-  if (user && user.role && typeof user.role === "object") {
-    return user.role;
-  }
-
-  return {};
-}
-
-function userHasRole(user, roleName) {
-  if (!user) {
-    return false;
-  }
-
-  if (typeof user.role === "string" && user.role.includes(roleName)) {
-    return true;
-  }
-
-  return Object.values(getConferenceRolesFromUser(user)).some(
-    (role) => typeof role === "string" && role.includes(roleName)
-  );
-}
-
 
 const schema = new passwordValidator();
 
@@ -175,9 +143,9 @@ app.use((err, req, res, next) => {
     }
 
     if (referer.includes('/invitee')) {
-      return res.redirect(`/invitee/dashboard?message=Error: ${err.message}`);
+      return res.redirect(`/invitee/dashboard?message=Error: ${encodeURIComponent(err.message)}`);
     } else {
-      return res.redirect(`/dashboard?message=Error: ${err.message}`);
+      return res.redirect(`/dashboard?message=Error: ${encodeURIComponent(err.message)}`);
     }
   }
 
@@ -259,10 +227,10 @@ function getAccessTokenFromRequest(req) {
 }
 
 function verifyAccessToken(token) {
-  return jwt.verify(
+  return assertTokenType(jwt.verify(
     token,
     process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
-  );
+  ), "access");
 }
 
 function setAccessTokenCookies(res, accessToken) {
@@ -289,7 +257,7 @@ function getChairAccessTokenFromRequest(req) {
 function verifyChairAccessToken(token) {
   // Prefer the dedicated access token secret, fall back to legacy JWT_SECRET for compatibility
   const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET;
-  return jwt.verify(token, secret);
+  return assertTokenType(jwt.verify(token, secret), "chair");
 }
 
 function setChairTokenCookies(res, accessToken, refreshToken) {
@@ -323,6 +291,7 @@ async function refreshUserSessionFromCookie(req, res) {
       refreshToken,
       process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
     );
+    assertTokenType(jwt.decode(refreshToken), "refresh");
 
     const refreshTokenHash = crypto
       .createHash("sha256")
@@ -361,7 +330,7 @@ async function refreshUserSessionFromCookie(req, res) {
 // 5. Sign the JWT with the nested dictionary
 const accessToken = jwt.sign(
   {
-    email: user.email,
+    typ: "access", email: user.email,
     name: user.name,
     user_id: user.id,
     role: user.role,
@@ -401,6 +370,7 @@ async function refreshChairSessionFromCookie(req, res) {
       refreshToken,
       process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
     );
+    assertTokenType(jwt.decode(refreshToken), "refresh");
 
     const refreshTokenHash = crypto
       .createHash("sha256")
@@ -436,7 +406,7 @@ async function refreshChairSessionFromCookie(req, res) {
 
     const accessToken = jwt.sign(
       {
-        email: chair.email,
+        typ: "chair", email: chair.email,
         name: chair.name,
         user_id: chair.user_id,
         role: "chair",
@@ -667,7 +637,7 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
-  if (!req.user.role.includes('reviewer')) {
+  if (!String(req.user.role || "").includes('reviewer')) {
     return res.redirect("/dashboard?message=Reviewer role not assigned to you by Chair. If you think this is an error, please reach out to the conference chair.");
   }
 
@@ -769,7 +739,7 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
 
 
 app.get("/error", (req, res) => {
-  res.render("error.ejs", { message });
+  res.render("error.ejs", { message: req.query.message || null });
 });
 
 app.get("/panelist/dashboard", checkAuth, (req, res) => {
@@ -905,144 +875,9 @@ function getCurrentDateIST() {
 // =====================
 // Data Fetch Functions
 // =====================
-async function fetchAllConferences() {
-  const result = await pool.query("SELECT * FROM conferences");
-  return result.rows.map(c => ({
-    ...c,
-    conference_start_date: formatDateISO(c.conference_start_date),
-    conference_end_date: formatDateISO(c.conference_end_date),
-    full_paper_submission: formatDateISO(c.full_paper_submission),
-    acceptance_notification: formatDateISO(c.acceptance_notification),
-    camera_ready_paper_submission: formatDateISO(c.camera_ready_paper_submission),
-  }));
-}
-
-async function fetchUserSubmissions(email) {
-  const result = await pool.query(
-    `SELECT * FROM submissions
-     WHERE primary_author = $1
-     OR $1 = ANY(co_authors);`,
-    [email]
-  );
-  return result.rows;
-}
-
-async function fetchTrackIds(email) {
-  const result = await pool.query(
-    `SELECT track_id
-     FROM submissions
-     WHERE primary_author = $1
-     OR $1 = ANY(co_authors);`,
-    [email]
-  );
-  return [...new Set(result.rows.map(r => r.track_id).filter(Boolean))];
-}
-
-async function fetchPresentationTracks(trackIds) {
-  if (!trackIds.length) return [];
-  const result = await pool.query(
-    `SELECT * FROM conference_tracks WHERE track_id = ANY($1);`,
-    [trackIds]
-  );
-  return result.rows.map(t => ({
-    ...t,
-    presentation_date: formatDateISO(t.presentation_date),
-  }));
-}
-
-async function fetchUserNamesByEmails(emails) {
-  if (!emails.length) return {};
-  const result = await pool.query(
-    `SELECT email, name FROM users WHERE email = ANY($1);`,
-    [emails]
-  );
-  const map = {};
-  result.rows.forEach(u => (map[u.email] = u.name));
-  return map;
-}
-
-function enrichSubmissions(submissions, tracks, emailToNameMap) {
-  if (!Array.isArray(submissions)) return [];
-  if (!Array.isArray(tracks)) tracks = [];
-
-  const trackMap = {};
-  tracks.forEach(t => (trackMap[t.track_id] = t.track_name));
-
-  const formatNameEmail = email => {
-    const name = emailToNameMap[email];
-    return name ? `${name} (${email})` : email;
-  };
-
-  return submissions.map(sub => ({
-    ...sub,
-    track_name: trackMap[sub.track_id] || "Track name not available",
-    primary_author_formatted: formatNameEmail(sub.primary_author),
-    co_authors_formatted: Array.isArray(sub.co_authors)
-      ? sub.co_authors.map(formatNameEmail).join(", ")
-      : "",
-  }));
-}
-
-function normalizeSubmissionsData(data) {
-  if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.rows)) return data.rows;
-  return [];
-}
 
 
 
-
-
-async function fetchCoAuthorRequests(submissionIds) {
-  if (!submissionIds.length) return [];
-  const result = await pool.query(
-    `SELECT * FROM co_author_requests WHERE submission_id = ANY($1);`,
-    [submissionIds]
-  );
-  return result.rows;
-}
-
-async function fetchRevisedSubmissions(submissionIds) {
-  if (!submissionIds.length) return {};
-  const result = await pool.query(
-    `SELECT submission_id, file_url
-     FROM revised_submissions
-     WHERE submission_id = ANY($1);`,
-    [submissionIds]
-  );
-  const map = {};
-  result.rows.forEach(r => (map[r.submission_id] = r.file_url));
-  return map;
-}
-
-async function fetchPosterSessions(submissions) {
-  const conferenceIds = [
-    ...new Set(
-      submissions
-        .filter(s =>
-          s.submission_status === "Accepted for Poster Presentation" ||
-          s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation"
-        )
-        .map(s => s.conference_id)
-    ),
-  ];
-
-  if (!conferenceIds.length) return {};
-  const result = await pool.query(
-    `SELECT * FROM poster_session WHERE conference_id = ANY($1);`,
-    [conferenceIds]
-  );
-
-  const map = {};
-  result.rows.forEach(ps => (map[ps.conference_id] = ps));
-  return map;
-}
-
-function buildTrackDetailsMap(tracks) {
-  const map = {};
-  tracks.forEach(t => (map[t.track_id] = t));
-  return map;
-}
 
 async function isReviewer(email){
 const data = await pool.query("select * from conference_tracks where $1=ANY(track_reviewers)",[email]);
@@ -1080,6 +915,38 @@ else{
   result = false;
 }
 return result;
+}
+
+// Shared helpers (token hashing, HTML escaping, token type checks, upload checks, cache invalidation)
+function hashToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function assertTokenType(decoded, expectedType) {
+  // Tokens minted before typed claims existed carry no "typ" and remain accepted
+  if (decoded && decoded.typ !== undefined && decoded.typ !== expectedType) {
+    throw new Error("Invalid token type");
+  }
+  return decoded;
+}
+
+function isAllowedDocument(file) {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const head = file.buffer.subarray(0, 8);
+  if (ext === ".pdf") return head.subarray(0, 4).toString("latin1") === "%PDF";
+  if (ext === ".docx") return head.subarray(0, 2).toString("latin1") === "PK";
+  if (ext === ".doc") return head.equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+  return false;
+}
+
+async function invalidateConferenceSubmissionCache(emails, conferenceId) {
+  if (!redisClient) return;
+  const uniqueEmails = [...new Set(emails.filter(Boolean))];
+  await Promise.all(uniqueEmails.map((email) => redisClient.del(`${email}_submissions_conference_${conferenceId}`)));
 }
 
 // Ownership helpers (use existing data: conferences.created_by/co_chairs, track_reviewers, panelists)
@@ -1122,7 +989,6 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
     return res.redirect("/score-posters/" + conference_id + "?message=You are not authorized to score this poster.");
   }
 
-      if (redisClient) await redisClient.del(req.user.email+"_submissions");
 
 
   if (!Number.isInteger(score)) {
@@ -1133,6 +999,8 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
     "update submissions set submission_status=$1 where conference_id=$2 and submission_id=$3",
     ["Poster Scored", conference_id, submission_id]
   );
+  const scoredPaper = await pool.query("select primary_author, co_authors from submissions where submission_id=$1", [submission_id]);
+  await invalidateConferenceSubmissionCache([scoredPaper.rows[0]?.primary_author, ...(scoredPaper.rows[0]?.co_authors || [])], conference_id);
   await pool.query(
     "update final_camera_ready_submissions set panelist_score = $2 where submission_id=$1",
     [submission_id, score]
@@ -1144,18 +1012,6 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
 
 });
 
-
-async function isPosterCoordinator(email){
-const data = await pool.query("select * from poster_session where coodinators LIKE '%' || $1 || '%'",[email]);
-let result;
-if(data.rows.length>0){
-  result = true;
-}
-else{
-  result = false;
-}
-return result;
-}
 
 
 async function fetchConference(id){
@@ -1255,8 +1111,8 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 });
 
 app.get("/my-profile",checkAuth,async(req,res)=>{
-  const user_data = await pool.query("select * from users where email=$1",[req.user.email]);
-  const session_history = await pool.query("select * from sessions where user_id=$1",[user_data.rows[0].id]);
+  const user_data = await pool.query("select id, name, email, contact_number, address from users where email=$1",[req.user.email]);
+  const session_history = await pool.query("select created_at, ip_address, user_agent from sessions where user_id=$1",[user_data.rows[0].id]);
   return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows});
 })
 
@@ -1280,14 +1136,32 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
   
 
 
-  const data = await pool.query("update submissions set submission_status=$1 where submission_id=$2 returning *",[decision,submission_id]);
+  if (!["DESK ACCEPT", "DESK REJECT"].includes(decision)) {
+    return res.redirect("/chair/dashboard?message=Invalid desk decision.");
+  }
 
-  await pool.query("insert into desk_review(paper_id,decision,user_email)values($1,$2,$3)",[data.rows[0].submission_id,decision,req.user.email]);
+  const deskClient = await pool.connect();
+  let data;
+  try {
+    await deskClient.query("BEGIN");
+    data = await deskClient.query("update submissions set submission_status=$1 where submission_id=$2 returning *",[decision,submission_id]);
+    if (!data.rows[0]) {
+      await deskClient.query("ROLLBACK");
+      return res.redirect("/chair/dashboard?message=Submission not found.");
+    }
+    await deskClient.query("insert into desk_review(paper_id,decision,user_email)values($1,$2,$3)",[data.rows[0].submission_id,decision,req.user.email]);
+    await deskClient.query("COMMIT");
+  } catch (txErr) {
+    await deskClient.query("ROLLBACK");
+    throw txErr;
+  } finally {
+    deskClient.release();
+  }
 
   if(decision=='DESK REJECT'){
     return res.redirect("/chair/dashboard/desk/remarks-for-rejection/"+submission_id);
   }else {
-    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+data.rows[0].title+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
     return res.redirect("/chair/dashboard/desk/"+data.rows[0].conference_id+"?message=Submission Status Updated ("+decision+")");
   }
 })
@@ -1310,7 +1184,7 @@ app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
   const data = await pool.query("select title, primary_author from submissions where submission_id=$1",[submission_id]);
 
   await pool.query("update desk_review set remarks=$1 where paper_id = $2",[remarks,submission_id]);
-      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+data.rows[0].title+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+remarks+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Hi,<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+escapeHtml(remarks)+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
   return res.redirect("/chair/dashboard/desk/"+conference.rows[0].conference_id+"?message=Remarks Saved and Status Updated!");
 })
@@ -1379,7 +1253,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     
 
     if (redisClient) {
-      await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions));
+      await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions), { EX: 3600 });
     }
   }
 
@@ -1397,7 +1271,7 @@ app.post("/publish-announcement",checkChairAuth,async(req,res)=>{
   const user=req.user;
 
   const result = await pool.query("insert into announcements values($1,$2,$3)",[title,body,user.email]);
-  if(result){
+  if(result.rowCount){
     res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
   }
 })
@@ -1432,7 +1306,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
     }
     else {
-      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+conference_data.rows[0].title+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+authors.rows[i].title+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
+      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+escapeHtml(conference_data.rows[0].title)+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+escapeHtml(authors.rows[i].title)+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
     }
   }
 
@@ -1440,8 +1314,8 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
   if(pending_acceptance_notifications.length>0){
     
     console.log(pending_acceptance_notifications);
+    await invalidateConferenceSubmissionCache(authors.rows.flatMap((a) => [a.primary_author, ...(a.co_authors || [])]), conference_id);
 
-        if (redisClient) await redisClient.del(req.user.email+"_submissions");
 
 
     return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
@@ -1450,120 +1324,6 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Acceptance Notification Published!");
 
-});
-
-app.get("/reviewer/dashboard", async (req, res) => {
-  if (!req.isAuthenticated() || req.user.role !== "reviewer") {
-    return res.redirect("/");
-  }
-
-  try {
-    // Helper function to format dates
-    const formatDate = (dateString) => {
-      if (!dateString) return dateString;
-      const date = new Date(dateString);
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const year = date.getUTCFullYear();
-      return `${day}-${month}-${year}`;
-    };
-
-    const reviewerEmail = req.user.email;
-
-    //
-    // 1. Get tracks where this reviewer is assigned
-    //    Equivalent of: .contains("track_reviewers", [reviewerEmail])
-    //
-    const tracksResult = await pool.query(
-      `SELECT * FROM conference_tracks
-       WHERE track_reviewers @> ARRAY[$1];`,
-      [reviewerEmail]
-    );
-
-    const tracks = tracksResult.rows.map(track => ({
-      ...track,
-      presentation_date: formatDate(track.presentation_date)
-    }));
-
-
-    //
-    // 2. Fetch conferences for these tracks
-    //
-    const conferenceIds = [...new Set(tracks.map(t => t.conference_id))];
-
-    let conferences = [];
-    if (conferenceIds.length > 0) {
-      const confResult = await pool.query(
-        `SELECT * FROM conferences WHERE conference_id = ANY($1);`,
-        [conferenceIds]
-      );
-      conferences = confResult.rows.map(conference => ({
-        ...conference,
-        conference_start_date: formatDate(conference.conference_start_date),
-        conference_end_date: formatDate(conference.conference_end_date),
-        full_paper_submission: formatDate(conference.full_paper_submission),
-        acceptance_notification: formatDate(conference.acceptance_notification),
-        camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission)
-      }));
-    }
-
-    // Create lookup map
-    const conferenceMap = {};
-    conferences.forEach(conf => {
-      conferenceMap[conf.conference_id] = conf;
-    });
-
-    // Attach conference info to each track
-    const tracksWithConferences = tracks.map(track => ({
-      ...track,
-      conference: conferenceMap[track.conference_id] || {}
-    }));
-
-
-    //
-    // 3. Fetch submissions for these tracks
-    //
-    const trackIds = tracks.map(t => t.track_id);
-
-    let userSubmissions = [];
-    if (trackIds.length > 0) {
-      const subResult = await pool.query(
-        `SELECT * FROM submissions WHERE track_id = ANY($1) and submission_status=$2;`,
-        [trackIds,"DESK ACCEPT"]
-      );
-      userSubmissions = subResult.rows;
-    }
-
-
-    //
-    // 4. Fetch revised submissions for these tracks
-    //
-    let revisedSubmissions = [];
-    if (trackIds.length > 0) {
-      const revisedResult = await pool.query(
-        `SELECT * FROM submissions 
-         WHERE track_id = ANY($1)
-         AND submission_status = 'Submitted Revised Paper';`,
-        [trackIds]
-      );
-      revisedSubmissions = revisedResult.rows;
-    }
-
-
-    //
-    // 5. Render page
-    //
-    return res.render("reviewer/dashboard.ejs", {
-      user: req.user,
-      userSubmissions,
-      revisedSubmissions,
-      tracks: tracksWithConferences,
-    });
-
-  } catch (err) {
-    console.error("Reviewer Dashboard Error:", err);
-    return res.status(500).send("Error loading reviewer dashboard.");
-  }
 });
 
 app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) => {
@@ -1610,7 +1370,7 @@ app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) =
 app.post("/upvote-poster/:id",async(req,res)=>{
   const submission_id = req.params.id;
 
-  const conference_id = await pool.query("select conference_id from submissions where submission_id=$1",[submission_id]);
+  const conference_id = (await pool.query("select conference_id from submissions where submission_id=$1",[submission_id])).rows[0]?.conference_id;
 
   console.log(req.ip+" -> "+submission_id);
 
@@ -1618,10 +1378,10 @@ app.post("/upvote-poster/:id",async(req,res)=>{
 
     const vpp_vote_token = jwt.sign(
       {
-        submission_id: submission_id,
+        typ: "vote", submission_id: submission_id,
         user_ip: req.ip,
       },
-      process.env.JWT_ACCESS_TOKEN_SECRET,
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "7d"
       }
@@ -1645,7 +1405,7 @@ app.get("/virtual-poster-presentation/:id", async (req, res) => {
       try {
         const result = jwt.verify(
           vpp_vote_token_from_cookie, 
-          process.env.JWT_ACCESS_TOKEN_SECRET
+          process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
         );
 
         if (result) {
@@ -2277,7 +2037,7 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
         [paper.submission_id]
       );
       const finalRow = panelResult.rows[0];
-      paper.panelist_score = finalRow?.panelist_score || null;
+      paper.panelist_score = finalRow?.panelist_score ?? null;
       paper.presentation_status = finalRow?.status || null;
 
       // Add formatted author info
@@ -2316,20 +2076,26 @@ app.post("/send-password-reset-link",async(req,res)=>{
     const user = userResult.rows[0];
 
     if(!user){
-      res.redirect("/login/user?message=Account does not exists!");
+      res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.");
     }
     else {
           const token = crypto.randomBytes(32).toString("hex");
+
+    // Fail closed when the public base URL is not configured (never build links from defaults)
+    if (!process.env.APP_URL) {
+      console.error("APP_URL is not configured; password reset email not sent.");
+      return res.redirect("/login/user?message=Password reset is temporarily unavailable. Please try again later.");
+    }
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 15);
 
     await pool.query(
         `INSERT INTO password_resets (email, token, expires_at)
          VALUES ($1, $2, $3)`,
-        [email, token, expiresAt]
+        [email, hashToken(token), expiresAt]
     );
 
-    const resetLink = `http://cmt.gurumaujsatsangi.in/reset-password/${token}`;
+    const resetLink = `${process.env.APP_URL}/reset-password/${token}`;
 
     await sendMail(email,"Password Reset Link",null,"Hi, <br><br>Please click on this link to update your password for your DEI CMT account:<br> "+resetLink+" <br><br>If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
@@ -2349,7 +2115,7 @@ app.get("/reset-password/:token", async (req, res) => {
     const result = await pool.query(
         `SELECT * FROM password_resets
          WHERE token=$1 AND expires_at > NOW()`,
-        [token]
+        [hashToken(token)]
     );
 
     if (result.rows.length === 0) {
@@ -2461,11 +2227,6 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
 
     // 3. Check if it was already reviewed
     //
-    if (submissionData.submission_status === "Reviewed") {
-      return res.render("error.ejs", {
-        message: "This submission has already been reviewed.",
-      });
-    }
 
     //
     // 4. Fetch conference data
@@ -2660,6 +2421,9 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     //
     // 2. Compute mean score
     //
+    if (![originality_score, relevance_score, technical_quality_score, clarity_score, impact_score].every((s) => Number.isFinite(parseFloat(s)))) {
+      return res.redirect("/reviewer/dashboard?message=All review scores must be valid numbers.");
+    }
     const mean_score =
       (parseFloat(originality_score) +
         parseFloat(relevance_score) +
@@ -2759,6 +2523,7 @@ app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res
   if(data.rows[0]){
     return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submitted Final Decision!")
   }
+  return res.redirect("/chair/dashboard?message=Submission not found.");
 
 })
 
@@ -2870,14 +2635,14 @@ if(result==true){
 
     const activation_code = crypto.randomUUID();
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     await sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+name+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Welcome email failed:", mailErr));
+     await sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+escapeHtml(name)+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
 
 }
 else{
-  return res.redirect("/login/user?message=Your password does not match our Password Policy. Please make a strong password with atleast 1 Upper Case/Lower Case/Number/Special Character.")
+  return res.redirect("/login/user?message=Your password does not match our Password Policy. Please use 8 to 100 characters with at least one uppercase letter, one lowercase letter, two digits, and no spaces.")
 }
 
 
@@ -3019,13 +2784,13 @@ app.post("/user-login", async (req, res) => {
     const conferenceRolesDict = await loadConferenceRoles(user.email);
     const access_token = jwt.sign(
       {
-        email: user.email,
+        typ: "access", email: user.email,
         name: user.name,
         user_id: user.id,
         role: user.role,
         roles: conferenceRolesDict,
       },
-      process.env.JWT_ACCESS_TOKEN_SECRET,
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "15m"
       }
@@ -3034,9 +2799,9 @@ app.post("/user-login", async (req, res) => {
     // REFRESH TOKEN
     const refresh_token = jwt.sign(
       {
-        user_id: user.id
+        typ: "refresh", user_id: user.id
       },
-      process.env.JWT_REFRESH_TOKEN_SECRET,
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "7d"
       }
@@ -3102,10 +2867,9 @@ app.post("/activation-check",async(req,res)=>{
       const data2 = await pool.query("select * from activation_requests where email=$1",[email]);
     if(data2.rows[0]){
       return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
-      await sendMail(email,"Account Activation Code [SENT ON REQUEST]",null,"Your Account Activation Code for DEI CMT is <br><br>"+data2.rows[0].activation_code+"<br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, Team DEI Conference Management Toolkit");
     }
   } else{
-    return res.redirect("/account-activation?message=User Not Found with Pending Activation status!");
+    return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
   }
 })
 
@@ -3125,8 +2889,9 @@ async function handleRefresh(req, res) {
     // VERIFY REFRESH TOKEN
     const decoded = jwt.verify(
       refresh_token,
-      process.env.JWT_REFRESH_TOKEN_SECRET
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
     );
+    assertTokenType(decoded, "refresh");
 
     // HASH TOKEN
     const refreshTokenHash = crypto
@@ -3169,13 +2934,13 @@ async function handleRefresh(req, res) {
     const conferenceRolesDict = await loadConferenceRoles(user.email);
     const accessToken = jwt.sign(
       {
-        email: user.email,
+        typ: "access", email: user.email,
         name: user.name,
         user_id: user.id,
         role: user.role,
         roles: conferenceRolesDict
       },
-      process.env.JWT_ACCESS_TOKEN_SECRET,
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       {
         expiresIn: "15m"
       }
@@ -3208,7 +2973,7 @@ app.post("/auth/refresh", handleRefresh);
 app.get("/admin", async(req,res)=>{
 
 
-const chairs = await pool.query("select * from chairs");
+const chairs = await pool.query("select name, email, contact_number, faculty, department from chairs");
 const conferences = await pool.query("select * from conferences");
 res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null});
 })
@@ -3225,7 +2990,7 @@ app.post("/create-chair-credentials",async(req,res)=>{
   const hashed_password= await bcrypt.hash(password, 10);
   const result = await pool.query("insert into chairs(name,email,contact_number,faculty,department, password,status) values($1,$2,$3,$4,$5,$6,$7)",[name,email,contact_number, faculty,department, hashed_password,"ACCOUNT ACTIVATED"]);
 
-  if(!result){
+  if(!result.rowCount){
     res.send("Error");
   }
 
@@ -3256,6 +3021,7 @@ app.get("/reset-chair-password/:id",async(req,res)=>{
     return res.redirect("/admin?message=Password for "+email+" has been reset and the user has been notified via Email.");
 
   }
+  return res.redirect("/admin?message=Chair not found.");
 })
 
 
@@ -3269,6 +3035,7 @@ app.get("/grant-access/:id",async(req,res)=>{
     await sendMail(email,"Chair Portal Access Re-Granted",null,"Hi, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=Chair Portal Access Re-Granted to "+email+"!");
   }
+  return res.redirect("/admin?message=Chair not found.");
 
 })
 
@@ -3289,7 +3056,7 @@ app.get("/revoke-access/:id",async(req,res)=>{
 
   const pre_data = await pool.query("select * from chairs where email=$1 and status=$2",[email,"ACCOUNT ACTIVATED"]);
 
-  if(pre_data){
+  if(pre_data.rows.length){
 
      const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCESS REVOKED",email]);
   if(data.rows[0]){
@@ -3314,6 +3081,7 @@ app.get("/delete-account/:id",async(req,res)=>{
   if(data.rows[0]){
     return res.redirect("/admin?message=Account ("+email+") Deleted!");
   }
+  return res.redirect("/admin?message=Chair not found.");
 })
 
 
@@ -3342,14 +3110,14 @@ app.post("/chair-login", async (req, res) => {
 
     // generate jwt
     const chairAccessToken = jwt.sign(
-      { email: user.email, name: user.name, user_id: user.user_id, role: "chair" },
-      process.env.JWT_ACCESS_TOKEN_SECRET,
+      { typ: "chair", email: user.email, name: user.name, user_id: user.user_id, role: "chair" },
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
 
     const chairRefreshToken = jwt.sign(
-      { email: user.email, name: user.name },
-      process.env.JWT_REFRESH_TOKEN_SECRET,
+      { typ: "refresh", email: user.email, name: user.name },
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
@@ -3437,7 +3205,7 @@ async function handleChairRefresh(req, res) {
     // Resolve the chair directly from chairs.user_id.
     const chairResult = await pool.query(
       `SELECT user_id, email, name FROM chairs WHERE user_id = $1 LIMIT 1`,
-      [session.user_id]
+      [session.chair_id]
     );
 
     const chair = chairResult.rows[0];
@@ -3448,8 +3216,8 @@ async function handleChairRefresh(req, res) {
 
     // CREATE NEW ACCESS TOKEN
     const accessToken = jwt.sign(
-      { email: chair.email, name: chair.name, user_id: chair.user_id, role: "chair" },
-      process.env.JWT_ACCESS_TOKEN_SECRET,
+      { typ: "chair", email: chair.email, name: chair.name, user_id: chair.user_id, role: "chair" },
+      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
 
@@ -3490,7 +3258,7 @@ app.post("/update-password", async (req, res) => {
     // 2. Validate the token and get the associated email FIRST
     const tokenRecord = await pool.query(
       "SELECT email FROM password_resets WHERE token=$1 AND expires_at > NOW()",
-      [token]
+      [hashToken(token)]
     );
 
     // If no token is found, it's invalid or expired
@@ -3512,7 +3280,7 @@ app.post("/update-password", async (req, res) => {
     // 5. Delete the used token to prevent reuse
     await pool.query(
       "DELETE FROM password_resets WHERE token=$1", 
-      [token]
+      [hashToken(token)]
     );
 
     // 6. Send confirmation email (Removed the stray '+')
@@ -3585,28 +3353,6 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
       ]
     );
 
-    // 4. ACTIVE CACHE INVALIDATION
-    // Create unique sets of emails containing BOTH old and new users
-    const affectedReviewers = new Set([...oldReviewers, ...reviewersArray]);
-    const affectedPanelists = new Set([...oldPanelists, ...panelistsArray]);
-
-    const cacheDeletionPromises = [];
-
-    // Queue up cache deletion for Reviewers
-    affectedReviewers.forEach(email => {
-      redisClient && cacheDeletionPromises.push(redisClient.del(`reviewer_role_${email}`));
-    });
-
-    // Queue up cache deletion for Session Chairs (Panelists)
-    affectedPanelists.forEach(email => {
-      redisClient && cacheDeletionPromises.push(redisClient.del(`session_chair_role_${email}`));
-    });
-
-    // Execute all cache deletions concurrently
-    if (cacheDeletionPromises.length > 0) {
-      await Promise.all(cacheDeletionPromises);
-      console.log(`Invalidated cache for ${cacheDeletionPromises.length} role changes.`);
-    }
 
     res.redirect("/chair/dashboard?message=Track updated successfully!");
   } catch (err) {
@@ -3703,13 +3449,6 @@ app.get("/privacy-policy",async(req,res)=>{
   res.render("privacy-policy");
 })
 
-async function fetchInviteeNamebyEmail(email){
-
-  const result = await pool.query("select name from users where email = $1",[email]);
-  return result.rows[0];
-
-}
-
 app.post("/add-invitee", checkChairAuth,async (req, res) => {
   
   const { email, conference_id,name } = req.body;
@@ -3728,7 +3467,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-     await sendMail(email,name+", You are invited!",null,"Dear "+name+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+     await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
     else if (data.rows[0] && data2.rows[0]){
@@ -3752,9 +3491,9 @@ await pool.query(
         const inviteToken = crypto.randomBytes(32).toString("hex");
         await pool.query(
           `INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)`,
-          [email, inviteToken, new Date(Date.now() + 1000 * 60 * 60 * 24)]
+          [email, hashToken(inviteToken), new Date(Date.now() + 1000 * 60 * 60 * 24)]
         );
-        await sendMail(email,name+", You are invited!",null,"Dear "+name+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='https://cmt.gurumaujsatsangi.in/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
+        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='https://cmt.gurumaujsatsangi.in/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
         return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
     }
@@ -3766,42 +3505,6 @@ await pool.query(
     return res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Error adding invitee.`);
   }
 
-  try {
-    // 2. Generate setup token (valid 24 hours)
-   
-    // 3. Fetch conference title for email
-    const confResult = await pool.query(
-      `SELECT title FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-      [conference_id]
-    );
-    const conferenceTitle = confResult.rows[0]?.title || "the conference";
-    const result = await fetchInviteeNamebyEmail(email);
-    const invitee_name = result.name || "Invitee";
-
-    const htmlBody = `
-      <p>Dear ${invitee_name}</p>
-      <p>Hope you are doing well!</p>
-      <p>You have been invited to present at <strong>${conferenceTitle}</strong>.</p>
-      <p>Please visit https://cmt.gurumaujsatsangi.in.
-      <p>For support, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
-      <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>
-    `;
-
-    try {
-      await sendMail(
-        email,
-        `Invited to Present at ${conferenceTitle}`,
-        `You have been invited to present at ${conferenceTitle}`,
-        htmlBody
-      );
-    } catch (emailErr) {
-      console.error("Error sending invite email:", emailErr);
-      // Email failure should not block invite creation
-    }
-
-  } catch (err) {
-    console.error("Error preparing invitee setup:", err);
-  }
 
   res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Invitee added successfully.`);
 });
@@ -3812,7 +3515,7 @@ app.get("/invited-user/password-update/:email",async(req,res)=>{
   const email = req.params.email;
   const token = req.query.token || "";
 
-  const tokenResult = await pool.query('select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()',[email,token]);
+  const tokenResult = await pool.query('select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()',[email,hashToken(token)]);
   if (tokenResult.rows.length === 0) {
     return res.redirect("/?message=Not Eligible!");
   }
@@ -3838,7 +3541,7 @@ app.post("/update-invited-user-password",async(req,res)=>{
 
   const { email, password, token } = req.body;
 
-  const tokenResult = await pool.query("select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()",[email,token || ""]);
+  const tokenResult = await pool.query("select 1 from password_resets where email=$1 and token=$2 and expires_at > NOW()",[email,hashToken(token || "")]);
   if (tokenResult.rows.length === 0) {
     return res.redirect("/login/user?message=Your password setup link is invalid or has expired.");
   }
@@ -3849,9 +3552,10 @@ app.post("/update-invited-user-password",async(req,res)=>{
 
   await pool.query("DELETE FROM password_resets WHERE email = $1",[email]);
 
-  if(result){
+  if(result.rowCount){
     return res.redirect("/login/user?message=Password for your account has been updated. Please login with the login credentials.");
   }
+  return res.redirect("/login/user?message=Your password setup link is invalid or has expired.");
 
 })
 
@@ -3905,6 +3609,9 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
     //
     // 3. Insert review into peer_review
     //
+    if (![originality_score, relevance_score, technical_quality_score, clarity_score, impact_score].every((s) => Number.isFinite(parseFloat(s)))) {
+      return res.redirect("/reviewer/dashboard?message=All review scores must be valid numbers.");
+    }
     const mean_score =
       (parseFloat(originality_score) +
         parseFloat(relevance_score) +
@@ -4001,15 +3708,15 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
     await pool.query("insert into conference_roles values($1, $2, $3)",[req.params.id, reviewerEmail, "reviewer"]);
 
       await sendMail(
-        reviewerEmail,null,
-        "Reviewer Role Assigned",
+        reviewerEmail,"Reviewer Role Assigned",null,
+        
         "Hi,<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
   await sendMail(
-        meta_reviewer,null,
-        "Meta-Reviewer Role Assigned",
+        meta_reviewer,"Meta-Reviewer Role Assigned",null,
+        
         "Hi,<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     
@@ -4018,8 +3725,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
       await sendMail(
         chairEmail,
-        null,
-        "Session Chair Role Assigned",
+        "Session Chair Role Assigned",null,
+        
         "Hi, <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
@@ -4049,7 +3756,7 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
     }
     else{
 
-      if (redisClient) await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
+      if (redisClient) await redisClient.set("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
       
     }
 
@@ -4106,7 +3813,7 @@ if(data){
 
 app.get("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
-  if(!result){
+  if(!result.rowCount){
     return res.redirect("/chair/dashboard?message=Error deleting Track!");
   }
   else{
@@ -4241,7 +3948,7 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
 app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 
     const isReviewerResult = await isReviewer(req.user.email);
-    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email, req.params.id);
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
@@ -4370,7 +4077,7 @@ app.post("/join", checkAuth, async (req, res) => {
         `Co-Author Request - ${submission.title}`,
         `A co-author request for your paper "${submission.title}" has been submitted.`,
         `<p>Dear Author,</p>
-         <p>A co-author has requested to join your paper titled <strong>"${submission.title}"</strong>.</p>
+         <p>A co-author has requested to join your paper titled <strong>"${escapeHtml(submission.title)}"</strong>.</p>
          <p><strong>Co-Author Email:</strong> ${req.user.email}</p>
          <p>Please review and accept or reject this request from your dashboard.</p>
          <p>For assistance, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
@@ -4405,6 +4112,10 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
 
     if (!coAuthorRequest) {
       return res.redirect("/dashboard?message=Co-author request not found.");
+    }
+
+    if (coAuthorRequest.status !== "Pending") {
+      return res.redirect("/dashboard?message=This co-author request is no longer pending.");
     }
 
     // 2. Fetch submission
@@ -4444,7 +4155,7 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
     );
 
     // 7. Send email to co-author
-   await sendMail(coAuthorRequest.co_author,null,"Co-Author Request Approved | "+submission.title,"Hi, <br><br>your request to join the paper titled "+ submission.title+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+   await sendMail(coAuthorRequest.co_author,"Co-Author Request Approved | "+submission.title,null,"Hi, <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
     return res.redirect("/dashboard?message=Co-author request accepted successfully.");
 
@@ -4470,6 +4181,10 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
       return res.redirect("/dashboard?message=Co-author request not found.");
     }
 
+    if (coAuthorRequest.status !== "Pending") {
+      return res.redirect("/dashboard?message=This co-author request is no longer pending.");
+    }
+
     // 2. Fetch submission
     const submissionResult = await pool.query(
       `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
@@ -4493,7 +4208,7 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
     );
 
     // 5. Notify via email
-       await sendMail(coAuthorRequest.co_author,null,"Co-Author Request Rejected | "+submission.title,"Hi, <br><br>your request to join the paper titled "+ submission.title+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+       await sendMail(coAuthorRequest.co_author,"Co-Author Request Rejected | "+submission.title,null,"Hi, <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
 
     return res.redirect("/dashboard?message=Co-author request rejected successfully.");
@@ -4572,7 +4287,7 @@ app.get("/chair/create-new-conference", checkChairAuth,(req, res) => {
 app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
   
   const isReviewerResult = await isReviewer(req.user.email);
-    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email, req.params.id);
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
@@ -4881,7 +4596,7 @@ app.get("/submission/revised/primary-author/:id", checkAuth, async (req, res) =>
 app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (req, res) => {
 
     const isReviewerResult = await isReviewer(req.user.email);
-    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email, (await pool.query("select conference_id from submissions where submission_id = $1", [req.params.id])).rows[0]?.conference_id);
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
@@ -4992,7 +4707,7 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
 app.get("/remarks/:id", checkAuth, async (req, res) => {
 
     const isReviewerResult = await isReviewer(req.user.email);
-    const isSessionChairResult = await isSessionChair(req.user.email);
+    const isSessionChairResult = await isSessionChair(req.user.email, (await pool.query("select conference_id from submissions where submission_id = $1", [req.params.id])).rows[0]?.conference_id);
     const isInviteeResult = await isInvitee(req.user.email);
 
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
@@ -5155,10 +4870,13 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       }
 
       // 2. Upload to Cloudinary
+      if (!isAllowedDocument(req.file)) {
+        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+      }
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
-        public_id: `${req.user.uid}-${Date.now()}-Final`,
+        public_id: `${req.user.user_id}-${Date.now()}-Final`,
       });
 
       // 3. Insert into final_camera_ready_submissions
@@ -5243,7 +4961,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       full_paper_submission: formatDate(conference.full_paper_submission),
       acceptance_notification: formatDate(conference.acceptance_notification),
       camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
-      deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
+      deadline_peer_review:formatDate(conference.deadline_peer_review)
     }));
 
     } else{
@@ -5255,7 +4973,7 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       full_paper_submission: formatDate(conference.full_paper_submission),
       acceptance_notification: formatDate(conference.acceptance_notification),
       camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
-      deadline_peer_review:formatDate(conference.camera_ready_paper_submission)
+      deadline_peer_review:formatDate(conference.deadline_peer_review)
     }));
 
       const enter_data = redisClient ? redisClient.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences)) : null;
@@ -5481,9 +5199,10 @@ app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
 
   const submission = await pool.query("update submissions set remarks=$1, submission_status=$2 where submission_id=$3",[final_remarks,status,submission_id]);
 
-  if(submission){
+  if(submission.rowCount){
     return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submission Updated Succesfully!");
   }
+  return res.redirect("/chair/dashboard?message=Submission not found.");
 
 
 
@@ -5765,6 +5484,9 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         //
         // 3. Upload File
         //
+        if (!isAllowedDocument(req.file)) {
+          return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+        }
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "revised_submissions",
@@ -5861,10 +5583,13 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 
       // If user uploaded a new file
       if (req.file) {
+        if (!isAllowedDocument(req.file)) {
+          return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+        }
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "submissions",
-          public_id: `${req.user.uid}-${Date.now()}`,
+          public_id: `${req.user.user_id}-${Date.now()}`,
         });
 
         updateFields.push(`file_url = $${index++}`);
@@ -5979,16 +5704,20 @@ app.post("/submit", checkAuth, async (req, res) => {
       }
 
       // Cloudinary Upload
+      if (!isAllowedDocument(req.file)) {
+        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+      }
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
-        public_id: `${(req.user && (req.user.uid || req.user.email)) || "user"}-${Date.now()}`,
+        public_id: `${(req.user && (req.user.user_id || req.user.email)) || "user"}-${Date.now()}`,
       });
 
       // --- FIXED: Thread-safe Unique Paper Code Generation via Redis Sets ---
       let paperCode;
       let isUnique = false;
-      while (!isUnique) {
+      for (let attempt = 0; !isUnique; attempt++) {
+        if (attempt >= 20) throw new Error("Could not allocate a unique paper code");
         paperCode = generator.generate({ length: 6, numbers: true });
         // SADD adds to a Set and returns 1 if element is new, or 0 if it already exists
         const addedCount = redisClient
@@ -6038,12 +5767,12 @@ app.post("/submit", checkAuth, async (req, res) => {
         const submissionsArray = cacheSubmissions;
         submissionsArray.push(newSubmissionItem);
         if (redisClient) {
-          await redisClient.set(cacheKey, JSON.stringify(submissionsArray));
+          await redisClient.set(cacheKey, JSON.stringify(submissionsArray), { EX: 3600 });
         }
       } else {
         // If cache is empty, seed a brand new array containing the item
         if (redisClient) {
-          await redisClient.set(cacheKey, JSON.stringify([newSubmissionItem]));
+          await redisClient.set(cacheKey, JSON.stringify([newSubmissionItem]), { EX: 3600 });
         }
       }
       console.log("ADDED TO CACHE!");
@@ -6053,7 +5782,7 @@ app.post("/submit", checkAuth, async (req, res) => {
         req.user.email,
         "Submission Created | " + title,
         null,
-        `Hi, <br><br>Your paper titled <b>${title}</b> has been submitted successfully for <b>${conference_data.rows[0].title}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+        `Hi, <br><br>Your paper titled <b>${escapeHtml(title)}</b> has been submitted successfully for <b>${escapeHtml(conference_data.rows[0].title)}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
       );
 
       return res.redirect("/dashboard?message=Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
@@ -6105,6 +5834,9 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
+      if (!isAllowedDocument(req.file)) {
+        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+      }
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
@@ -6208,12 +5940,11 @@ async function handleLogout(req, res) {
 }
 
 app.post("/logout", handleLogout);
-app.get("/logout", handleLogout);
 
 
 
 app.use(function(req, res) {
-    res.render("error.ejs");
+    res.status(404).render("error.ejs");
 });
 
 app.use((err, req, res, next) => {
