@@ -163,7 +163,6 @@ app.get("/login",async(req,res)=>{
 })
 
 const port = process.env.PORT || 3000;
-const APP_URL = process.env.APP_URL || `http://localhost:${port}`;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
@@ -573,8 +572,20 @@ const authAttempts = new Map();
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_MAX_ATTEMPTS = 10;
 const AUTH_MAX_KEYS = 10000;
-function authRateLimitMemory(req, res, next) {
-  if (redisClient) return next();
+async function authRateLimitMemory(req, res, next) {
+  if (redisClient) {
+    try {
+      const key = "authrl:" + req.path + ":" + req.ip;
+      const attempts = await redisClient.incr(key);
+      if (attempts === 1) await redisClient.expire(key, Math.ceil(AUTH_WINDOW_MS / 1000));
+      if (attempts > AUTH_MAX_ATTEMPTS) {
+        return res.status(429).send("Too Many Requests!");
+      }
+      return next();
+    } catch (err) {
+      console.warn("Auth rate limit: Redis unavailable, using in-memory fallback.", err.message);
+    }
+  }
   const now = Date.now();
   if (authAttempts.size >= AUTH_MAX_KEYS) {
     for (const [key, entry] of authAttempts) {
@@ -964,12 +975,20 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// Every token is minted with an explicit "typ". Untyped (legacy) tokens are rejected.
 function assertTokenType(decoded, expectedType) {
-  // Tokens minted before typed claims existed carry no "typ" and remain accepted
-  if (decoded && decoded.typ !== undefined && decoded.typ !== expectedType) {
+  if (!decoded || decoded.typ !== expectedType) {
     throw new Error("Invalid token type");
   }
   return decoded;
+}
+
+// Public base URL for security-sensitive links. Must be HTTPS in production; null when unusable.
+function getAppUrl() {
+  const url = (process.env.APP_URL || "").trim().replace(/\/+$/, "");
+  if (!url) return null;
+  if (process.env.NODE_ENV === "production" && !url.startsWith("https://")) return null;
+  return url;
 }
 
 function isAllowedDocument(file) {
@@ -2158,8 +2177,8 @@ app.post("/send-password-reset-link", authRateLimitMemory, async(req,res)=>{
           const token = crypto.randomBytes(32).toString("hex");
 
     // Fail closed when the public base URL is not configured (never build links from defaults)
-    if (!process.env.APP_URL) {
-      console.error("APP_URL is not configured; password reset email not sent.");
+    if (!getAppUrl()) {
+      console.error("APP_URL is missing or not HTTPS in production; password reset email not sent.");
       return res.redirect("/login/user?message=Password reset is temporarily unavailable. Please try again later.");
     }
 
@@ -2171,7 +2190,7 @@ app.post("/send-password-reset-link", authRateLimitMemory, async(req,res)=>{
         [email, hashToken(token), expiresAt]
     );
 
-    const resetLink = `${process.env.APP_URL}/reset-password/${token}`;
+    const resetLink = `${getAppUrl()}/reset-password/${token}`;
 
     await sendMail(email,"Password Reset Link",null,"Hi, <br><br>Please click on this link to update your password for your DEI CMT account:<br> "+resetLink+" <br><br>If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
@@ -3076,15 +3095,15 @@ async function issueAccountSetupLink(email) {
     "INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)",
     [email, hashToken(token), new Date(Date.now() + 1000 * 60 * 60 * 24)]
   );
-  return `${process.env.APP_URL}/chair-password-setup?token=${token}`;
+  return `${getAppUrl()}/chair-password-setup?token=${token}`;
 }
 
 app.post("/create-chair-credentials", checkAuth, requireAdmin, async(req,res)=>{
 
   const {name,email,contact_number, faculty, department} = req.body;
 
-  if (!process.env.APP_URL) {
-    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is not configured; the setup link cannot be sent."));
+  if (!getAppUrl()) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is missing or not HTTPS in production; the setup link cannot be sent."));
   }
 
   // The chair starts with an unusable random password and sets their own via the setup link
@@ -3143,8 +3162,8 @@ app.post("/chair-password-setup", authRateLimitMemory, async (req, res) => {
 app.post("/reset-chair-password/:id", checkAuth, requireAdmin, async(req,res)=>{
   const email = req.params.id;
 
-  if (!process.env.APP_URL) {
-    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is not configured; the setup link cannot be sent."));
+  if (!getAppUrl()) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is missing or not HTTPS in production; the setup link cannot be sent."));
   }
 
   const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
@@ -3627,7 +3646,7 @@ await pool.query(
           `INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)`,
           [email, hashToken(inviteToken), new Date(Date.now() + 1000 * 60 * 60 * 24)]
         );
-        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='"+process.env.APP_URL+"/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
+        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='"+(getAppUrl() || "")+"/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
         return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
     }
