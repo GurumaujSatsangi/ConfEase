@@ -3493,6 +3493,12 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
     const reviewersArray = reviewers ? reviewers.split(",").map(r => r.trim()).filter(r => r) : [];
     const panelistsArray = panelists ? panelists.split(",").map(p => p.trim()).filter(p => p) : [];
 
+    const subjectRow = await pool.query("select conference_id, group_id from conference_tracks where track_id = $1", [trackId]);
+    const newSubjectName = String(track_title || "").trim();
+    if (!newSubjectName) return res.redirect(manageTracksUrl(subjectRow.rows[0].conference_id, "Subject area name cannot be empty."));
+    const subjectDup = await pool.query("select 1 from conference_tracks where conference_id = $1 and track_name = $2 and group_id is not distinct from $3 and track_id <> $4", [subjectRow.rows[0].conference_id, newSubjectName, subjectRow.rows[0].group_id, trackId]);
+    if (subjectDup.rows.length) return res.redirect(manageTracksUrl(subjectRow.rows[0].conference_id, "A subject area with this name already exists in this track."));
+
     // 2. FETCH OLD ROLES FIRST (Crucial for invalidating users who are being removed)
     const oldTrackData = await pool.query(
       `SELECT track_reviewers, panelists FROM conference_tracks WHERE track_id = $1`,
@@ -3835,6 +3841,49 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
 });
 
 // ...existing code...
+// ---------- Tracks (top-level groups of subject areas) ----------
+function manageTracksUrl(conferenceId, message) {
+  return "/chair/dashboard/manage-tracks/" + conferenceId + "?message=" + encodeURIComponent(message);
+}
+
+app.post("/chair/dashboard/create-group/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+  const groupName = String(req.body.group_name || "").trim();
+  if (!groupName) return res.redirect(manageTracksUrl(req.params.id, "Track name cannot be empty."));
+  const dup = await pool.query("select 1 from conference_groups where conference_id = $1 and group_name = $2", [req.params.id, groupName]);
+  if (dup.rows.length) return res.redirect(manageTracksUrl(req.params.id, "A track with this name already exists in this conference."));
+  await pool.query("insert into conference_groups (conference_id, group_name) values ($1, $2)", [req.params.id, groupName]);
+  return res.redirect(manageTracksUrl(req.params.id, "Track created."));
+});
+
+app.post("/chair/dashboard/update-group/:groupId", checkChairAuth, async (req, res) => {
+  const owner = await pool.query("select conference_id from conference_groups where group_id = $1", [req.params.groupId]);
+  if (!owner.rows[0] || !(await chairOwnsConference(req.user.email, owner.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this track.");
+  }
+  const conferenceId = owner.rows[0].conference_id;
+  const groupName = String(req.body.group_name || "").trim();
+  if (!groupName) return res.redirect(manageTracksUrl(conferenceId, "Track name cannot be empty."));
+  const dup = await pool.query("select 1 from conference_groups where conference_id = $1 and group_name = $2 and group_id <> $3", [conferenceId, groupName, req.params.groupId]);
+  if (dup.rows.length) return res.redirect(manageTracksUrl(conferenceId, "A track with this name already exists in this conference."));
+  await pool.query("update conference_groups set group_name = $1 where group_id = $2", [groupName, req.params.groupId]);
+  return res.redirect(manageTracksUrl(conferenceId, "Track updated."));
+});
+
+app.post("/chair/dashboard/delete-group/:groupId", checkChairAuth, async (req, res) => {
+  const owner = await pool.query("select conference_id from conference_groups where group_id = $1", [req.params.groupId]);
+  if (!owner.rows[0] || !(await chairOwnsConference(req.user.email, owner.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to delete this track.");
+  }
+  const conferenceId = owner.rows[0].conference_id;
+  const subjects = await pool.query("select 1 from conference_tracks where group_id = $1 limit 1", [req.params.groupId]);
+  if (subjects.rows.length) return res.redirect(manageTracksUrl(conferenceId, "This track still has subject areas and cannot be deleted."));
+  await pool.query("delete from conference_groups where group_id = $1", [req.params.groupId]);
+  return res.redirect(manageTracksUrl(conferenceId, "Track deleted."));
+});
+
 app.post("/create-track/:id", checkChairAuth, async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
@@ -3847,7 +3896,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       session_start_time,
       session_end_time,
       session_chairs,
-      meta_reviewers
+      meta_reviewers,
+      group_id
     } = req.body;
 
     const normalizeEmails = (value) => {
@@ -3861,19 +3911,30 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
     const reviewersArray = normalizeEmails(reviewers);
     const sessionChairsArray = normalizeEmails(session_chairs);
 
+    const subjectName = String(track_title || "").trim();
+    if (!subjectName) return res.redirect(manageTracksUrl(req.params.id, "Subject area name cannot be empty."));
+    const trackGroupId = String(group_id || "").trim() || null;
+    if (trackGroupId) {
+      const groupOwned = await pool.query("select 1 from conference_groups where group_id = $1 and conference_id = $2", [trackGroupId, req.params.id]);
+      if (groupOwned.rows.length === 0) return res.redirect(manageTracksUrl(req.params.id, "The selected track does not belong to this conference."));
+    }
+    const duplicateSubject = await pool.query("select 1 from conference_tracks where conference_id = $1 and track_name = $2 and group_id is not distinct from $3", [req.params.id, subjectName, trackGroupId]);
+    if (duplicateSubject.rows.length) return res.redirect(manageTracksUrl(req.params.id, "A subject area with this name already exists in this track."));
+
     await pool.query(
       `INSERT INTO conference_tracks
-       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer)
-       VALUES ($1, $2, $3, $4, $5, $6, $7,$8)`,
+       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9)`,
       [
-        track_title,
+        subjectName,
         reviewersArray,
         session_date,
         session_start_time,
         session_end_time,
         sessionChairsArray,
         req.params.id,
-        meta_reviewers
+        meta_reviewers,
+        trackGroupId
       ]
     );
 
@@ -3991,6 +4052,8 @@ app.post("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to delete this track.");
   }
+  const linkedSubmissions = await pool.query("select 1 from submissions where track_id = $1 limit 1", [req.params.id]);
+  if (linkedSubmissions.rows.length) return res.redirect(manageTracksUrl(trackOwner.rows[0].conference_id, "This subject area has submissions and cannot be deleted."));
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
   if(!result.rowCount){
     return res.redirect("/chair/dashboard?message=Error deleting Track!");
@@ -4087,7 +4150,8 @@ app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
   const tracks = await pool.query("select * from conference_tracks where conference_id = $1",[req.params.id]);
   
 
-  return res.render("chair/manage-tracks",{tracks:tracks.rows,conference:conference.rows[0]});
+  const groups = await pool.query("select group_id, group_name from conference_groups where conference_id = $1 order by group_name", [req.params.id]);
+  return res.render("chair/manage-tracks",{tracks:tracks.rows,groups:groups.rows,conference:conference.rows[0]});
 
 
 })

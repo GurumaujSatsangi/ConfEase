@@ -12,11 +12,56 @@
     <h4>Manage Tracks</h4>
     <h6>Conference: <%= conference.title %></h6>
     <hr>
+    <h5>Tracks (optional)</h5>
+    <p class="small text-muted">Tracks group subject areas, for example DSC2026 and NSC2026. Conferences without tracks keep their subject areas directly under the conference.</p>
+    <form action="/chair/dashboard/create-group/<%= conference.conference_id %>" method="post" class="mb-3">
+      <input class="form-control mb-2" type="text" name="group_name" placeholder="Track Name (for example DSC2026)" required>
+      <input class="btn btn-success" type="submit" value="Add Track">
+    </form>
+    <% if (groups && groups.length > 0) { %>
+    <table class="table table-bordered table-sm">
+      <tr>
+        <th>Track</th>
+        <th>Subject Areas</th>
+        <th>Action</th>
+      </tr>
+      <% groups.forEach(function(g) { %>
+        <tr>
+          <td>
+            <form method="post" action="/chair/dashboard/update-group/<%= g.group_id %>" class="d-flex gap-2">
+              <input class="form-control" type="text" name="group_name" value="<%= g.group_name %>" required>
+              <button type="submit" class="btn btn-warning">Update</button>
+            </form>
+          </td>
+          <td><%= tracks.filter(function(s) { return s.group_id === g.group_id; }).length %></td>
+          <td>
+            <form method="post" action="/chair/dashboard/delete-group/<%= g.group_id %>">
+              <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% }) %>
+    </table>
+    <% } else { %>
+    <p>No tracks have been created for this conference. Subject areas are managed directly under the conference.</p>
+    <% } %>
+
+    <hr>
+    <h5>Subject Areas</h5>
+
   
-    <form action="/create-track/<%=conference.conference_id %>" method="post" clas="form-control">
+    <form action="/create-track/<%=conference.conference_id %>" method="post" class="form-control">
+        <div class="mb-3">
+        <label class="form-label">Track (optional)</label>
+        <select class="form-select" name="group_id">
+          <option value="">No track (directly under the conference)</option>
+          <% (groups || []).forEach(function(g) { %>
+          <option value="<%= g.group_id %>"><%= g.group_name %></option>
+          <% }) %>
+        </select></div>
         <div class="mb-3">
 
-        <input class="form-control" type="text" name="track_title" placeholder="Title of the Track"></div>
+        <input class="form-control" type="text" name="track_title" placeholder="Subject Area Name"></div>
         <div class="mb-3">
 <textarea class="form-control" name="reviewers" placeholder="Email IDs of the Reviewers"></textarea></div>
 
@@ -48,7 +93,7 @@
 
 
 <div class="mb-3">
-<input class="btn btn-success" type="submit" value="Add Track"></div>
+<input class="btn btn-success" type="submit" value="Add Subject Area"></div>
     </form>
 
   <hr>
@@ -56,7 +101,8 @@
        <% if (tracks && tracks.length > 0) { %>
   <table class="table table-bordered">
     <tr>
-      <th>Title of the Track</th>
+      <th>Track</th>
+      <th>Subject Area</th>
       <th>Reviewers</th>
       <th colspan="3">Session Schedule</th>
       <th>Session Chair</th>
@@ -66,6 +112,7 @@
     <% tracks.forEach(function(track) { %>
       <tr>
         <form method="POST" action="/chair/dashboard/update-track/<%= track.track_id %>">
+          <td><%= (groups.find(function(g) { return g.group_id === track.group_id; }) || { group_name: "Conference level" }).group_name %></td>
 
           <td>
             <input
@@ -146,7 +193,7 @@
 <% } else { %>
   <h6>
     <i class="bi bi-emoji-frown-fill"></i>
-    No Tracks have been created for this conference!
+    No subject areas have been created for this conference yet.
   </h6>
 <% } %>
 
