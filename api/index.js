@@ -139,6 +139,25 @@ async function loadConferenceRoles(email) {
   }, {});
 }
 
+// JWT-only role checks (no DB lookup): used to gate dashboards/pages whose
+// authorization is coarse ("does this user hold this role anywhere / for this
+// conference"). The roles claim is only as fresh as the access token - a role
+// granted after the token was issued won't show up until the user logs out
+// and back in (or the token naturally expires and refreshes). This is
+// intentional: it keeps these checks off the database. Per-record decisions
+// (which conference a chair owns, which track a reviewer is assigned to,
+// etc.) still query the database, since the JWT has no room to safely encode
+// that without becoming stale in the other, more dangerous direction.
+function hasConferenceRole(user, conferenceId, role) {
+  const roles = (user && user.roles && user.roles[conferenceId]) || [];
+  return roles.includes(role);
+}
+
+function hasAnyConferenceRole(user, role) {
+  const roles = (user && user.roles) || {};
+  return Object.values(roles).some((list) => Array.isArray(list) && list.includes(role));
+}
+
 
 const schema = new passwordValidator();
 
@@ -461,7 +480,6 @@ async function checkAuth(req, res, next) {
   if (token) {
     try {
       const decoded = verifyAccessToken(token);
-      decoded.roles = await loadConferenceRoles(decoded.email).catch(() => decoded.roles || {});
       req.user = decoded;
       res.locals.user = decoded;
       return next();
@@ -707,6 +725,10 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
+  if (!hasAnyConferenceRole(req.user, "reviewer")) {
+    return res.redirect("/dashboard?message=Reviewer role not found in your current session. If a chair has just assigned you as a reviewer, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
+  }
+
   try {
     // Helper function to format dates
     const formatDate = (dateString) => {
@@ -818,7 +840,10 @@ app.get("/panelist/dashboard", checkAuth, (req, res) => {
 });
 
 app.get("/invitee/dashboard", checkAuth, async (req, res) => {
- 
+  if (!hasAnyConferenceRole(req.user, "invitee")) {
+    return res.redirect("/dashboard?message=Invitee role not found in your current session. If a chair has just invited you, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
+  }
+
 
   try {
     // Helper function to format dates
@@ -1129,6 +1154,10 @@ app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
 })
 
 app.get("/reviewer/:id", checkAuth, async(req,res)=>{
+  if (!hasConferenceRole(req.user, req.params.id, "reviewer")) {
+    return res.redirect("/dashboard?message=Reviewer role not found in your current session for this conference. If a chair has just assigned you as a reviewer, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
+  }
+
   try {
     const reviewerEmail = req.user.email;
 
@@ -1354,8 +1383,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
 
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
-  const inviteeRow = await pool.query("select 1 from invitees where conference_id=$1 and lower(email)=lower($2) limit 1",[req.params.id,req.user.email]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, isInvitee: inviteeRow.rows.length > 0, user:req.user})
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
@@ -3650,6 +3678,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
+      await pool.query("insert into conference_roles values($1, $2, $3)",[conference_id, email, "invitee"]);
      await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
@@ -3664,6 +3693,7 @@ await pool.query(
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
+     await pool.query("insert into conference_roles values($1, $2, $3)",[conference_id, email, "invitee"]);
 
      await pool.query(
       `INSERT INTO users (name, email,password)
@@ -3990,6 +4020,10 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 
   const conference_id = req.params.id;
+
+  if (!hasConferenceRole(req.user, conference_id, "meta_reviewer")) {
+    return res.redirect("/dashboard?message=Meta-Reviewer role not found in your current session for this conference. If a chair has just assigned you, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
+  }
 
   const assigned_tracks = await pool.query("select * from conference_tracks where meta_reviewer=$1 and conference_id = $2",[req.user.email,conference_id]);
 
