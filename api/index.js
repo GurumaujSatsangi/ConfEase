@@ -3914,6 +3914,7 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     const reviewersArray = normalizeEmails(reviewers);
     const sessionChairsArray = normalizeEmails(session_chairs);
+    const metaReviewerEmail = String(meta_reviewers || "").trim() || null;
 
     const subjectName = String(track_title || "").trim();
     if (!subjectName) return res.redirect(manageTracksUrl(req.params.id, "Subject area name cannot be empty."));
@@ -3937,7 +3938,7 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
         session_end_time,
         sessionChairsArray,
         req.params.id,
-        meta_reviewers,
+        metaReviewerEmail,
         trackGroupId
       ]
     );
@@ -3954,12 +3955,14 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       );
     }
 
-  await sendMail(
-        meta_reviewer,"Meta-Reviewer Role Assigned",null,
-        
+    if (metaReviewerEmail) {
+      await sendMail(
+        metaReviewerEmail,"Meta-Reviewer Role Assigned",null,
+
         "Hi,<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
-    
+    }
+
     for (const chairEmail of sessionChairsArray) {
 
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
@@ -3972,7 +3975,9 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
     }
 
 
-      await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,meta_reviewers,"meta_reviewer"]);
+    if (metaReviewerEmail) {
+      await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,metaReviewerEmail,"meta_reviewer"]);
+    }
 
     return res.redirect("/chair/dashboard?message=Track Added Succesfully!");
   } catch (err) {
