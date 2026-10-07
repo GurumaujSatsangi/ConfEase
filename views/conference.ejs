@@ -252,14 +252,27 @@
         <h5>Subject Areas</h5>
 
         <% if(conference_tracks && conference_tracks.length>0){ %>
-            <ul>
-
-            <% conference_tracks.forEach(function(conference_tracks){ %>
-
-                <li><% if (conference_tracks.group_name) { %><b><%= conference_tracks.group_name %></b>: <% } %><%= conference_tracks.track_name %></li>
-            
-            <% }) %>
-        </ul>
+            <table class="table table-bordered">
+              <thead class="table-light">
+                <tr>
+                  <th>Track</th>
+                  <th>Subject Area</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% conference_tracks.forEach(function(ct, i) {
+                     const sameTrack = i > 0 && conference_tracks[i - 1].group_id === ct.group_id;
+                     const trackSpan = conference_tracks.filter(function(x) { return x.group_id === ct.group_id; }).length;
+                %>
+                <tr>
+                  <% if (!sameTrack) { %>
+                    <td rowspan="<%= trackSpan %>"><%= ct.group_name || 'Conference level' %></td>
+                  <% } %>
+                  <td><%= ct.track_name %></td>
+                </tr>
+                <% }); %>
+              </tbody>
+            </table>
         <% } else { %>
 
             <p class="small">No subject areas have been added by the Chair! If you think this is an error, please contact the conference Chair.</p>

@@ -23,11 +23,21 @@
             </tr>
           </thead>
           <tbody>
-            <% tracks.forEach(function(track) { %>
+            <% tracks.forEach(function(track, i) {
+              const prev = i > 0 ? tracks[i - 1] : null;
+              const sameConf = prev && prev.conference_id === track.conference_id;
+              const sameTrack = sameConf && prev.group_id === track.group_id;
+              const confSpan = tracks.filter(function(x) { return x.conference_id === track.conference_id; }).length;
+              const trackSpan = tracks.filter(function(x) { return x.conference_id === track.conference_id && x.group_id === track.group_id; }).length;
+            %>
             <tr>
-              <td><%= track.track_group_name || '—' %></td>
+              <% if (!sameTrack) { %>
+                <td rowspan="<%= trackSpan %>"><%= track.track_group_name || '—' %></td>
+              <% } %>
               <td><%= track.track_name %></td>
-              <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
+              <% if (!sameConf) { %>
+                <td rowspan="<%= confSpan %>"><%= track.conference ? track.conference.title : '' %></td>
+              <% } %>
             </tr>
             <% }); %>
           </tbody>

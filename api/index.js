@@ -787,6 +787,11 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       conference: conferenceMap[track.conference_id] || {}
     }));
 
+    tracksWithConferences.sort((a, b) =>
+      String(a.conference_id).localeCompare(String(b.conference_id)) ||
+      String(a.track_group_name || "").localeCompare(String(b.track_group_name || "")) ||
+      String(a.track_name).localeCompare(String(b.track_name)));
+
     return res.render("reviewer/dashboard", {
       user: req.user,
       tracks: tracksWithConferences,
@@ -1132,7 +1137,8 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
       // Cast conference_id to text to prevent param mismatch
       `SELECT t.*, g.group_name AS track_group_name FROM conference_tracks t LEFT JOIN conference_groups g ON g.group_id = t.group_id
        WHERE t.conference_id::text = $1
-       AND t.track_reviewers @> ARRAY[$2];`,
+       AND t.track_reviewers @> ARRAY[$2]
+       ORDER BY g.group_name NULLS LAST, t.track_name;`,
       [req.params.id, reviewerEmail]
     );
 
@@ -1325,7 +1331,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
 app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
-  const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1",[req.params.id]);
+  const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1 order by g.group_name nulls last, t.track_name",[req.params.id]);
   let submissions = [];
   const conferenceSubmissionsCacheKey = `${req.user.email}_submissions_conference_${req.params.id}`;
 
