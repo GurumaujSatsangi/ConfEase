@@ -3896,7 +3896,6 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       session_start_time,
       session_end_time,
       session_chairs,
-      meta_reviewers,
       group_id
     } = req.body;
 
@@ -3923,8 +3922,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     await pool.query(
       `INSERT INTO conference_tracks
-       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer, group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9)`,
+       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         subjectName,
         reviewersArray,
@@ -3933,7 +3932,6 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
         session_end_time,
         sessionChairsArray,
         req.params.id,
-        meta_reviewers,
         trackGroupId
       ]
     );
@@ -3950,12 +3948,6 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       );
     }
 
-  await sendMail(
-        meta_reviewer,"Meta-Reviewer Role Assigned",null,
-        
-        "Hi,<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-      );
-    
     for (const chairEmail of sessionChairsArray) {
 
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
@@ -3967,8 +3959,6 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       );
     }
 
-
-      await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,meta_reviewers,"meta_reviewer"]);
 
     return res.redirect("/chair/dashboard?message=Track Added Succesfully!");
   } catch (err) {
