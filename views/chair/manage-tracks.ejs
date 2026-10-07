@@ -180,9 +180,7 @@
               Update
             </button>
             <br>
-            <form method="post" action="/chair/dashboard/delete-track/<%= track.track_id %>" class="d-inline">
-              <button type="submit" class="btn btn-danger">Delete</button>
-            </form>
+            <button type="submit" class="btn btn-danger" formaction="/chair/dashboard/delete-track/<%= track.track_id %>" formmethod="post">Delete</button>
           </td>
 
         </form>
