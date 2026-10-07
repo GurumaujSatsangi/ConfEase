@@ -122,7 +122,7 @@ async function getJsonCacheValue(key) {
 
 async function loadConferenceRoles(email) {
   const userRoles = await pool.query(
-    "select conference_id, role from conference_roles where email_id = $1",
+    "select conference_id, role from conference_roles where lower(email_id) = lower($1)",
     [email]
   );
 
@@ -461,6 +461,7 @@ async function checkAuth(req, res, next) {
   if (token) {
     try {
       const decoded = verifyAccessToken(token);
+      decoded.roles = await loadConferenceRoles(decoded.email).catch(() => decoded.roles || {});
       req.user = decoded;
       res.locals.user = decoded;
       return next();
@@ -706,10 +707,6 @@ app.get("/", async (req, res) => {
 
 
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
-  if (!String(req.user.role || "").includes('reviewer')) {
-    return res.redirect("/dashboard?message=Reviewer role not assigned to you by Chair. If you think this is an error, please reach out to the conference chair.");
-  }
-
   try {
     // Helper function to format dates
     const formatDate = (dateString) => {
@@ -729,7 +726,7 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
     const reviewerTracks = tracks.filter(
       (track) =>
         Array.isArray(track.track_reviewers) &&
-        track.track_reviewers.includes(req.user.email)
+        track.track_reviewers.some((e) => String(e).toLowerCase() === String(req.user.email).toLowerCase())
     ).map(track => ({
       ...track,
       presentation_date: formatDate(track.presentation_date)
@@ -1037,7 +1034,7 @@ async function chairOwnsConference(email, conferenceId) {
 
 async function isTrackReviewer(email, trackId) {
   const result = await pool.query(
-    "select 1 from conference_tracks where track_id = $1 and $2 = any(track_reviewers)",
+    "select 1 from conference_tracks where track_id = $1 and exists (select 1 from unnest(track_reviewers) r where lower(r) = lower($2))",
     [trackId, email]
   );
   return result.rows.length > 0;
