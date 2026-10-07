@@ -1348,7 +1348,8 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
 
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})
+  const inviteeRow = await pool.query("select 1 from invitees where conference_id=$1 and lower(email)=lower($2) limit 1",[req.params.id,req.user.email]);
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, isInvitee: inviteeRow.rows.length > 0, user:req.user})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{

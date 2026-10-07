@@ -62,7 +62,7 @@
 
 <% } %>
 
-<% if(roleStr && roleStr.includes('invitee')) { %>
+<% if(isInvitee || (roleStr && roleStr.includes('invitee'))) { %>
 
     <a href="/submission/invited-talk/<%= conference.conference_id %>" type="button" class="btn btn-primary btn-sm">
   Submit Invited Talk Paper
