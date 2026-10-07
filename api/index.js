@@ -158,6 +158,51 @@ function hasAnyConferenceRole(user, role) {
   return Object.values(roles).some((list) => Array.isArray(list) && list.includes(role));
 }
 
+// Sequential, per-conference, human-facing paper number. Independent of the
+// unique paper_code used for co-author linking. Allocation is atomic via an
+// upsert on conference_paper_counters, so concurrent submissions to the same
+// conference never collide.
+async function nextPaperNumber(conferenceId) {
+  const result = await pool.query(
+    `INSERT INTO conference_paper_counters (conference_id, last_number)
+     VALUES ($1, 1)
+     ON CONFLICT (conference_id) DO UPDATE SET last_number = conference_paper_counters.last_number + 1
+     RETURNING last_number`,
+    [conferenceId]
+  );
+  return result.rows[0].last_number;
+}
+
+// Zero-padded to at least 4 digits (0001, 0002, ...); grows past 9999 instead
+// of truncating once a conference passes that many submissions.
+function formatPaperId(paperNumber) {
+  return paperNumber == null ? null : String(paperNumber).padStart(4, "0");
+}
+
+// " | Paper ID: 0001", or "" when the submission has none (e.g. legacy rows
+// from before this column existed, before the backfill migration runs).
+function paperIdSubjectSuffix(paperNumber) {
+  const paperId = formatPaperId(paperNumber);
+  return paperId ? ` | Paper ID: ${paperId}` : "";
+}
+
+// Email salutation: always "Dear <name>," - never "Hi"/"Hello"/"Dear <name>!".
+// Many role-assignment emails only have the recipient's email (entered by a
+// chair), not their name, so this looks the account up when needed and falls
+// back to "Dear User," only when no account/name exists yet.
+async function getUserDisplayName(email) {
+  if (!email) return null;
+  const result = await pool.query(
+    "select name from users where lower(email) = lower($1) limit 1",
+    [email]
+  );
+  return result.rows[0]?.name || null;
+}
+
+function greeting(name) {
+  return `Dear ${escapeHtml(name || "User")},`;
+}
+
 
 const schema = new passwordValidator();
 
@@ -1285,7 +1330,8 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
   if(decision=='DESK REJECT'){
     return res.redirect("/chair/dashboard/desk/remarks-for-rejection/"+submission_id);
   }else {
-    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Dear Author,<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+    const authorName = await getUserDisplayName(data.rows[0].primary_author);
+    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title+paperIdSubjectSuffix(data.rows[0].paper_number),null,greeting(authorName)+"<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
     return res.redirect("/chair/dashboard/desk/"+data.rows[0].conference_id+"?message=Submission Status Updated ("+decision+")");
   }
 })
@@ -1305,10 +1351,11 @@ app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
 
   const conference = await pool.query("select conference_id from submissions where submission_id = $1",[submission_id]);
 
-  const data = await pool.query("select title, primary_author from submissions where submission_id=$1",[submission_id]);
+  const data = await pool.query("select title, primary_author, paper_number from submissions where submission_id=$1",[submission_id]);
 
   await pool.query("update desk_review set remarks=$1 where paper_id = $2",[remarks,submission_id]);
-      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title,null,"Dear Author,<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+escapeHtml(remarks)+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+      const authorName = await getUserDisplayName(data.rows[0].primary_author);
+      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title+paperIdSubjectSuffix(data.rows[0].paper_number),null,greeting(authorName)+"<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+escapeHtml(remarks)+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
   return res.redirect("/chair/dashboard/desk/"+conference.rows[0].conference_id+"?message=Remarks Saved and Status Updated!");
 })
@@ -1418,7 +1465,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
-  const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors from submissions where conference_id = $1",[conference_id]);
+  const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors, paper_number from submissions where conference_id = $1",[conference_id]);
 
 
   for(let i=0;i<authors.rows.length;i++){
@@ -1430,7 +1477,8 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
     }
     else {
-      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title,null,"Dear Primary Author, <br>This is to inform you that the Acceptance Status of your submission for "+escapeHtml(conference_data.rows[0].title)+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+escapeHtml(authors.rows[i].title)+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
+      const authorName = await getUserDisplayName(authors.rows[i].primary_author);
+      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title+paperIdSubjectSuffix(authors.rows[i].paper_number),null,greeting(authorName)+" <br>This is to inform you that the Acceptance Status of your submission for "+escapeHtml(conference_data.rows[0].title)+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+escapeHtml(authors.rows[i].title)+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
     }
   }
 
@@ -2030,7 +2078,10 @@ try {
   posterClient.release();
 }
 
-await sendMail(coordinatorArray,"Poster Presentation Coordinator Role Assigned",null,"Dear Coordinator, <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+escapeHtml(session_date)+"<br><b>Timings:</b> "+escapeHtml(start_time)+" - "+escapeHtml(end_time)+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+for (const coordinator of coordinatorArray) {
+  const coordinatorName = await getUserDisplayName(coordinator);
+  await sendMail(coordinator,"Poster Presentation Coordinator Role Assigned",null,greeting(coordinatorName)+" <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+escapeHtml(session_date)+"<br><b>Timings:</b> "+escapeHtml(start_time)+" - "+escapeHtml(end_time)+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+}
 
     res.redirect(
       `/chair/dashboard/manage-poster-sessions/${conference_id}?message=Poster session details saved successfully.`
@@ -2244,7 +2295,7 @@ app.post("/send-password-reset-link", authRateLimitMemory, async(req,res)=>{
 
     const resetLink = `${getAppUrl()}/reset-password/${token}`;
 
-    await sendMail(email,"Password Reset Link",null,"Dear User, <br><br>Please click on this link to update your password for your DEI CMT account:<br> "+resetLink+" <br><br>If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+    await sendMail(email,"Password Reset Link",null,greeting(user.name)+" <br><br>Please click on this link to update your password for your DEI CMT account:<br> "+resetLink+" <br><br>If you did not request for this link, kindly ignore. DO NOT SHARE THIS LINK WITH ANYONE. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
     return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
 
     }
@@ -2597,57 +2648,9 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
       ]
     );
 
-    //
-    // 4. Update submissions table status, mean_score, and remarks
-    //
-   
-
-    //  await pool.query(
-    //   `UPDATE submissions
-    //    SET submission_status = $1
-    //    WHERE submission_id = $2;`,
-    //   [status,submission_id]
-    // );
-
-    //
-    // 5. Send email notification
-    //
-    // try {
-    //   const conferenceResult = await pool.query(
-    //     `SELECT acceptance_notification, title
-    //      FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-    //     [conference_id]
-    //   );
-    //   const conferenceData = conferenceResult.rows[0];
-
-    //   const acceptanceDate = conferenceData?.acceptance_notification
-    //     ? new Date(conferenceData.acceptance_notification).toLocaleDateString("en-US", {
-    //         year: "numeric",
-    //         month: "long",
-    //         day: "numeric",
-    //       })
-    //     : "the scheduled acceptance notification date";
-
-    //   const conferenceTitle = conferenceData?.title || "the conference";
-
-    //   const coAuthors = Array.isArray(submissionData.co_authors)
-    //     ? submissionData.co_authors
-    //     : [];
-    //   const ccEmails = coAuthors.length > 0 ? coAuthors.join(",") : null;
-
-    //   await sendMail(
-    //     submissionData.primary_author,
-    //     `Re-review Completed - ${submissionData.title}`,
-    //     `Your revised paper "${submissionData.title}" has been re-reviewed. Results will be published on ${acceptanceDate}.`,
-    //     `<p>Dear Author,</p>
-    //      <p>Your revised paper titled <strong>"${submissionData.title}"</strong> has now been re-reviewed.</p>
-    //      <p>Final acceptance results will be announced on <strong>${acceptanceDate}</strong>.</p>
-    //      <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`,
-    //     ccEmails
-    //   );
-    // } catch (emailError) {
-    //   console.error("Email send error (ignored):", emailError);
-    // }
+    // NOTE: submission_status is intentionally left as "Submitted Revised Paper" here,
+    // matching /mark-as-reviewed. The chair's resolve-conflicts flow looks it up by
+    // that status until a final decision is recorded via /resolve-re-review-conflicts.
 
     return res.redirect("/reviewer/"+conference_id+"?message=Revised paper review submitted successfully.");
 
@@ -2723,11 +2726,12 @@ app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res
       // 4. Send email notifications to all panelists
       for (const panelistEmail of session_panelists) {
         try {
+          const panelistName = await getUserDisplayName(panelistEmail);
           await sendMail(
             panelistEmail,
             `Session Chair Assignment - ${track.track_name}`,
             `You have been assigned as a Session Chair for the subject area "${track.track_name}".`,
-            `<p>Dear Session Chair,</p>
+            `<p>${greeting(panelistName)}</p>
              <p>You have been assigned as a session chair for the following:</p>
              <p><strong>Subject Area:</strong> ${escapeHtml(track.track_name)}</p>
              <p><strong>Presentation Date:</strong> ${escapeHtml(session_date)}</p>
@@ -2782,7 +2786,7 @@ if(result==true){
 
     const activation_code = crypto.randomUUID();
     await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
-     await sendMail(email,name+", Welcome to DEI CMT!",null,"Dear "+escapeHtml(name)+"! <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Welcome email failed:", mailErr));
+     await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Your DEI CMT account has been created succesfully but needs to be activated before you can use it. Please visit https://cmt.gurumaujsatsangi.in/account-activation and enter the Account Activation Code.<br><br><b>Account Activation Code:</b> "+activation_code+" <br><br>Incase of any technical assistance please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -2848,7 +2852,7 @@ app.post("/activate-account", async (req, res) => {
       [activation_code]
     );
 
-    await sendMail(email,"Account Activated",null, "Dear User, <br><br>Your DEI CMT account linked to this Email Address has been ACTIVATED. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+    await sendMail(email,"Account Activated",null, greeting(data2.rows[0].name)+" <br><br>Your DEI CMT account linked to this Email Address has been ACTIVATED. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 
     return res.redirect(
       "/login/user?message=Account Activated Successfully! Please login."
@@ -3219,14 +3223,14 @@ app.post("/reset-chair-password/:id", checkAuth, requireAdmin, async(req,res)=>{
   }
 
   const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
-  const data = await pool.query("update chairs set password=$1 where email=$2 returning email",[unusablePassword,email]);
+  const data = await pool.query("update chairs set password=$1 where email=$2 returning email, name",[unusablePassword,email]);
 
   if(!data.rows[0]){
     return res.redirect("/admin?message=Chair not found.");
   }
 
   const setupLink = await issueAccountSetupLink(email);
-  await sendMail(email,"Chair Portal Password Reset",null,"Dear Chair, <br><br>The Admin has reset your DEI CMT Chair Portal password. Please set a new password using the link below. The link is valid for 24 hours. <br><br><a href=\"" + setupLink + "\">Set your password</a> <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, <br>Team DEI Conference Management Toolkit");
+  await sendMail(email,"Chair Portal Password Reset",null,greeting(data.rows[0].name)+" <br><br>The Admin has reset your DEI CMT Chair Portal password. Please set a new password using the link below. The link is valid for 24 hours. <br><br><a href=\"" + setupLink + "\">Set your password</a> <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards, <br>Team DEI Conference Management Toolkit");
 
   return res.redirect("/admin?message=" + encodeURIComponent("A password setup link has been sent to " + email + "."));
 });
@@ -3238,7 +3242,7 @@ app.post("/grant-access/:id", checkAuth, requireAdmin, async(req,res)=>{
 
   if(data.rows[0]){
 
-    await sendMail(email,"Chair Portal Access Re-Granted",null,"Dear Chair, The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Chair Portal Access Re-Granted",null,greeting(data.rows[0].name)+" The Admin has Re-Granted you the access to the DEI CMT Chair Portal. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=" + encodeURIComponent("Chair Portal Access Re-Granted to " + email + "!"));
   }
   return res.redirect("/admin?message=Chair not found.");
@@ -3265,7 +3269,7 @@ app.post("/revoke-access/:id", checkAuth, requireAdmin, async(req,res)=>{
      const data = await pool.query("update chairs set status=$1 where email=$2 returning *",["ACCESS REVOKED",email]);
   if(data.rows[0]){
 
-    await sendMail(email,"Chair Portal Access Revoked",null,"Dear Chair, The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
+    await sendMail(email,"Chair Portal Access Revoked",null,greeting(data.rows[0].name)+" The Admin has revoked your DEI CMT Chair Portal Access. Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.");
     return res.redirect("/admin?message=" + encodeURIComponent("Chair Access Revoked for " + email));
   }
 
@@ -3474,8 +3478,8 @@ app.post("/update-password", authRateLimitMemory, async (req, res) => {
     const hashed_new_password = await bcrypt.hash(new_password, 10);
 
     // 4. Update the user's password using the VERIFIED email
-    await pool.query(
-      "UPDATE users SET password=$1 WHERE email=$2", 
+    const updatedUser = await pool.query(
+      "UPDATE users SET password=$1 WHERE email=$2 RETURNING name",
       [hashed_new_password, verifiedEmail]
     );
 
@@ -3487,9 +3491,9 @@ app.post("/update-password", authRateLimitMemory, async (req, res) => {
 
     // 6. Send confirmation email (Removed the stray '+')
     await sendMail(
-      verifiedEmail, 
-      "Password Updated", null, 
-      "Hi, <br><br>The password for your DEI CMT account linked to this Email ID was successfully updated. <br><br>In case of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+      verifiedEmail,
+      "Password Updated", null,
+      greeting(updatedUser.rows[0]?.name)+" <br><br>The password for your DEI CMT account linked to this Email ID was successfully updated. <br><br>In case of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
     );
 
     // 7. Send success response
@@ -3853,7 +3857,13 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
       ]
     );
 
-
+    // NOTE: submission_status is intentionally left as "Submitted for Review" here.
+    // The chair's "Final Decision" / resolve-conflicts flow expects that status until
+    // a decision is recorded (see /chair/dashboard/resolve-conflicts/:id and
+    // /resolve-conflict/:id/:conf_id). Flipping it to "Reviewed" after a single
+    // reviewer submits broke that flow: the chair's "Final Decision" link only shows
+    // for status 'Submitted for Review' / 'Submitted Revised Paper' / 'DESK ACCEPT',
+    // so the submission appeared stuck with no way to resolve it further.
 
     //
     // 5. If revision required → insert record for revision
@@ -3978,29 +3988,32 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     await pool.query("insert into conference_roles values($1, $2, $3)",[req.params.id, reviewerEmail, "reviewer"]);
 
+      const reviewerName = await getUserDisplayName(reviewerEmail);
       await sendMail(
         reviewerEmail,"Reviewer Role Assigned",null,
-        
-        "Hi,<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+
+        greeting(reviewerName)+"<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
     if (metaReviewerEmail) {
+      const metaReviewerName = await getUserDisplayName(metaReviewerEmail);
       await sendMail(
         metaReviewerEmail,"Meta-Reviewer Role Assigned",null,
 
-        "Hi,<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+        greeting(metaReviewerName)+"<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
     for (const chairEmail of sessionChairsArray) {
 
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
+      const sessionChairName = await getUserDisplayName(chairEmail);
       await sendMail(
         chairEmail,
         "Session Chair Role Assigned",null,
-        
-        "Hi, <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+
+        greeting(sessionChairName)+" <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
       );
     }
 
@@ -4362,11 +4375,12 @@ app.post("/join", checkAuth, async (req, res) => {
 
     // 7. Send notification email to primary author
     try {
+      const primaryAuthorName = await getUserDisplayName(submission.primary_author);
       await sendMail(
         submission.primary_author,
-        `Co-Author Request - ${submission.title}`,
+        `Co-Author Request - ${submission.title}${paperIdSubjectSuffix(submission.paper_number)}`,
         `A co-author request for your paper "${submission.title}" has been submitted.`,
-        `<p>Dear Author,</p>
+        `<p>${greeting(primaryAuthorName)}</p>
          <p>A co-author has requested to join your paper titled <strong>"${escapeHtml(submission.title)}"</strong>.</p>
          <p><strong>Co-Author Email:</strong> ${escapeHtml(req.user.email)}</p>
          <p>Please review and accept or reject this request from your dashboard.</p>
@@ -4445,7 +4459,8 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
     );
 
     // 7. Send email to co-author
-   await sendMail(coAuthorRequest.co_author,"Co-Author Request Approved | "+submission.title,null,"Dear Author, <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+   const coAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+   await sendMail(coAuthorRequest.co_author,"Co-Author Request Approved | "+submission.title+paperIdSubjectSuffix(submission.paper_number),null,greeting(coAuthorName)+" <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
     return res.redirect("/dashboard?message=Co-author request accepted successfully.");
 
@@ -4498,7 +4513,8 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
     );
 
     // 5. Notify via email
-       await sendMail(coAuthorRequest.co_author,"Co-Author Request Rejected | "+submission.title,null,"Dear Author, <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+       const rejectedCoAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+       await sendMail(coAuthorRequest.co_author,"Co-Author Request Rejected | "+submission.title+paperIdSubjectSuffix(submission.paper_number),null,greeting(rejectedCoAuthorName)+" <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
 
 
     return res.redirect("/dashboard?message=Co-author request rejected successfully.");
@@ -6048,14 +6064,20 @@ app.post("/submit", checkAuth, async (req, res) => {
       const aidetection = detectAIText(result.text);
       const confidence = getConfidenceScore(result.text);
 
+      // Sequential, per-conference paper number (e.g. 0001, 0002, ...), distinct
+      // from the random paper_code used for co-author linking. Allocated once,
+      // outside the retry loop below, since a paper_code collision there is a
+      // new attempt at the same submission, not a new paper.
+      const paperNumber = await nextPaperNumber(id);
+
       // Insert into PostgreSQL
       let submission_result;
       for (let insertAttempt = 1; ; insertAttempt++) {
       try {
       submission_result = await pool.query(
-        `INSERT INTO submissions 
-         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`,
+        `INSERT INTO submissions
+         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai, paper_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
         [
           id,
           req.user.email,
@@ -6065,7 +6087,8 @@ app.post("/submit", checkAuth, async (req, res) => {
           uploadResult.secure_url,
           paperCode,
           confidence,
-          aidetection.isAIGenerated
+          aidetection.isAIGenerated,
+          paperNumber
         ]
       );
       break;
@@ -6102,9 +6125,9 @@ app.post("/submit", checkAuth, async (req, res) => {
       // Send Confirmation Email
       await sendMail(
         req.user.email,
-        "Submission Created | " + title,
+        "Submission Created | " + title + paperIdSubjectSuffix(paperNumber),
         null,
-        `Hi, <br><br>Your paper titled <b>${escapeHtml(title)}</b> has been submitted successfully for <b>${escapeHtml(conference_data.rows[0].title)}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+        `${greeting(req.user.name)} <br><br>Your paper titled <b>${escapeHtml(title)}</b> has been submitted successfully for <b>${escapeHtml(conference_data.rows[0].title)}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
       );
 
       return res.redirect("/dashboard?message=Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");

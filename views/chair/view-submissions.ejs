@@ -116,6 +116,7 @@
               <table class="table table-bordered align-middle text-wrap cs-table" style="width:100%;">
                 <thead class="table-light text-center">
                   <tr>
+                    <th style="min-width:100px;">Paper ID</th>
                     <th style="min-width:200px;">Title</th>
                     <th style="min-width:180px;">Subject Area</th>
                     <th style="min-width:200px;">Primary Author</th>
@@ -136,6 +137,8 @@
                         data-coauthors="<%= submission.co_authors_formatted ? submission.co_authors_formatted.toLowerCase() : '' %>"
                         data-papercode="<%= submission.submission_id ? submission.submission_id.toLowerCase() : '' %>">
                       
+                      <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
+
                       <td><%= submission.title %></td>
 
                       <td><%= submission.track_name || '—' %></td>

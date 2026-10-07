@@ -173,6 +173,7 @@
         <% if(submissions && submissions.length>0) { %>
             <table class="table">
             <tr>
+                <th>Paper ID</th>
                 <th>Submission Title</th>
                 <th>View Paper</th>
                 <th>Paper Code</th>
@@ -184,6 +185,7 @@
             <% submissions.forEach(function(submission){ %>
 
                 <tr>
+                    <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
                     <td><%= submission.title %></td>
                     <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
                     <td><button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.paper_code %>">View</button></td>
