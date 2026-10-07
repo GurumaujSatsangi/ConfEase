@@ -719,7 +719,7 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
     };
 
     // Fetch all tracks
-    const trackResult = await pool.query(`SELECT * FROM conference_tracks`);
+    const trackResult = await pool.query(`SELECT t.*, g.group_name AS track_group_name FROM conference_tracks t LEFT JOIN conference_groups g ON g.group_id = t.group_id`);
     const tracks = trackResult.rows;
 
     // Filter reviewer tracks
@@ -734,7 +734,7 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
 
     if (reviewerTracks.length === 0) {
       return res.redirect(
-        "/?message=You are not authorized as a reviewer for any track."
+        "/?message=You are not authorized as a reviewer for any subject area."
       );
     }
 
@@ -1130,9 +1130,9 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
     // 1. Get tracks where this reviewer is assigned for this conference
     const tracksResult = await pool.query(
       // Cast conference_id to text to prevent param mismatch
-      `SELECT * FROM conference_tracks
-       WHERE conference_id::text = $1
-       AND track_reviewers @> ARRAY[$2];`,
+      `SELECT t.*, g.group_name AS track_group_name FROM conference_tracks t LEFT JOIN conference_groups g ON g.group_id = t.group_id
+       WHERE t.conference_id::text = $1
+       AND t.track_reviewers @> ARRAY[$2];`,
       [req.params.id, reviewerEmail]
     );
 
@@ -1325,7 +1325,7 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
 app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
-  const conference_tracks = await pool.query("select * from conference_tracks where conference_id=$1",[req.params.id]);
+  const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1",[req.params.id]);
   let submissions = [];
   const conferenceSubmissionsCacheKey = `${req.user.email}_submissions_conference_${req.params.id}`;
 
@@ -1419,7 +1419,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) => {
   const sessionTrack = await pool.query("select conference_id from conference_tracks where track_id = $1", [req.params.id]);
   if (!sessionTrack.rows[0] || !(await chairOwnsConference(req.user.email, sessionTrack.rows[0].conference_id))) {
-    return res.redirect("/chair/dashboard?message=You are not authorized to manage this track.");
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
   }
   try {
     // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
@@ -1440,7 +1440,7 @@ app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) =
     const trackRaw = trackResult.rows[0];
 
     if (!trackRaw) {
-      return res.status(404).send("Track not found.");
+      return res.status(404).send("Subject area not found.");
     }
 
     const track = {
@@ -2053,7 +2053,7 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
     const trackinfo = trackResult.rows;
 
     if (trackinfo.length === 0) {
-      return res.redirect("/dashboard?message=Track not found.");
+      return res.redirect("/dashboard?message=Subject area not found.");
     }
 
     const trackIds = trackinfo.map((track) => track.track_id);
@@ -2692,10 +2692,10 @@ app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res
           await sendMail(
             panelistEmail,
             `Session Chair Assignment - ${track.track_name}`,
-            `You have been assigned as a Session Chair for the track "${track.track_name}".`,
+            `You have been assigned as a Session Chair for the subject area "${track.track_name}".`,
             `<p>Dear Session Chair,</p>
              <p>You have been assigned as a session chair for the following:</p>
-             <p><strong>Track:</strong> ${escapeHtml(track.track_name)}</p>
+             <p><strong>Subject Area:</strong> ${escapeHtml(track.track_name)}</p>
              <p><strong>Presentation Date:</strong> ${escapeHtml(session_date)}</p>
              <p><strong>Time:</strong> ${escapeHtml(session_start_time)} to ${escapeHtml(session_end_time)}</p>
              <p>Please be available during the scheduled time to evaluate the presentations.</p>
@@ -3476,7 +3476,7 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
 
     const trackOwner = await pool.query("select conference_id from conference_tracks where track_id = $1", [trackId]);
     if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
-      return res.redirect("/chair/dashboard?message=You are not authorized to modify this track.");
+      return res.redirect("/chair/dashboard?message=You are not authorized to modify this subject area.");
     }
     const {
       track_title,
@@ -3859,7 +3859,7 @@ app.post("/chair/dashboard/create-group/:id", checkChairAuth, async (req, res) =
 app.post("/chair/dashboard/update-group/:groupId", checkChairAuth, async (req, res) => {
   const owner = await pool.query("select conference_id from conference_groups where group_id = $1", [req.params.groupId]);
   if (!owner.rows[0] || !(await chairOwnsConference(req.user.email, owner.rows[0].conference_id))) {
-    return res.redirect("/chair/dashboard?message=You are not authorized to manage this track.");
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
   }
   const conferenceId = owner.rows[0].conference_id;
   const groupName = String(req.body.group_name || "").trim();

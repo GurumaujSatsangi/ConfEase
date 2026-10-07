@@ -213,7 +213,7 @@
           const row = document.createElement("tr");
           row.innerHTML = `
     <td>
-      <input type="text" class="form-control" name="track_title_${rowCount}" placeholder="Track Title ${rowCount}" required />
+      <input type="text" class="form-control" name="track_title_${rowCount}" placeholder="Subject Area Title ${rowCount}" required />
     </td>
     <td>
       <input type="email" class="form-control" name="track_reviewer_${rowCount}" placeholder="Reviewer Email ${rowCount}" required />
@@ -238,7 +238,7 @@
               type="text"
               class="form-control"
               name="track_title_${i}"
-              placeholder="Track Title ${i}"
+              placeholder="Subject Area Title ${i}"
               required
             />
           </div>
@@ -279,7 +279,7 @@
               }`;
               tr.querySelector(
                 'input[type="text"]'
-              ).placeholder = `Track Title ${idx + 1}`;
+              ).placeholder = `Subject Area Title ${idx + 1}`;
               tr.querySelector('input[type="email"]').name = `track_reviewer_${
                 idx + 1
               }`;

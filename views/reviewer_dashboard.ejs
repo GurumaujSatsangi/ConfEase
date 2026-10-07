@@ -12,18 +12,20 @@
     <div class="container">
         <h4>Welcome to Reviewer's Panel, <%= user.name %> (<%=user.email %>)</h4>
 
-      <h6>Assigned Tracks</h6><hr>
+      <h6>Assigned Subject Areas</h6><hr>
       <% if (tracks && tracks.length > 0) { %>
         <table class="table table-bordered">
           <thead class="table-light">
             <tr>
-              <th>Track Name</th>
+              <th>Track</th>
+              <th>Subject Area</th>
               <th>Conference Title</th>
             </tr>
           </thead>
           <tbody>
             <% tracks.forEach(function(track) { %>
             <tr>
+              <td><%= track.track_group_name || '—' %></td>
               <td><%= track.track_name %></td>
               <td><%= track.conference ? track.conference.title : 'Conference Title' %></td>
             </tr>
@@ -31,14 +33,14 @@
           </tbody>
         </table>
       <% } else { %>
-        <h6 class="text-muted">No Tracks have been assigned to you.</h6>
+        <h6 class="text-muted">No subject areas have been assigned to you.</h6>
       <% } %>
 
       <h6>Review Submissions</h6>
       <% // helper to find track name by id %>
       <% const getTrackName = (id) => {
            const t = (tracks || []).find(tr => tr.track_id === id);
-           return t ? t.track_name : 'Unknown Track';
+           return t ? t.track_name : 'Unknown Subject Area';
          } %>
       <% if (userSubmissions && userSubmissions.length > 0) { %>
         <div class="table-responsive">
@@ -46,7 +48,7 @@
             <thead class="table-light">
               <tr>
                 <th>Paper Title</th>
-                <th>Track</th>
+                <th>Subject Area</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -81,7 +83,7 @@
             <thead class="table-light">
               <tr>
                 <th>Paper Title</th>
-                <th>Track</th>
+                <th>Subject Area</th>
                 <th>Action</th>
               </tr>
             </thead>

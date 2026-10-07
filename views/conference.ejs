@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DEI CMT</title>
     <link rel="stylesheet" href="/styles.css">
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
 </head>
 <body>
     <%- include('partials/dashboard/header') %>
@@ -248,20 +249,20 @@
             </tr>
         </table>
 
-        <h5>Tracks</h5>
+        <h5>Subject Areas</h5>
 
         <% if(conference_tracks && conference_tracks.length>0){ %>
             <ul>
 
             <% conference_tracks.forEach(function(conference_tracks){ %>
 
-                <li><%= conference_tracks.track_name %></li>
+                <li><% if (conference_tracks.group_name) { %><b><%= conference_tracks.group_name %></b>: <% } %><%= conference_tracks.track_name %></li>
             
             <% }) %>
         </ul>
         <% } else { %>
 
-            <p class="small">No Tracks have been added by the Chair! If you think this is an error, please contact the conference Chair.</p>
+            <p class="small">No subject areas have been added by the Chair! If you think this is an error, please contact the conference Chair.</p>
 
             <% } %>
 

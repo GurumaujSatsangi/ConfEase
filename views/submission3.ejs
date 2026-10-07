@@ -73,7 +73,7 @@
             name="areas"
             id="exampleFormControlSelect1"
           >
-            <option value="" disabled>Select Track</option>
+            <option value="" disabled>Select Subject Area</option>
             <% if (tracks && tracks.length > 0) { %> 
               <% tracks.forEach(function(track) { %>
                 <option 
@@ -84,7 +84,7 @@
                 </option>
               <% }); %> 
             <% } else { %>
-              <option disabled>No tracks available</option>
+              <option disabled>No subject areas available</option>
             <% } %>
           </select>
           <!-- Debug info (remove in production) -->

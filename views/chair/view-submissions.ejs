@@ -63,9 +63,9 @@
           </div>
           <div class="col-md-4">
             <div class="form-group">
-              <label for="trackFilter">Filter by Track</label>
+              <label for="trackFilter">Filter by Subject Area</label>
               <select id="trackFilter" class="form-control">
-                <option value="">All Tracks</option>
+                <option value="">All Subject Areas</option>
                 <% if (tracks && tracks.length > 0) { %>
                   <% tracks.forEach(function(track) { %>
                     <option value="<%= track.track_name %>"><%= track.track_name %></option>
@@ -117,7 +117,7 @@
                 <thead class="table-light text-center">
                   <tr>
                     <th style="min-width:200px;">Title</th>
-                    <th style="min-width:180px;">Track</th>
+                    <th style="min-width:180px;">Subject Area</th>
                     <th style="min-width:200px;">Primary Author</th>
                     <th style="min-width:200px;">Co-Authors</th>
                     <th style="min-width:120px;">Status</th>
