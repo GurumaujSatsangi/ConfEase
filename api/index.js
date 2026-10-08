@@ -4045,7 +4045,7 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
   // conference - a meta-reviewer should only see what they're assigned to).
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
-        "select pr.* from peer_review pr join submissions s on s.submission_id = pr.submission_id where s.track_id = ANY($1::uuid[])",
+        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[])",
         [assigned_tracks.rows.map((t) => t.track_id)]
       )
     : { rows: [] };
