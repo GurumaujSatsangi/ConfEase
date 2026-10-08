@@ -75,25 +75,11 @@
                     </tbody>
                 </table>
 
-                <% if(meta_reviewer && meta_reviewer.length > 0) { %>
-                    <h5 class="mt-4">Meta-Reviewer Recommendation</h5>
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>DECISION</th>
-                                <th>REMARKS</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <% meta_reviewer.forEach(function(decision){ %>
-                            <tr>
-                                <td><%= decision.status %></td>
-                                <td><%- sanitizeDescription(decision.remarks) %></td>
-                            </tr>
-                        <% }) %>
-                        </tbody>
-                    </table>
-                <% } %>
+                <%
+                  // NOTE: the meta-reviewer's recommendation (if any) is intentionally
+                  // not shown here. The chair should not see it before Publish Review
+                  // Results is clicked, for privacy - see /publish/review-results.
+                %>
 
                 <form action="/resolve-conflict/<%= currentData.submission_id %>/<%= currentData.conference_id %>" method="POST" class="mt-4">
                     <table class="table borderless">
@@ -179,25 +165,11 @@
                     </tbody>
                 </table>
 
-                <% if(meta_reviewer && meta_reviewer.length > 0) { %>
-                    <h5 class="mt-4">Meta-Reviewer Recommendation</h5>
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>DECISION</th>
-                                <th>REMARKS</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <% meta_reviewer.forEach(function(decision){ %>
-                            <tr>
-                                <td><%= decision.status %></td>
-                                <td><%- sanitizeDescription(decision.remarks) %></td>
-                            </tr>
-                        <% }) %>
-                        </tbody>
-                    </table>
-                <% } %>
+                <%
+                  // NOTE: the meta-reviewer's recommendation (if any) is intentionally
+                  // not shown here. The chair should not see it before Publish Review
+                  // Results is clicked, for privacy - see /publish/review-results.
+                %>
 
                 <form action="/resolve-re-review-conflicts/<%= currentData.submission_id %>/<%= currentData.conference_id %>" method="POST" class="mt-4">
                     <table class="table borderless">

@@ -1491,10 +1491,37 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors, paper_number from submissions where conference_id = $1",[conference_id]);
 
+  // Apply any outstanding meta-reviewer decisions now, at publish time - and
+  // only now. The chair must not be aware of a meta-reviewer's recommendation
+  // before choosing to publish (privacy): it sits in meta_reviewer_decision,
+  // untouched, until this point. Fetch it, copy it onto the submission, then
+  // clear the row so a later publish doesn't reapply (and potentially
+  // overwrite a chair decision made since) the same recommendation.
+  const submissionIds = authors.rows.map((a) => a.submission_id);
+  if (submissionIds.length > 0) {
+    const metaDecisions = await pool.query(
+      "select submission_id, status, remarks from meta_reviewer_decision where submission_id = ANY($1)",
+      [submissionIds]
+    );
+    for (const decision of metaDecisions.rows) {
+      await pool.query(
+        "update submissions set submission_status = $1, remarks = $2 where submission_id = $3",
+        [decision.status, decision.remarks, decision.submission_id]
+      );
+      const author = authors.rows.find((a) => a.submission_id === decision.submission_id);
+      if (author) author.submission_status = decision.status;
+    }
+    if (metaDecisions.rows.length > 0) {
+      await pool.query(
+        "delete from meta_reviewer_decision where submission_id = ANY($1)",
+        [metaDecisions.rows.map((d) => d.submission_id)]
+      );
+    }
+  }
 
   for(let i=0;i<authors.rows.length;i++){
 
-    if(authors.rows[i].submission_status=="Submitted Revised Paper" || authors.rows[i].submission_status=="Submitted for Review"){
+    if(authors.rows[i].submission_status=="Submitted Revised Paper" || authors.rows[i].submission_status=="Submitted for Review" || authors.rows[i].submission_status=="DESK ACCEPT"){
 
       pending_acceptance_notifications[i] = authors.rows[i].submission_id;
       pending_acceptance_notifications_titles[i] = authors.rows[i].title;
@@ -4073,7 +4100,7 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
   // conference - a meta-reviewer should only see what they're assigned to).
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
-        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[]) and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)",
+        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT' and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)",
         [assigned_tracks.rows.map((t) => t.track_id)]
       )
     : { rows: [] };
@@ -4116,6 +4143,13 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
   const {status, remarks} = req.body;
 
+  // Deliberately NOT applied to submissions.submission_status here. The
+  // chair must not be able to see (or have the effect of) a meta-reviewer's
+  // recommendation before they choose to publish results - it stays in this
+  // advisory table only, and /publish/review-results is the one place that
+  // reads it and copies it onto the submission, right before emailing the
+  // author with the (now correct) decision.
+  //
   // Upsert: resubmitting a recommendation updates the existing decision
   // instead of piling up another row (meta_reviewer_decision.submission_id
   // is unique - see migration 007).
@@ -4123,23 +4157,6 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
     "insert into meta_reviewer_decision (submission_id, status, remarks) values($1,$2,$3) on conflict (submission_id) do update set status = excluded.status, remarks = excluded.remarks",
     [submission_id, status, remarks]
   );
-
-  // The meta-reviewer's decision uses the same status vocabulary as the
-  // chair's own Final Decision form (Accepted for Oral/Poster Presentation,
-  // Revision Required, Rejected) - for a track with a meta-reviewer assigned,
-  // their recommendation IS the decision, so apply it to the submission the
-  // same way /resolve-conflict does, instead of only recording it as a note
-  // the chair might separately act on later.
-  const updated = await pool.query(
-    "update submissions set submission_status = $1, remarks = $2 where submission_id = $3 returning *",
-    [status, remarks, submission_id]
-  );
-  if (updated.rows[0]) {
-    await invalidateConferenceSubmissionCache(
-      [updated.rows[0].primary_author, ...(updated.rows[0].co_authors || [])],
-      updated.rows[0].conference_id
-    );
-  }
 
   return res.redirect("/dashboard?message=Meta-Reviewer recommendation successfully saved!");
 
@@ -5517,32 +5534,27 @@ app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, re
     // decision had already been made.
     if (status === 'Submitted for Review' || status === 'DESK ACCEPT') {
         const reviews = await pool.query(
-          "SELECT * FROM peer_review WHERE submission_id = $1", 
+          "SELECT * FROM peer_review WHERE submission_id = $1",
           [submission_id]
         );
 
-        const meta_reviewer = await pool.query("select * from meta_reviewer_decision where submission_id=$1",[submission_id]);
-        
+        // The meta-reviewer's decision (if any) is deliberately not fetched
+        // or shown here - the chair should not see it before Publish Review
+        // Results. See /publish/review-results.
         renderPayload.submission = currentData;
         renderPayload.reviews = reviews.rows;
-        renderPayload.meta_reviewer = meta_reviewer.rows;
-        
+
         return res.render("chair/resolve-conflicts.ejs", renderPayload);
 
     } else if (status === 'Submitted Revised Paper') {
         const re_reviews = await pool.query(
-          "SELECT * FROM revised_submissions WHERE submission_id = $1", 
+          "SELECT * FROM revised_submissions WHERE submission_id = $1",
           [submission_id]
         );
 
-                const meta_reviewer = await pool.query("select * from meta_reviewer_decision where submission_id=$1",[submission_id]);
-
-        
         renderPayload.submission2 = currentData;
         renderPayload.re_reviews = re_reviews.rows;
-                renderPayload.meta_reviewer = meta_reviewer.rows;
 
-        
         return res.render("chair/resolve-conflicts.ejs", renderPayload);
 
     } else {
