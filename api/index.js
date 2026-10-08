@@ -4038,25 +4038,17 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
     return res.redirect("/dashboard?message=Meta-Reviewer role not found in your current session for this conference. If a chair has just assigned you, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
   }
 
-  const assigned_tracks = await pool.query("select * from conference_tracks where meta_reviewer=$1 and conference_id = $2",[req.user.email,conference_id]);
+  const assigned_tracks = await pool.query("select * from conference_tracks where lower(meta_reviewer) = lower($1) and conference_id = $2",[req.user.email,conference_id]);
 
-
-    const cache_data = redisClient ? await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id") : null;
-
-    if(cache_data){
-      console.log("Conference ID already present in cache.");
-    }
-    else{
-
-      if (redisClient) await redisClient.set("meta_reviewer_"+req.user.email+"_conference_id",JSON.stringify(conference_id));
-      
-    }
-
-  const data = await pool.query("select submission_id from submissions where track_id = $1",[assigned_tracks.rows[0]?.track_id]);
-  const peer_review = await pool.query("select * from peer_review where conference_id = $1",[conference_id]);
-
-
-  
+  // Peer reviews for submissions across ALL of this meta-reviewer's assigned
+  // tracks (not just the first one, and not every submission in the whole
+  // conference - a meta-reviewer should only see what they're assigned to).
+  const peer_review = assigned_tracks.rows.length
+    ? await pool.query(
+        "select pr.* from peer_review pr join submissions s on s.submission_id = pr.submission_id where s.track_id = ANY($1::uuid[])",
+        [assigned_tracks.rows.map((t) => t.track_id)]
+      )
+    : { rows: [] };
 
   return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows,assigned_tracks:assigned_tracks.rows});
 
@@ -4065,6 +4057,15 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async(req,res)=>{
 
   const submission_id = req.params.id;
+
+  // Authorization: only the meta-reviewer assigned to this submission's track may open this form
+  const metaCheck = await pool.query(
+    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
+    [submission_id, req.user.email]
+  );
+  if (metaCheck.rows.length === 0) {
+    return res.redirect("/dashboard?message=You are not assigned as the meta-reviewer for this submission.");
+  }
 
   const peer_review = await pool.query("select * from peer_review where submission_id = $1",[submission_id]);
 
@@ -4076,7 +4077,7 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
   // Authorization: only the meta-reviewer assigned to this submission's track may submit a decision
   const metaCheck = await pool.query(
-    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and t.meta_reviewer = $2 limit 1",
+    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
     [req.params.id, req.user.email]
   );
   if (metaCheck.rows.length === 0) {
@@ -4085,21 +4086,17 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
   const submission_id = req.params.id;
 
-  // const conferenceid_cache = await redisClient.get("meta_reviewer_"+req.user.email+"_conference_id");
-
-
   const {status, remarks} = req.body;
 
+  // Upsert: resubmitting a recommendation updates the existing decision
+  // instead of piling up another row (meta_reviewer_decision.submission_id
+  // is unique - see migration 007).
+  await pool.query(
+    "insert into meta_reviewer_decision (submission_id, status, remarks) values($1,$2,$3) on conflict (submission_id) do update set status = excluded.status, remarks = excluded.remarks",
+    [submission_id, status, remarks]
+  );
 
-  const data = await pool.query("insert into meta_reviewer_decision values($1,$2,$3)",[submission_id,status,remarks]);
-
-
-if(data){
   return res.redirect("/dashboard?message=Meta-Reviewer recommendation successfully saved!");
-}
-
-
-
 
 })
 
