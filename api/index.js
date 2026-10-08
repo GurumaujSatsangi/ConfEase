@@ -816,6 +816,16 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       submissiondata = submissionResult.rows;
     }
 
+    // Submissions this specific reviewer has already reviewed, so the
+    // "Start Review" button can be hidden for them specifically (the status
+    // column is shared across all reviewers of a track and must not be used
+    // for this - see the submission_status fix in /mark-as-reviewed).
+    const reviewedResult = await pool.query(
+      "select submission_id from peer_review where lower(reviewer) = lower($1)",
+      [req.user.email]
+    );
+    const reviewedSubmissionIds = new Set(reviewedResult.rows.map((r) => r.submission_id));
+
     // Fetch revised submissions for these tracks
     let revisedSubmissions = [];
     if (trackIds.length > 0) {
@@ -824,6 +834,13 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       const revisedResult = await pool.query(revisedQuery, [...trackIds, "Submitted Revised Paper"]);
       revisedSubmissions = revisedResult.rows;
     }
+
+    // Same per-reviewer "already done" tracking for re-reviews.
+    const reReviewedResult = await pool.query(
+      "select submission_id from revised_submissions where lower(reviewer) = lower($1)",
+      [req.user.email]
+    );
+    const reReviewedSubmissionIds = new Set(reReviewedResult.rows.map((r) => r.submission_id));
 
     // Fetch conference information for tracks
     const conferenceIds = [...new Set(reviewerTracks.map(track => track.conference_id))];
@@ -864,6 +881,8 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       tracks: tracksWithConferences,
       userSubmissions: submissiondata,
       revisedSubmissions: revisedSubmissions,
+      reviewedSubmissionIds,
+      reReviewedSubmissionIds,
     });
   } catch (err) {
     console.error("Error loading reviewer dashboard:", err);
@@ -1326,6 +1345,11 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
   } finally {
     deskClient.release();
   }
+
+  await invalidateConferenceSubmissionCache(
+    [data.rows[0].primary_author, ...(data.rows[0].co_authors || [])],
+    data.rows[0].conference_id
+  );
 
   if(decision=='DESK REJECT'){
     return res.redirect("/chair/dashboard/desk/remarks-for-rejection/"+submission_id);
@@ -2671,6 +2695,10 @@ app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res
   const data = await pool.query("update submissions set submission_status=$1, remarks=$2 where submission_id=$3 returning *",[status,final_remarks,submission_id]);
 
   if(data.rows[0]){
+    await invalidateConferenceSubmissionCache(
+      [data.rows[0].primary_author, ...(data.rows[0].co_authors || [])],
+      conference_id
+    );
     return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submitted Final Decision!")
   }
   return res.redirect("/chair/dashboard?message=Submission not found.");
@@ -4045,7 +4073,7 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
   // conference - a meta-reviewer should only see what they're assigned to).
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
-        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[])",
+        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[]) and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)",
         [assigned_tracks.rows.map((t) => t.track_id)]
       )
     : { rows: [] };
@@ -4142,7 +4170,7 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
   try {
     // Fetch submission to get conference_id
     const submissionResult = await pool.query(
-      `SELECT conference_id FROM submissions WHERE submission_id = $1`,
+      `SELECT conference_id, primary_author, co_authors FROM submissions WHERE submission_id = $1`,
       [paper_id]
     );
 
@@ -4180,6 +4208,11 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
            status = 'Completed'
        WHERE submission_id = $2`,
       [scoreValue, paper_id]
+    );
+
+    await invalidateConferenceSubmissionCache(
+      [submissionResult.rows[0].primary_author, ...(submissionResult.rows[0].co_authors || [])],
+      conference_id
     );
 
     return res.redirect(
@@ -4448,6 +4481,8 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
       `UPDATE submissions SET co_authors = $1 WHERE submission_id = $2;`,
       [coAuthors, coAuthorRequest.submission_id]
     );
+
+    await invalidateConferenceSubmissionCache([submission.primary_author, ...coAuthors], submission.conference_id);
 
     // 6. Mark request as accepted
     await pool.query(
@@ -5230,10 +5265,15 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
       // 5. Update submission record
       await pool.query(
-        `UPDATE submissions 
+        `UPDATE submissions
          SET submission_status = $1, file_url = $2
          WHERE submission_id = $3;`,
         [newStatus, uploadResult.secure_url, id]
+      );
+
+      await invalidateConferenceSubmissionCache(
+        [req.user.email, ...(Array.isArray(co_authors) ? co_authors : [])],
+        confid
       );
 
       return res.redirect("/dashboard");
@@ -5265,12 +5305,15 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       const year = date.getUTCFullYear();
       return `${day}-${month}-${year}`;
     };
+    // NOTE: this used to cache under `${email}_initiated_conferences`, but the
+    // read (`redisClient.get(...)`) was never awaited, so `data` was always a
+    // pending Promise - `data.length` was always undefined and the cache
+    // branch was dead code; every request silently fell through to the DB
+    // query below anyway. Removed rather than "fixed into" a real cache,
+    // since this list is cheap (indexed by created_by) and a real cache here
+    // would need its own invalidation wired into every conference-edit route.
     const result = await pool.query("SELECT * FROM conferences where created_by = $1",[req.user.email]);
-    var conferences;
-    const data = redisClient ? redisClient.get(req.user.email+"_initiated_conferences") : null;
-    if(data && data.length>0){
-      const parsed_data =  JSON.parse(data);
-      conferences = parsed_data.rows.map(conference => ({
+    const conferences = result.rows.map(conference => ({
       ...conference,
       conference_start_date: formatDate(conference.conference_start_date),
       conference_end_date: formatDate(conference.conference_end_date),
@@ -5279,25 +5322,6 @@ app.get("/chair/dashboard", checkChairAuth, async (req, res) => {
       camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
       deadline_peer_review:formatDate(conference.deadline_peer_review)
     }));
-
-    } else{
-
-      conferences = result.rows.map(conference => ({
-      ...conference,
-      conference_start_date: formatDate(conference.conference_start_date),
-      conference_end_date: formatDate(conference.conference_end_date),
-      full_paper_submission: formatDate(conference.full_paper_submission),
-      acceptance_notification: formatDate(conference.acceptance_notification),
-      camera_ready_paper_submission: formatDate(conference.camera_ready_paper_submission),
-      deadline_peer_review:formatDate(conference.deadline_peer_review)
-    }));
-
-      const enter_data = redisClient ? redisClient.set(req.user.email+"_initiated_conferences",JSON.stringify(conferences)) : null;
-
-    }
-
-    
-    
 
     res.render("chair/dashboard.ejs", {
       user: req.user,
@@ -5467,7 +5491,14 @@ app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, re
     };
 
     // 4. Handle based on the specific status
-    if (status === 'Submitted for Review') {
+    // 'DESK ACCEPT' is also a pending-decision state: desk review moves a
+    // submission from 'Submitted for Review' to 'DESK ACCEPT', and nothing
+    // moves it further until the chair records a final decision here (peer
+    // reviews are collected while the status sits at 'DESK ACCEPT'). Treating
+    // only 'Submitted for Review' as pending meant this page was permanently
+    // unreachable for any desk-accepted submission - it always looked like a
+    // decision had already been made.
+    if (status === 'Submitted for Review' || status === 'DESK ACCEPT') {
         const reviews = await pool.query(
           "SELECT * FROM peer_review WHERE submission_id = $1", 
           [submission_id]
@@ -5517,9 +5548,13 @@ app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
 
   const submission_id = req.params.id;
 
-  const submission = await pool.query("update submissions set remarks=$1, submission_status=$2 where submission_id=$3",[final_remarks,status,submission_id]);
+  const submission = await pool.query("update submissions set remarks=$1, submission_status=$2 where submission_id=$3 returning *",[final_remarks,status,submission_id]);
 
   if(submission.rowCount){
+    await invalidateConferenceSubmissionCache(
+      [submission.rows[0].primary_author, ...(submission.rows[0].co_authors || [])],
+      conference_id
+    );
     return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submission Updated Succesfully!");
   }
   return res.redirect("/chair/dashboard?message=Submission not found.");
@@ -5700,7 +5735,10 @@ app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, r
   }
 
 
-  const submission = await deleteClient.query("select submission_status, conference_id from submissions where submission_id=$1",[submissionId]);
+  // Note: this must use pool, not deleteClient - that client isn't connected
+  // until after this check (it previously referenced deleteClient here, which
+  // threw a ReferenceError on every call and crashed the route).
+  const submission = await pool.query("select submission_status, conference_id, primary_author, co_authors from submissions where submission_id=$1",[submissionId]);
 
   if (!submission.rows[0] || !(await chairOwnsConference(req.user.email, submission.rows[0].conference_id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to delete this submission.");
@@ -5745,6 +5783,12 @@ app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, r
 
     await deleteClient.query("COMMIT");
     console.log('Submission deleted successfully:', submissionId);
+
+    await invalidateConferenceSubmissionCache(
+      [submission.rows[0].primary_author, ...(submission.rows[0].co_authors || [])],
+      conferenceId
+    );
+
     return res.redirect(
       `/chair/dashboard/view-submissions/${conferenceId}?message=Submission deleted successfully.`
     );
@@ -5929,6 +5973,11 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       `;
 
       await pool.query(sql, updateValues);
+
+      await invalidateConferenceSubmissionCache(
+        [editRow.primary_author, ...(editRow.co_authors || [])],
+        editRow.conference_id
+      );
 
       return res.redirect("/dashboard?message=Submission updated successfully!");
 
