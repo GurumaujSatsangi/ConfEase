@@ -4124,6 +4124,23 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
     [submission_id, status, remarks]
   );
 
+  // The meta-reviewer's decision uses the same status vocabulary as the
+  // chair's own Final Decision form (Accepted for Oral/Poster Presentation,
+  // Revision Required, Rejected) - for a track with a meta-reviewer assigned,
+  // their recommendation IS the decision, so apply it to the submission the
+  // same way /resolve-conflict does, instead of only recording it as a note
+  // the chair might separately act on later.
+  const updated = await pool.query(
+    "update submissions set submission_status = $1, remarks = $2 where submission_id = $3 returning *",
+    [status, remarks, submission_id]
+  );
+  if (updated.rows[0]) {
+    await invalidateConferenceSubmissionCache(
+      [updated.rows[0].primary_author, ...(updated.rows[0].co_authors || [])],
+      updated.rows[0].conference_id
+    );
+  }
+
   return res.redirect("/dashboard?message=Meta-Reviewer recommendation successfully saved!");
 
 })
