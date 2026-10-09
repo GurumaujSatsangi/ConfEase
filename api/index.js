@@ -1111,10 +1111,19 @@ function isAllowedDocument(file) {
   return false;
 }
 
+// Case-normalized so a submission's primary_author/co_authors (typed by a
+// chair, possibly with different casing than the account's own login email)
+// always maps to the same cache key as the viewer's own req.user.email -
+// otherwise invalidation can silently miss the key the viewer actually reads
+// from, leaving their "My Submissions" view stale.
+function submissionsCacheKey(email, conferenceId) {
+  return `${String(email || "").trim().toLowerCase()}_submissions_conference_${conferenceId}`;
+}
+
 async function invalidateConferenceSubmissionCache(emails, conferenceId) {
   if (!redisClient) return;
-  const uniqueEmails = [...new Set(emails.filter(Boolean))];
-  await Promise.all(uniqueEmails.map((email) => redisClient.del(`${email}_submissions_conference_${conferenceId}`)));
+  const uniqueKeys = [...new Set(emails.filter(Boolean).map((email) => submissionsCacheKey(email, conferenceId)))];
+  await Promise.all(uniqueKeys.map((key) => redisClient.del(key)));
 }
 
 // Ownership helpers (use existing data: conferences.created_by/co_chairs, track_reviewers, panelists)
@@ -1433,7 +1442,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
   const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1 order by g.group_name nulls last, t.track_name",[req.params.id]);
   let submissions = [];
-  const conferenceSubmissionsCacheKey = `${req.user.email}_submissions_conference_${req.params.id}`;
+  const conferenceSubmissionsCacheKey = submissionsCacheKey(req.user.email, req.params.id);
 
   const cachedConferenceSubmissions = await getJsonCacheValue(conferenceSubmissionsCacheKey);
   if (cachedConferenceSubmissions) {
@@ -1519,6 +1528,14 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     }
   }
 
+  // Invalidate right after the only database writes in this route, and
+  // before any email is sent. The mutation (if any) has already committed at
+  // this point; a later sendMail failure (e.g. SMTP unavailable) must not
+  // leave an already-changed status stuck in a stale cache - that failure
+  // would otherwise abort the request before reaching an invalidation call
+  // placed after the email loop below.
+  await invalidateConferenceSubmissionCache(authors.rows.flatMap((a) => [a.primary_author, ...(a.co_authors || [])]), conference_id);
+
   for(let i=0;i<authors.rows.length;i++){
 
     if(authors.rows[i].submission_status=="Submitted Revised Paper" || authors.rows[i].submission_status=="Submitted for Review" || authors.rows[i].submission_status=="DESK ACCEPT"){
@@ -1533,13 +1550,9 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     }
   }
 
-
   if(pending_acceptance_notifications.length>0){
-    
+
     console.log(pending_acceptance_notifications);
-    await invalidateConferenceSubmissionCache(authors.rows.flatMap((a) => [a.primary_author, ...(a.co_authors || [])]), conference_id);
-
-
 
     return res.render("chair/pending-acceptance.ejs",{pending_acceptance_notifications_titles, pending_acceptance_notifications});
 
@@ -5905,6 +5918,11 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
           [uploadResult.secure_url, submission_id]
         );
 
+        await invalidateConferenceSubmissionCache(
+          [submission.primary_author, ...(submission.co_authors || [])],
+          submission.conference_id
+        );
+
         return res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
 
       } catch (error) {
@@ -6040,7 +6058,7 @@ app.post("/submission/delete/primary-author/:id", checkAuth, async (req, res) =>
       [req.params.id, req.user.email]
     );
 
-    if (redisClient && conference.rows[0]) await redisClient.del(req.user.email+"_submissions_conference_"+conference.rows[0].conference_id);
+    if (redisClient && conference.rows[0]) await redisClient.del(submissionsCacheKey(req.user.email, conference.rows[0].conference_id));
 
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
@@ -6177,7 +6195,7 @@ app.post("/submit", checkAuth, async (req, res) => {
       console.log("ADDED TO DB!");
 
       // --- FIXED: Consistent User Submissions Cache handling ---
-      const cacheKey = `${req.user.email}_submissions_conference_${id}`;
+      const cacheKey = submissionsCacheKey(req.user.email, id);
       const newSubmissionItem = submission_result.rows[0];
 
       const cacheSubmissions = await getJsonCacheValue(cacheKey);
@@ -6377,7 +6395,13 @@ app.use((err, req, res, next) => {
   return res.status(500).render("error.ejs");
 });
 
-if (process.env.VERCEL !== "1") {
+// SKIP_AUTOLISTEN: test-only escape hatch. A test that needs the real Redis
+// connection above (so it can't set VERCEL=1, which also skips that
+// connection) still needs to avoid this module-level app.listen() - an
+// unclosable second listener on `port` - and instead call app.listen(0)
+// itself and close that one in `after`. Unset in every other environment,
+// so normal/dev/production startup is unchanged.
+if (process.env.VERCEL !== "1" && process.env.SKIP_AUTOLISTEN !== "1") {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
