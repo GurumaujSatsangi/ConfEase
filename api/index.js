@@ -696,7 +696,100 @@ async function authRateLimitMemory(req, res, next) {
   return next();
 }
 
-const MAX_ALLOWED_REQ = 50;
+// Account lockout: 3 failed login attempts locks that account (not just that
+// IP) out of logging in for 5 minutes. Separate from authRateLimitMemory
+// above, which throttles total login *requests* per IP+route; this tracks
+// *failures* per account, since the concern here is credential-stuffing /
+// brute-forcing one specific account, which can come from many different
+// IPs. Keyed by "scope" (user vs chair) + lowercased email, so the two
+// separate credential stores never collide on the same email string.
+const LOGIN_LOCKOUT_MAX_ATTEMPTS = 3;
+const LOGIN_LOCKOUT_SECONDS = 5 * 60;
+const loginAttemptsMemory = new Map(); // fallback when Redis is unavailable
+const loginLockoutsMemory = new Map();
+
+function loginLockoutKeys(scope, email) {
+  const id = scope + ":" + String(email || "").trim().toLowerCase();
+  return { failKey: "loginfail:" + id, lockKey: "loginlock:" + id };
+}
+
+// Returns true (and leaves the record untouched) if this account is
+// currently locked out.
+async function isLoginLocked(scope, email) {
+  const { lockKey } = loginLockoutKeys(scope, email);
+  if (redisClient) {
+    try {
+      return Boolean(await redisClient.get(lockKey));
+    } catch (err) {
+      console.warn("Login lockout check: Redis unavailable, using in-memory fallback.", err.message);
+    }
+  }
+  const entry = loginLockoutsMemory.get(lockKey);
+  if (entry && entry.until > Date.now()) return true;
+  if (entry) loginLockoutsMemory.delete(lockKey);
+  return false;
+}
+
+// Call after a failed password check. Locks the account once the attempt
+// count reaches LOGIN_LOCKOUT_MAX_ATTEMPTS.
+async function recordFailedLogin(scope, email) {
+  const { failKey, lockKey } = loginLockoutKeys(scope, email);
+  if (redisClient) {
+    try {
+      const attempts = await redisClient.incr(failKey);
+      if (attempts === 1) await redisClient.expire(failKey, LOGIN_LOCKOUT_SECONDS);
+      if (attempts >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
+        await redisClient.set(lockKey, "1", { EX: LOGIN_LOCKOUT_SECONDS });
+        await redisClient.del(failKey);
+        return true; // just got locked out
+      }
+      return false;
+    } catch (err) {
+      console.warn("Login lockout record: Redis unavailable, using in-memory fallback.", err.message);
+    }
+  }
+  const now = Date.now();
+  let entry = loginAttemptsMemory.get(failKey);
+  if (!entry || entry.resetAt <= now) {
+    entry = { count: 0, resetAt: now + LOGIN_LOCKOUT_SECONDS * 1000 };
+    loginAttemptsMemory.set(failKey, entry);
+  }
+  entry.count += 1;
+  if (entry.count >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
+    loginLockoutsMemory.set(lockKey, { until: now + LOGIN_LOCKOUT_SECONDS * 1000 });
+    loginAttemptsMemory.delete(failKey);
+    return true;
+  }
+  return false;
+}
+
+// Call after a successful login, so a later unrelated failure doesn't
+// inherit a stale attempt count.
+async function clearLoginAttempts(scope, email) {
+  const { failKey, lockKey } = loginLockoutKeys(scope, email);
+  if (redisClient) {
+    try {
+      await redisClient.del(failKey);
+      await redisClient.del(lockKey);
+      return;
+    } catch (err) {
+      console.warn("Login lockout clear: Redis unavailable, using in-memory fallback.", err.message);
+    }
+  }
+  loginAttemptsMemory.delete(failKey);
+  loginLockoutsMemory.delete(lockKey);
+}
+
+// Global per-IP request limit (abuse/scraping backstop, not a precise
+// per-user budget). Previously 50 req/60s - fine behind Vercel's
+// per-invocation isolation, but this app is now a single persistent server
+// serving everyone from one process, and the key is just the raw IP: anyone
+// behind a shared IP (campus/office NAT, a mobile carrier, a VPN exit node)
+// shares one budget across every one of their users. 50/min was easily
+// exhausted by one active user, let alone several sharing an IP. Raised to
+// a much more generous ceiling that still meaningfully blocks scripted
+// abuse from a single address.
+const MAX_ALLOWED_REQ = 300;
 const MAX_TIME = 60;
 
 // How long the "conferences" list and a user's "My Submissions" list stay
@@ -721,12 +814,12 @@ app.use(async (req, res, next) => {
   }
 
   try {
-    const my_ip = req.ip;
+    const key = "reqrl:" + req.ip; // namespaced so it can't collide with any other key
 
-    const request = await redisClient.incr(my_ip);
+    const request = await redisClient.incr(key);
 
     if (request === 1) {
-      await redisClient.expire(my_ip, MAX_TIME);
+      await redisClient.expire(key, MAX_TIME);
     }
 
     if (request > MAX_ALLOWED_REQ) {
@@ -2974,10 +3067,23 @@ app.get("/user-login", (req, res) => {
 });
 
 
-app.post("/user-login", authRateLimitMemory, async (req, res) => {
+// No authRateLimitMemory here (unlike the other routes below): that's a
+// blunt per-IP request-count throttle, and the account-based lockout above
+// (isLoginLocked/recordFailedLogin - 3 failed attempts per account, not per
+// IP) is a strictly more precise defense against the same threat for this
+// specific route. Keeping both would only add false positives for users
+// sharing an IP (NAT/office/campus) without stopping anything the lockout
+// doesn't already stop.
+app.post("/user-login", async (req, res) => {
   try {
 
     const { email, password } = req.body;
+
+    if (await isLoginLocked("user", email)) {
+      return res.redirect(
+        "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+      );
+    }
 
     // FETCH USER
     const userResult = await pool.query(
@@ -2986,8 +3092,11 @@ app.post("/user-login", authRateLimitMemory, async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
+      const justLocked = await recordFailedLogin("user", email);
       return res.redirect(
-        "/login/user?message=Invalid email or password"
+        justLocked
+          ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+          : "/login/user?message=Invalid email or password"
       );
     }
 
@@ -3008,10 +3117,15 @@ app.post("/user-login", authRateLimitMemory, async (req, res) => {
     );
 
     if (!isMatch) {
+      const justLocked = await recordFailedLogin("user", email);
       return res.redirect(
-        "/login/user?message=Invalid email or password"
+        justLocked
+          ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+          : "/login/user?message=Invalid email or password"
       );
     }
+
+    await clearLoginAttempts("user", email);
 
     // ACCESS TOKEN
     const conferenceRolesDict = await loadConferenceRoles(user.email);
@@ -3374,9 +3488,15 @@ app.post("/delete-account/:id", checkAuth, requireAdmin, async(req,res)=>{
 })
 
 
-app.post("/chair-login", authRateLimitMemory, async (req, res) => {
+// See the comment on /user-login above - the account lockout replaces this
+// route's need for the generic per-IP throttle too.
+app.post("/chair-login", async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (await isLoginLocked("chair", email)) {
+      return res.redirect("/login/user?message=Too many failed login attempts. Please try again in 5 minutes.");
+    }
 
     // fetch user
     const userResult = await pool.query(
@@ -3385,7 +3505,10 @@ app.post("/chair-login", authRateLimitMemory, async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
-      return res.redirect("/login/user?message=Invalid email or password");
+      const justLocked = await recordFailedLogin("chair", email);
+      return res.redirect(justLocked
+        ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+        : "/login/user?message=Invalid email or password");
     }
 
     const user = userResult.rows[0];
@@ -3394,8 +3517,13 @@ app.post("/chair-login", authRateLimitMemory, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      return res.redirect("/login/user?message=Invalid email or password");
+      const justLocked = await recordFailedLogin("chair", email);
+      return res.redirect(justLocked
+        ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+        : "/login/user?message=Invalid email or password");
     }
+
+    await clearLoginAttempts("chair", email);
 
     // generate jwt
     const chairAccessToken = jwt.sign(

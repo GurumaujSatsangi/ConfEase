@@ -229,8 +229,23 @@ if (desk_decision === 'DESK ACCEPT') {
     if (result.isConfirmed) {
       const rejectionReason = result.value;
       console.log("Rejection Reason submitted:", rejectionReason);
-      
+
       // Add your logic here to save the rejection reason or submit the form
     }
   });
+}
+
+// Show/hide password toggle. `button` is the toggle button itself, so the
+// icon inside it (rendered by the caller) can be swapped in place.
+function togglePasswordVisibility(inputId, button) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const icon = button.querySelector("i");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  if (icon) {
+    icon.classList.toggle("bi-eye", showing);
+    icon.classList.toggle("bi-eye-slash", !showing);
+  }
+  button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
 }
