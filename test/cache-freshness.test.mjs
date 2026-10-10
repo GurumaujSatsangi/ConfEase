@@ -198,11 +198,11 @@ test("conferences cache: update -> read reflects the new title, delete -> read n
   }
 });
 
-test("conferences cache entry has a bounded TTL (not cached forever)", { skip: !redisAvailable && "Redis not reachable from this environment" }, async () => {
+test("conferences cache entry has a short, bounded TTL (defense in depth, not the primary freshness mechanism)", { skip: !redisAvailable && "Redis not reachable from this environment" }, async () => {
   await redisProbe.del("conferences");
   await get("/dashboard", accessToken(authorEmail));
   const ttl = await redisProbe.ttl("conferences");
-  assert.ok(ttl > 0 && ttl <= 3600, `expected a positive TTL <= 3600s, got ${ttl}`);
+  assert.ok(ttl > 0 && ttl <= 300, `expected a positive TTL <= 300s, got ${ttl}`);
 });
 
 // ---------------------------------------------------------------------------

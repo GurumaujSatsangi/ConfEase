@@ -22,7 +22,12 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD ,
   port: parseInt(process.env.DB_PORT),
   // Local PostgreSQL does not use SSL; set DB_SSL=true for a remote server that requires it
-  ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false
+  ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
+  // The app now runs as a single persistent server process (not one pool per
+  // serverless invocation), so this pool is the only one that will ever
+  // exist - sized for real concurrent request handling instead of staying
+  // conservative to avoid multiplying across serverless instances.
+  max: parseInt(process.env.DB_POOL_MAX) || 20,
 });
 
 export default pool;

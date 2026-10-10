@@ -263,6 +263,12 @@ app.use("/static", express.static(path.join(rootDir, "public")));
 app.set("views", path.join(rootDir, "views"));
 let redisClient = null;
 
+// NOTE: this app now deploys as a single persistent server process (no
+// longer Vercel serverless - see Procfile), so this connects exactly once,
+// for the life of that one process. The VERCEL env var name is legacy; it
+// now just means "lightweight/test mode" (see test/authz.test.mjs and
+// test/security-smoke.test.mjs, which set it to skip Redis and run without
+// a database) and is never set in normal/dev/production operation.
 if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PORT) {
   const client = createClient({
     username: process.env.REDIS_USERNAME,
@@ -692,6 +698,15 @@ async function authRateLimitMemory(req, res, next) {
 
 const MAX_ALLOWED_REQ = 50;
 const MAX_TIME = 60;
+
+// How long the "conferences" list and a user's "My Submissions" list stay
+// cached before they expire on their own. Every mutation that changes this
+// data already invalidates the relevant key immediately (see
+// invalidateConferenceSubmissionCache and the "conferences" cache dels), so
+// this TTL is a safety net, not the primary freshness mechanism - it just
+// bounds how stale a read could ever be if some future code path forgets to
+// invalidate. Kept short for that reason rather than the hour it used to be.
+const DATA_CACHE_TTL_SECONDS = 300;
 
 
 
@@ -1413,8 +1428,8 @@ app.get("/dashboard", checkAuth, async (req, res) => {
     } else {
       const dbresult = await pool.query("SELECT * FROM conferences");
       conferences = dbresult.rows;
-      // Cached for 1 hour
-      if (redisClient) await redisClient.set("conferences", JSON.stringify(conferences), { EX: 3600 });
+      // Cached briefly; invalidated immediately on create/update/delete (see DATA_CACHE_TTL_SECONDS)
+      if (redisClient) await redisClient.set("conferences", JSON.stringify(conferences), { EX: DATA_CACHE_TTL_SECONDS });
     }
 
   
@@ -1457,7 +1472,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     
 
     if (redisClient) {
-      await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions), { EX: 3600 });
+      await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions), { EX: DATA_CACHE_TTL_SECONDS });
     }
   }
 
@@ -6205,12 +6220,12 @@ app.post("/submit", checkAuth, async (req, res) => {
         const submissionsArray = cacheSubmissions;
         submissionsArray.push(newSubmissionItem);
         if (redisClient) {
-          await redisClient.set(cacheKey, JSON.stringify(submissionsArray), { EX: 3600 });
+          await redisClient.set(cacheKey, JSON.stringify(submissionsArray), { EX: DATA_CACHE_TTL_SECONDS });
         }
       } else {
         // If cache is empty, seed a brand new array containing the item
         if (redisClient) {
-          await redisClient.set(cacheKey, JSON.stringify([newSubmissionItem]), { EX: 3600 });
+          await redisClient.set(cacheKey, JSON.stringify([newSubmissionItem]), { EX: DATA_CACHE_TTL_SECONDS });
         }
       }
       console.log("ADDED TO CACHE!");
