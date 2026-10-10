@@ -1636,6 +1636,61 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   }
 
 
+  // Presentation schedule, shown under the status once a final camera-ready
+  // paper has been submitted. Looked up live on every request (not stored
+  // in the submissions cache above) since a chair can set/change this
+  // schedule (poster_session, or a subject area's presentation_date/time)
+  // independently of the submission row itself - caching it inside that
+  // JSON would just be a second, harder-to-invalidate staleness source.
+  const formatScheduleDate = (d) => {
+    if (!d) return null;
+    const date = new Date(d);
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    return `${day}-${month}-${date.getUTCFullYear()}`;
+  };
+  const formatScheduleTime = (t) => (t ? String(t).slice(0, 5) : null);
+  const buildScheduleText = (label, date, startTime, endTime) => {
+    const d = formatScheduleDate(date);
+    const st = formatScheduleTime(startTime);
+    const et = formatScheduleTime(endTime);
+    return d && st && et ? `${label} Presentation Schedule: ${d} from ${st} to ${et}` : "(Schedule Not Released Yet)";
+  };
+
+  let posterSchedule = null;
+  if (submissions.some((s) => s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")) {
+    const posterResult = await pool.query(
+      "select date, start_time, end_time from poster_session where conference_id = $1",
+      [req.params.id]
+    );
+    posterSchedule = posterResult.rows[0] || null;
+  }
+
+  const oralTrackIds = [...new Set(
+    submissions
+      .filter((s) => s.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation" && s.track_id)
+      .map((s) => s.track_id)
+  )];
+  const oralScheduleByTrack = {};
+  if (oralTrackIds.length > 0) {
+    const trackScheduleResult = await pool.query(
+      "select track_id, presentation_date, presentation_start_time, presentation_end_time from conference_tracks where track_id = ANY($1)",
+      [oralTrackIds]
+    );
+    trackScheduleResult.rows.forEach((t) => { oralScheduleByTrack[t.track_id] = t; });
+  }
+
+  submissions = submissions.map((s) => {
+    let scheduleText = null;
+    if (s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
+      scheduleText = buildScheduleText("Poster", posterSchedule?.date, posterSchedule?.start_time, posterSchedule?.end_time);
+    } else if (s.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation") {
+      const t = oralScheduleByTrack[s.track_id];
+      scheduleText = buildScheduleText("Oral", t?.presentation_date, t?.presentation_start_time, t?.presentation_end_time);
+    }
+    return { ...s, scheduleText };
+  });
+
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
   return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})
 })

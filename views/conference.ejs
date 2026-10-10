@@ -207,15 +207,24 @@
                             <br><a href="/submission/revised/primary-author/<%= submission.submission_id %>">Submit Revised Paper</a>
                         <% } else if (submission.submission_status === 'Accepted for Oral Presentation' || submission.submission_status === 'Accepted for Poster Presentation') { %>
                             <br><a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit Final Camera Ready Paper</a>
+                        <% } else if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
+                            <br><strong><%= submission.scheduleText %></strong>
                         <% } %>
                     </td>
+                    <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
+                    <td>
+                        <strong>Registration</strong><br>
+                        <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
+                    </td>
+                    <% } else { %>
                     <td>
 
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
                     </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
                 <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
-            
+
             </p></td>
+                    <% } %>
                 </tr>
             
             <%}) %>
