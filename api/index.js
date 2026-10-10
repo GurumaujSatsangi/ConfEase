@@ -1680,6 +1680,21 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     trackScheduleResult.rows.forEach((t) => { oralScheduleByTrack[t.track_id] = t; });
   }
 
+  // Registration status, shown (as a disabled button + an accordion of what
+  // was filled in) once a submission has been registered. Also looked up
+  // live rather than cached, same reasoning as the schedule above.
+  const registeredSubmissionIds = submissions
+    .filter((s) => s.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation" || s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")
+    .map((s) => s.submission_id);
+  const registrationBySubmission = {};
+  if (registeredSubmissionIds.length > 0) {
+    const registrationResult = await pool.query(
+      "select * from registration where submission_id = ANY($1)",
+      [registeredSubmissionIds]
+    );
+    registrationResult.rows.forEach((r) => { registrationBySubmission[r.submission_id] = r; });
+  }
+
   submissions = submissions.map((s) => {
     let scheduleText = null;
     if (s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
@@ -1688,7 +1703,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       const t = oralScheduleByTrack[s.track_id];
       scheduleText = buildScheduleText("Oral", t?.presentation_date, t?.presentation_start_time, t?.presentation_end_time);
     }
-    return { ...s, scheduleText };
+    return { ...s, scheduleText, registration: registrationBySubmission[s.submission_id] || null };
   });
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
@@ -5441,6 +5456,115 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
   } catch (err) {
     console.error("Error in final camera ready route:", err);
     return res.redirect("/dashboard?message=An unexpected error occurred.");
+  }
+});
+
+const REGISTRATION_STATUSES = [
+  "Submitted Final Camera Ready Paper for Oral Presentation",
+  "Submitted Final Camera Ready Paper for Poster Presentation",
+];
+
+// Shared by both routes below: loads the submission, checks the requester
+// may act on it, and checks it's actually at a registration-eligible
+// status. Returns { submission } on success, or null after already sending
+// a redirect response.
+async function loadRegistrationEligibleSubmission(req, res) {
+  const submissionResult = await pool.query(
+    `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+    [req.params.id]
+  );
+  const submission = submissionResult.rows[0];
+
+  if (!submission) {
+    res.redirect("/dashboard?message=Submission not found.");
+    return null;
+  }
+  if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
+    res.redirect("/dashboard?message=You are not authorized to register this submission.");
+    return null;
+  }
+  if (!REGISTRATION_STATUSES.includes(submission.submission_status)) {
+    res.redirect("/dashboard?message=Registration is not open for this submission yet.");
+    return null;
+  }
+  return submission;
+}
+
+app.get("/submission/register/:id", checkAuth, async (req, res) => {
+  try {
+    const submission = await loadRegistrationEligibleSubmission(req, res);
+    if (!submission) return;
+
+    // Once registered, this route is done - disable it rather than letting
+    // the form be filled in again.
+    const existing = await pool.query("select 1 from registration where submission_id = $1", [req.params.id]);
+    if (existing.rows.length > 0) {
+      return res.redirect("/dashboard?message=This submission has already been registered.");
+    }
+
+    const conferenceResult = await pool.query(
+      "select title from conferences where conference_id = $1 limit 1",
+      [submission.conference_id]
+    );
+
+    const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
+    const usersResult = authorEmails.length
+      ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
+      : { rows: [] };
+    const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
+    const formatAuthor = (email) => (nameByEmail[email] ? `${nameByEmail[email]} (${email})` : email);
+
+    return res.render("registration.ejs", {
+      user: req.user,
+      submission,
+      conferenceTitle: conferenceResult.rows[0]?.title || "",
+      primaryAuthorFormatted: formatAuthor(submission.primary_author),
+      coAuthorsFormatted: (submission.co_authors || []).map(formatAuthor).join(", ") || "None",
+      message: req.query.message || null,
+    });
+  } catch (err) {
+    console.error("Error loading registration page:", err);
+    return res.redirect("/dashboard?message=An unexpected error occurred.");
+  }
+});
+
+app.post("/submission/register/:id", checkAuth, async (req, res) => {
+  try {
+    const submission = await loadRegistrationEligibleSubmission(req, res);
+    if (!submission) return;
+
+    const { mode_of_presentation, attending_offline, link_to_video } = req.body;
+
+    if (!["Online", "Offline"].includes(mode_of_presentation)) {
+      return res.redirect(`/submission/register/${req.params.id}?message=Please select a valid mode of presentation.`);
+    }
+    const attendingOfflineCount = Number(attending_offline);
+    if (!Number.isInteger(attendingOfflineCount) || attendingOfflineCount < 0) {
+      return res.redirect(`/submission/register/${req.params.id}?message=Please enter a valid number of authors attending offline.`);
+    }
+    const videoLink = String(link_to_video || "").trim();
+    if (!videoLink) {
+      return res.redirect(`/submission/register/${req.params.id}?message=Please provide the link to your video.`);
+    }
+
+    try {
+      await pool.query(
+        "insert into registration (conference_id, submission_id, mode_of_presentation, link_to_video, attending_offline) values ($1,$2,$3,$4,$5)",
+        [submission.conference_id, submission.submission_id, mode_of_presentation, videoLink, attendingOfflineCount]
+      );
+    } catch (insertErr) {
+      if (insertErr.code === "23505") {
+        // Unique constraint on submission_id - someone else (or a double
+        // submit) already registered this one between the check above and now.
+        return res.redirect("/dashboard?message=This submission has already been registered.");
+      }
+      throw insertErr;
+    }
+
+    return res.redirect(`/conference/${submission.conference_id}?message=Registration submitted successfully!`);
+  } catch (err) {
+    console.error("Error submitting registration:", err);
+    return res.redirect(`/submission/register/${req.params.id}?message=An unexpected error occurred. Please try again.`);
   }
 });
 

@@ -213,8 +213,27 @@
                     </td>
                     <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
                     <td>
-                        <strong>Registration</strong><br>
-                        <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
+                        <% if (submission.registration) { %>
+                            <button type="button" class="btn btn-success btn-sm" disabled>Registered</button>
+                            <div class="accordion mt-2" id="registrationAccordion-<%= submission.submission_id %>">
+                              <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#registrationDetails-<%= submission.submission_id %>">
+                                    View Registration Details
+                                  </button>
+                                </h2>
+                                <div id="registrationDetails-<%= submission.submission_id %>" class="accordion-collapse collapse" data-bs-parent="#registrationAccordion-<%= submission.submission_id %>">
+                                  <div class="accordion-body">
+                                    <p class="mb-1"><strong>Mode of Presentation:</strong> <%= submission.registration.mode_of_presentation %></p>
+                                    <p class="mb-1"><strong>Number of Authors attending Offline:</strong> <%= submission.registration.attending_offline %></p>
+                                    <p class="mb-0"><strong>Link to Video:</strong> <a href="<%= submission.registration.link_to_video %>" target="_blank" rel="noopener"><%= submission.registration.link_to_video %></a></p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                        <% } else { %>
+                            <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
+                        <% } %>
                     </td>
                     <% } else { %>
                     <td>

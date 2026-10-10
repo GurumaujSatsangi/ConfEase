@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEI CMT</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <%- include('partials/dashboard/header') %>
+    <div class="container">
+      <h4>Conference Registration</h4>
+      <hr />
+
+      <table class="table table-bordered">
+        <tr>
+          <th>Paper ID</th>
+          <th>Paper Title</th>
+          <th>Primary Author</th>
+          <th>Co-Authors</th>
+        </tr>
+        <tr>
+          <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
+          <td><%= submission.title %></td>
+          <td><%= primaryAuthorFormatted %></td>
+          <td><%= coAuthorsFormatted %></td>
+        </tr>
+      </table>
+
+      <div class="alert alert-warning">
+        <ol class="mb-0">
+          <li><strong>Change in Presentation Mode:</strong> Requests to change the mode of presentation will not be entertained under any circumstances. Please select your preferred mode carefully, based on your convenience.</li>
+          <li><strong>Junior Student Poster/Oral Sessions:</strong> Certain special sessions may be organized for junior students. Please ensure that the student's name, and not their parent's name, is entered as the Primary Author or Co-Author. If you wish to request a name change, please <a href="mailto:cmt@dei.ac.in?subject=Name%20Change%20Request%20-%20Paper%20<%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : submission.submission_id %>">click here</a>. All name changes are subject to the approval of the Conference Chair.</li>
+          <li><strong>Issuance of Certificates:</strong> Certificates will be issued only in the names of authors registered as Primary Authors or Co-Authors on the DEI CMT portal. Please ensure that all author details are entered correctly.</li>
+        </ol>
+      </div>
+
+      <form id="registrationForm" action="/submission/register/<%= submission.submission_id %>" method="POST">
+        <div class="mb-3">
+          <label class="form-label d-block">Mode of Presentation <span class="text-danger">*</span></label>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="mode_of_presentation" id="modeOnline" value="Online" required>
+            <label class="form-check-label" for="modeOnline">Online</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="mode_of_presentation" id="modeOffline" value="Offline" required>
+            <label class="form-check-label" for="modeOffline">Offline</label>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="attendingOffline" class="form-label">Number of Authors attending Offline <span class="text-danger">*</span></label>
+          <input type="number" min="0" step="1" class="form-control" name="attending_offline" id="attendingOffline" required>
+        </div>
+
+        <div class="mb-3">
+          <label for="linkToVideo" class="form-label">Link to Video <span class="text-danger">*</span></label>
+          <input type="url" class="form-control" name="link_to_video" id="linkToVideo" required>
+          <small class="form-text text-muted">Google Drive Link to a video presenting your paper/poster. Ensure the file has open access.</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Submit</button>
+      </form>
+    </div>
+
+    <%- include('partials/footer') %>
+    <script src="/script.js"></script>
+    <script>
+      (function () {
+        const form = document.getElementById('registrationForm');
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          Swal.fire({
+            icon: 'question',
+            title: 'Confirm Submission',
+            text: 'Are you sure you want to submit the entered details?',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Submit',
+            cancelButtonText: 'Cancel',
+          }).then(function (result) {
+            if (result.isConfirmed) {
+              form.submit();
+            }
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

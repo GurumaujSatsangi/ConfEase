@@ -82,6 +82,5 @@ test("conference page shows the poster/oral schedule under the status, and a Reg
   assert.ok(html.includes("Poster Presentation Schedule: 06-03-2027 from 14:00 to 16:00"), "scheduled poster submission should show the poster session's date/time");
   assert.equal((html.match(/\(Schedule Not Released Yet\)/g) || []).length, 1, "only the unscheduled oral submission should show the placeholder");
   assert.equal((html.match(/>Register<\/a>/g) || []).length, 3, "all three final-camera-ready submissions get a Register link, the DESK ACCEPT one doesn't");
-  assert.equal((html.match(/<strong>Registration<\/strong>/g) || []).length, 3);
   assert.ok(html.includes("Edit Submission"), "the still-pending submission keeps the normal action links");
 });
