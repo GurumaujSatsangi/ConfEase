@@ -1695,6 +1695,22 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     registrationResult.rows.forEach((r) => { registrationBySubmission[r.submission_id] = r; });
   }
 
+  // Certificate availability, shown (as a Download Certificate button, or
+  // "Not Yet Generated") once a poster submission has been scored. Live
+  // lookup, same reasoning as schedule/registration above: certificate
+  // generation happens independently of the submission row.
+  const posterScoredSubmissionIds = submissions
+    .filter((s) => s.submission_status === "Poster Scored")
+    .map((s) => s.submission_id);
+  const generatedCertificateSubmissionIds = new Set();
+  if (posterScoredSubmissionIds.length > 0) {
+    const certificatesResult = await pool.query(
+      "select submission_id from certificates where submission_id = ANY($1) and status = 'GENERATED'",
+      [posterScoredSubmissionIds]
+    );
+    certificatesResult.rows.forEach((c) => generatedCertificateSubmissionIds.add(c.submission_id));
+  }
+
   submissions = submissions.map((s) => {
     let scheduleText = null;
     if (s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
@@ -1703,7 +1719,12 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       const t = oralScheduleByTrack[s.track_id];
       scheduleText = buildScheduleText("Oral", t?.presentation_date, t?.presentation_start_time, t?.presentation_end_time);
     }
-    return { ...s, scheduleText, registration: registrationBySubmission[s.submission_id] || null };
+    return {
+      ...s,
+      scheduleText,
+      registration: registrationBySubmission[s.submission_id] || null,
+      certificateGenerated: generatedCertificateSubmissionIds.has(s.submission_id),
+    };
   });
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
