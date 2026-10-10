@@ -4467,12 +4467,19 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 
   const assigned_tracks = await pool.query("select * from conference_tracks where lower(meta_reviewer) = lower($1) and conference_id = $2",[req.user.email,conference_id]);
 
-  // Peer reviews for submissions across ALL of this meta-reviewer's assigned
-  // tracks (not just the first one, and not every submission in the whole
-  // conference - a meta-reviewer should only see what they're assigned to).
+  // One row per SUBMISSION (not per peer review) across all of this
+  // meta-reviewer's assigned tracks - a submission reviewed by multiple
+  // reviewers must appear only once here, with every one of those reviews
+  // shown together on its recommendation-submission page so the
+  // meta-reviewer can weigh them all before deciding.
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
-        "select pr.* from peer_review pr join submissions s on s.submission_id::text = pr.submission_id where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT' and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)",
+        `select s.submission_id, s.title, s.paper_number, count(pr.id)::int as review_count
+         from submissions s
+         join peer_review pr on pr.submission_id = s.submission_id::text
+         where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT'
+           and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)
+         group by s.submission_id, s.title, s.paper_number`,
         [assigned_tracks.rows.map((t) => t.track_id)]
       )
     : { rows: [] };

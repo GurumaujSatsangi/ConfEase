@@ -42,23 +42,35 @@
             <table class="table">
                 <tr>
                     <th>
-                        PEER REVIEW ID
+                        PAPER ID
+                    </th>
+                    <th>
+                        SUBMISSION TITLE
+                    </th>
+                    <th>
+                        REVIEWS RECEIVED
                     </th>
                     <th>
 ACTION
                     </th>
                 </tr>
-           
 
-            <% peer_review.forEach(function(peer_review){ %>
+
+            <% peer_review.forEach(function(submission){ %>
 
 
 <tr>
     <td>
-        <%= peer_review.id %>
+        <%+ submission.paper_number %>
     </td>
     <td>
-        <a href="/meta-reviewer/dashboard/recommendation-submission/<%= peer_review.submission_id%>" disabled class="btn btn-primary btn-sm">
+        <%= submission.title %>
+    </td>
+    <td>
+        <%= submission.review_count %>
+    </td>
+    <td>
+        <a href="/meta-reviewer/dashboard/recommendation-submission/<%= submission.submission_id%>" class="btn btn-primary btn-sm">
   Submit Recommendation
         </a>
 
@@ -67,7 +79,7 @@ ACTION
 
     </td>
 </tr>
-            
+
             <% }) %>
 
              </table>
