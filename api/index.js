@@ -5,6 +5,8 @@ import { createClient } from 'redis';
 import passport from "passport";
 import { RedisStore } from "connect-redis";
 import {PDFParse} from 'pdf-parse';
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import fs from "fs";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import passwordValidator from 'password-validator';
@@ -1696,17 +1698,17 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   }
 
   // Certificate availability, shown (as a Download Certificate button, or
-  // "Not Yet Generated") once a poster submission has been scored. Live
+  // "Not Yet Generated") once a submission has been scored/presented. Live
   // lookup, same reasoning as schedule/registration above: certificate
   // generation happens independently of the submission row.
-  const posterScoredSubmissionIds = submissions
-    .filter((s) => s.submission_status === "Poster Scored")
+  const certificateEligibleSubmissionIds = submissions
+    .filter((s) => s.submission_status === "Poster Scored" || s.submission_status === "Presentation Completed")
     .map((s) => s.submission_id);
   const generatedCertificateSubmissionIds = new Set();
-  if (posterScoredSubmissionIds.length > 0) {
+  if (certificateEligibleSubmissionIds.length > 0) {
     const certificatesResult = await pool.query(
       "select submission_id from certificates where submission_id = ANY($1) and status = 'GENERATED'",
-      [posterScoredSubmissionIds]
+      [certificateEligibleSubmissionIds]
     );
     certificatesResult.rows.forEach((c) => generatedCertificateSubmissionIds.add(c.submission_id));
   }
@@ -4708,7 +4710,145 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
   }
 });
 
+// For every submission in this conference whose status is Poster Scored or
+// Presentation Completed, mark a certificate as available (a certificates
+// row with status GENERATED). The PDF itself is built on demand when the
+// author clicks Download - nothing is rendered or stored here. Idempotent:
+// re-clicking for the same conference just skips submissions that already
+// have a row (ON CONFLICT on the submission_id unique constraint).
+app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
 
+  try {
+    const result = await pool.query(
+      `INSERT INTO certificates (conference_id, submission_id, status)
+       SELECT conference_id, submission_id, 'GENERATED'
+       FROM submissions
+       WHERE conference_id = $1 AND submission_status IN ('Poster Scored', 'Presentation Completed')
+       ON CONFLICT (submission_id) DO NOTHING
+       RETURNING submission_id;`,
+      [req.params.id]
+    );
+    res.redirect(`/chair/dashboard?message=PDF download enabled for ${result.rows.length} submission(s).`);
+  } catch (err) {
+    console.error("Error enabling PDF download:", err);
+    res.redirect("/chair/dashboard?message=An unexpected error occurred.");
+  }
+});
+
+// Certificate PDFs are never stored - each download request generates the
+// PDF fresh from the template image plus the submission's own data, so
+// there's nothing on disk to go stale or to clean up.
+const CERTIFICATE_TEMPLATE_PATH = path.join(rootDir, "assets", "certificate_template.png");
+let certificateTemplateBytesCache = null;
+function loadCertificateTemplateBytes() {
+  if (!certificateTemplateBytesCache) {
+    certificateTemplateBytesCache = fs.readFileSync(CERTIFICATE_TEMPLATE_PATH);
+  }
+  return certificateTemplateBytesCache;
+}
+
+async function generateCertificatePdf({ name, conferenceTitle, submissionTitle }) {
+  const pdfDoc = await PDFDocument.create();
+  const pngImage = await pdfDoc.embedPng(loadCertificateTemplateBytes());
+
+  // A4 landscape points - the template's own aspect ratio (2000x1414) is
+  // close enough to A4 landscape (~1.41) that stretching it in doesn't
+  // noticeably distort the artwork.
+  const pageWidth = 841.89;
+  const pageHeight = 595.28;
+  const page = pdfDoc.addPage([pageWidth, pageHeight]);
+  page.drawImage(pngImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+
+  const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const goldColor = rgb(0.66, 0.44, 0.09);
+  const darkColor = rgb(0.15, 0.15, 0.15);
+
+  // Each drawn element below covers the template's own placeholder text
+  // with a white rectangle first, then centers the real value in its
+  // place - fractions are measured against the 2000x1414 template image.
+  const drawCentered = (text, { yFrac, fontSize, font, color, coverBandFrac }) => {
+    const y = pageHeight - yFrac * pageHeight;
+    if (coverBandFrac) {
+      page.drawRectangle({
+        x: 0,
+        y: y - (coverBandFrac * pageHeight) / 2,
+        width: pageWidth,
+        height: coverBandFrac * pageHeight,
+        color: rgb(1, 1, 1),
+      });
+    }
+    const textWidth = font.widthOfTextAtSize(text, fontSize);
+    page.drawText(text, {
+      x: (pageWidth - textWidth) / 2,
+      y: y - fontSize * 0.35,
+      size: fontSize,
+      font,
+      color,
+    });
+  };
+
+  drawCentered(name, { yFrac: 0.414, fontSize: 30, font: italicFont, color: goldColor, coverBandFrac: 0.07 });
+  drawCentered(`for presenting a poster / paper at the ${conferenceTitle}`, {
+    yFrac: 0.513,
+    fontSize: 14,
+    font: regularFont,
+    color: darkColor,
+    coverBandFrac: 0.05,
+  });
+  drawCentered(submissionTitle, { yFrac: 0.62, fontSize: 13, font: italicFont, color: darkColor });
+
+  return pdfDoc.save();
+}
+
+app.get("/submission/download-certificate/:id", checkAuth, async (req, res) => {
+  try {
+    const submissionResult = await pool.query(
+      `SELECT s.*, c.title AS conference_title FROM submissions s
+       JOIN conferences c ON c.conference_id::text = s.conference_id
+       WHERE s.submission_id = $1 LIMIT 1;`,
+      [req.params.id]
+    );
+    const submission = submissionResult.rows[0];
+    if (!submission) {
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+    if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
+      return res.redirect("/dashboard?message=You are not authorized to download this certificate.");
+    }
+
+    const certificateResult = await pool.query(
+      "select 1 from certificates where submission_id = $1 and status = 'GENERATED'",
+      [req.params.id]
+    );
+    if (certificateResult.rows.length === 0) {
+      return res.redirect(`/conference/${submission.conference_id}?message=Certificate has not been generated yet.`);
+    }
+
+    const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
+    const usersResult = authorEmails.length
+      ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
+      : { rows: [] };
+    const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
+    const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
+
+    const pdfBytes = await generateCertificatePdf({
+      name: combinedName,
+      conferenceTitle: submission.conference_title,
+      submissionTitle: submission.title,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="certificate-${req.params.id}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (err) {
+    console.error("Error generating certificate PDF:", err);
+    res.redirect("/dashboard?message=An unexpected error occurred while generating the certificate.");
+  }
+});
 
 app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 

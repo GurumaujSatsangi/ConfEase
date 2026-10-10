@@ -235,7 +235,7 @@
                             <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
                         <% } %>
                     </td>
-                    <% } else if (submission.submission_status === 'Poster Scored') { %>
+                    <% } else if (submission.submission_status === 'Poster Scored' || submission.submission_status === 'Presentation Completed') { %>
                     <td>
                         <% if (submission.certificateGenerated) { %>
                             <a href="/submission/download-certificate/<%= submission.submission_id %>" class="btn btn-success btn-sm">Download Certificate</a>
