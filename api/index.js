@@ -139,6 +139,61 @@ async function loadConferenceRoles(email) {
   }, {});
 }
 
+// conference_roles has no notion of WHICH subject area granted a role - it's
+// just (conference_id, email, role). So when a chair edits a subject area's
+// reviewer/session-chair list, a plain "replace the array" update (which is
+// all conference_tracks.track_reviewers/panelists ever did) left this table
+// completely out of sync: a newly added reviewer never got a role row (so
+// their JWT never grants them "reviewer" and /reviewer/dashboard rejects
+// them), and a removed reviewer kept their stale role row forever. These two
+// helpers keep conference_roles in sync whenever a subject area's
+// reviewer/session-chair list (or the subject area itself) changes.
+//
+// Grants `role` to `email` for `conferenceId` if they don't already have it.
+// Returns true if this call is what granted it (so the caller knows whether
+// to send a "Role Assigned" notification).
+async function ensureConferenceRole(conferenceId, email, role) {
+  const existing = await pool.query(
+    "select 1 from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3 limit 1",
+    [conferenceId, email, role]
+  );
+  if (existing.rows.length > 0) return false;
+  await pool.query("insert into conference_roles values($1,$2,$3)", [conferenceId, email, role]);
+  return true;
+}
+
+// Revokes `role` from `email` for `conferenceId`, UNLESS some other subject
+// area in the same conference (any track_id other than `excludeTrackId`)
+// still lists them in `arrayColumn` (track_reviewers or panelists) - since
+// that would mean they still legitimately hold this role via that other
+// assignment. `arrayColumn` is always one of those two fixed, hardcoded
+// strings (never request input), so building it into the query text is safe.
+async function pruneConferenceRoleIfUnassigned(conferenceId, excludeTrackId, email, role, arrayColumn) {
+  const stillAssignedElsewhere = await pool.query(
+    `select 1 from conference_tracks
+     where conference_id = $1 and track_id <> $2
+       and exists (select 1 from unnest(${arrayColumn}) x where lower(x) = lower($3))
+     limit 1`,
+    [conferenceId, excludeTrackId, email]
+  );
+  if (stillAssignedElsewhere.rows.length > 0) return;
+  await pool.query(
+    "delete from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+    [conferenceId, email, role]
+  );
+}
+
+// Diffs an old vs new list of emails (case-insensitively) into what was
+// added and what was removed.
+function diffEmailLists(oldList, newList) {
+  const oldLower = (oldList || []).map((e) => String(e).toLowerCase());
+  const newLower = (newList || []).map((e) => String(e).toLowerCase());
+  return {
+    added: (newList || []).filter((e) => !oldLower.includes(String(e).toLowerCase())),
+    removed: (oldList || []).filter((e) => !newLower.includes(String(e).toLowerCase())),
+  };
+}
+
 // JWT-only role checks (no DB lookup): used to gate dashboards/pages whose
 // authorization is coarse ("does this user hold this role anywhere / for this
 // conference"). The roles claim is only as fresh as the access token - a role
@@ -2238,6 +2293,16 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
     ? coordinators.split(',').map(e => e.trim()).filter(e => e !== '')
     : [];
 
+  // There's only one poster_session row per conference, so (unlike subject
+  // areas) a removed coordinator can't still hold the role via "another
+  // instance" - just diff old vs new directly.
+  const priorCoordinatorsResult = await pool.query(
+    "select coodinators from poster_session where conference_id = $1",
+    [conference_id]
+  );
+  const oldCoordinators = priorCoordinatorsResult.rows[0]?.coodinators || [];
+  const coordinatorDiff = diffEmailLists(oldCoordinators, coordinatorArray);
+
 const posterClient = await pool.connect();
 try {
   await posterClient.query("BEGIN");
@@ -2250,8 +2315,20 @@ try {
    WHERE conference_id = $5;`,
   [session_date, start_time, end_time, coordinatorArray, conference_id]
   );
-  for(const coordinator of coordinatorArray){
-    await posterClient.query("insert into conference_roles values($1, $2, $3)",[req.params.id, coordinator,"poster_presentation_coordinator"]);
+  for (const removed of coordinatorDiff.removed) {
+    await posterClient.query(
+      "delete from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+      [conference_id, removed, "poster_presentation_coordinator"]
+    );
+  }
+  for (const coordinator of coordinatorDiff.added) {
+    const existing = await posterClient.query(
+      "select 1 from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+      [conference_id, coordinator, "poster_presentation_coordinator"]
+    );
+    if (existing.rows.length === 0) {
+      await posterClient.query("insert into conference_roles values($1, $2, $3)", [conference_id, coordinator, "poster_presentation_coordinator"]);
+    }
   }
   await posterClient.query("COMMIT");
 } catch (txErr) {
@@ -2261,7 +2338,9 @@ try {
   posterClient.release();
 }
 
-for (const coordinator of coordinatorArray) {
+// Only notify newly added coordinators - not everyone, every time the
+// chair re-saves the same list (e.g. just changing the date/time).
+for (const coordinator of coordinatorDiff.added) {
   const coordinatorName = await getUserDisplayName(coordinator);
   await sendMail(coordinator,"Poster Presentation Coordinator Role Assigned",null,greeting(coordinatorName)+" <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+escapeHtml(session_date)+"<br><b>Timings:</b> "+escapeHtml(start_time)+" - "+escapeHtml(end_time)+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
 }
@@ -3787,6 +3866,39 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
       ]
     );
 
+    // 4. Keep conference_roles in sync with the new reviewer/session-chair
+    // lists (see ensureConferenceRole/pruneConferenceRoleIfUnassigned):
+    // grant the role to anyone newly added, and revoke it from anyone
+    // removed who isn't still assigned to another subject area in this
+    // conference.
+    const conferenceId = subjectRow.rows[0].conference_id;
+    const reviewerDiff = diffEmailLists(oldReviewers, reviewersArray);
+    const sessionChairDiff = diffEmailLists(oldPanelists, panelistsArray);
+
+    for (const email of reviewerDiff.removed) {
+      await pruneConferenceRoleIfUnassigned(conferenceId, trackId, email, "reviewer", "track_reviewers");
+    }
+    for (const email of reviewerDiff.added) {
+      if (await ensureConferenceRole(conferenceId, email, "reviewer")) {
+        const reviewerName = await getUserDisplayName(email);
+        await sendMail(
+          email, "Reviewer Role Assigned", null,
+          greeting(reviewerName) + "<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+        );
+      }
+    }
+    for (const email of sessionChairDiff.removed) {
+      await pruneConferenceRoleIfUnassigned(conferenceId, trackId, email, "session_chair", "panelists");
+    }
+    for (const email of sessionChairDiff.added) {
+      if (await ensureConferenceRole(conferenceId, email, "session_chair")) {
+        const chairName = await getUserDisplayName(email);
+        await sendMail(
+          email, "Session Chair Role Assigned", null,
+          greeting(chairName) + " <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
+        );
+      }
+    }
 
     res.redirect("/chair/dashboard?message=Track updated successfully!");
   } catch (err) {
@@ -4336,14 +4448,42 @@ app.post("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   }
   const linkedSubmissions = await pool.query("select 1 from submissions where track_id = $1 limit 1", [req.params.id]);
   if (linkedSubmissions.rows.length) return res.redirect(manageTracksUrl(trackOwner.rows[0].conference_id, "This subject area has submissions and cannot be deleted."));
+
+  // Fetch who held roles via this subject area before deleting it, so those
+  // roles can be revoked afterward (unless they're still assigned to another
+  // subject area in this conference) - see pruneConferenceRoleIfUnassigned.
+  const beingDeleted = await pool.query(
+    "select track_reviewers, panelists, meta_reviewer from conference_tracks where track_id = $1",
+    [req.params.id]
+  );
+  const conferenceId = trackOwner.rows[0].conference_id;
+
   const result = await pool.query("delete from conference_tracks where track_id = $1",[req.params.id]);
   if(!result.rowCount){
     return res.redirect("/chair/dashboard?message=Error deleting Track!");
   }
-  else{
-        return res.redirect("/chair/dashboard?message=Track Deleted Succesfully!");
 
+  const deletedRow = beingDeleted.rows[0] || {};
+  for (const email of deletedRow.track_reviewers || []) {
+    await pruneConferenceRoleIfUnassigned(conferenceId, req.params.id, email, "reviewer", "track_reviewers");
   }
+  for (const email of deletedRow.panelists || []) {
+    await pruneConferenceRoleIfUnassigned(conferenceId, req.params.id, email, "session_chair", "panelists");
+  }
+  if (deletedRow.meta_reviewer) {
+    const stillMetaReviewerElsewhere = await pool.query(
+      "select 1 from conference_tracks where conference_id = $1 and track_id <> $2 and lower(meta_reviewer) = lower($3) limit 1",
+      [conferenceId, req.params.id, deletedRow.meta_reviewer]
+    );
+    if (stillMetaReviewerElsewhere.rows.length === 0) {
+      await pool.query(
+        "delete from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+        [conferenceId, deletedRow.meta_reviewer, "meta_reviewer"]
+      );
+    }
+  }
+
+  return res.redirect("/chair/dashboard?message=Track Deleted Succesfully!");
 })
 
 app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
