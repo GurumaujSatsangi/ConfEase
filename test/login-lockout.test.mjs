@@ -67,6 +67,18 @@ const postLogin = (path, email, password) =>
 // decode before matching against a plain-text pattern.
 const loc = (res) => decodeURIComponent(res.headers.get("location") || "");
 
+// A locked-out redirect carries the exact remaining seconds (not a static
+// message), so the login page can run a live countdown - see
+// partials/header copy.ejs. Asserts the shape and returns the seconds value.
+function assertLockedRedirect(res, message) {
+  const url = new URL(loc(res), "http://localhost");
+  assert.equal(url.pathname, "/login/user", message);
+  assert.equal(url.searchParams.get("locked"), "1", message);
+  const seconds = Number(url.searchParams.get("seconds"));
+  assert.ok(Number.isFinite(seconds) && seconds > 0 && seconds <= 300, `${message} (seconds=${url.searchParams.get("seconds")})`);
+  return seconds;
+}
+
 test("/user-login: 3 wrong passwords lock the account; the correct password is then also rejected until the lock expires", async () => {
   const { email, password } = await createTestUser();
 
@@ -79,12 +91,12 @@ test("/user-login: 3 wrong passwords lock the account; the correct password is t
   // 3rd failure: this is the one that trips the lock.
   const third = await postLogin("/user-login", email, "wrong-password");
   assert.equal(third.status, 302);
-  assert.match(loc(third), /Too many failed login attempts/, "3rd failure should report the lockout, not a generic invalid-credentials message");
+  assertLockedRedirect(third, "3rd failure should report the lockout, with a countdown, not a generic invalid-credentials message");
 
   // Now even the CORRECT password is rejected, because the account is locked.
   const withCorrectPassword = await postLogin("/user-login", email, password);
   assert.equal(withCorrectPassword.status, 302);
-  assert.match(loc(withCorrectPassword), /Too many failed login attempts/, "correct password must still be rejected while locked out");
+  assertLockedRedirect(withCorrectPassword, "correct password must still be rejected while locked out");
 });
 
 test("/user-login: a different account is unaffected by another account's lockout", async () => {
@@ -95,7 +107,7 @@ test("/user-login: a different account is unaffected by another account's lockou
     await postLogin("/user-login", locked.email, "wrong-password");
   }
   const lockedCheck = await postLogin("/user-login", locked.email, locked.password);
-  assert.match(loc(lockedCheck), /Too many failed login attempts/);
+  assertLockedRedirect(lockedCheck, "the attacked account should still be locked");
 
   // The other account, never touched, should log in normally.
   const otherLogin = await postLogin("/user-login", other.email, other.password);
@@ -130,8 +142,21 @@ test("/chair-login: 3 failed attempts lock the chair account, independently of a
     assert.match(loc(res), /Invalid email or password/);
   }
   const third = await postLogin("/chair-login", email, "wrong-password");
-  assert.match(loc(third), /Too many failed login attempts/);
+  assertLockedRedirect(third, "3rd chair-login failure should lock the account");
 
   const stillLocked = await postLogin("/chair-login", email, password);
-  assert.match(loc(stillLocked), /Too many failed login attempts/);
+  assertLockedRedirect(stillLocked, "chair account should still be locked even with the correct password");
+});
+
+test("getLoginLockRemainingSeconds reflects the real remaining lock time, not a reset full window", async () => {
+  const { email } = await createTestUser();
+  for (let i = 0; i < 3; i++) await postLogin("/user-login", email, "wrong-password");
+
+  const first = assertLockedRedirect(await postLogin("/user-login", email, "wrong-password"), "still locked");
+  // A couple of seconds later, the remaining time must have ticked down, not
+  // reset to the full 300s - proves this reads the lock's actual remaining
+  // TTL on each check rather than assuming a fresh 5-minute window.
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const second = assertLockedRedirect(await postLogin("/user-login", email, "wrong-password"), "still locked, 2s later");
+  assert.ok(second < first, `expected remaining time to decrease (first=${first}, second=${second})`);
 });

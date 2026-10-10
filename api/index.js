@@ -713,25 +713,29 @@ function loginLockoutKeys(scope, email) {
   return { failKey: "loginfail:" + id, lockKey: "loginlock:" + id };
 }
 
-// Returns true (and leaves the record untouched) if this account is
-// currently locked out.
-async function isLoginLocked(scope, email) {
+// Returns the number of seconds left on this account's lockout (0 if it
+// isn't locked), so the login page can show an accurate countdown rather
+// than always assuming the full 5 minutes - the account may already be
+// partway through its lockout when this is checked.
+async function getLoginLockRemainingSeconds(scope, email) {
   const { lockKey } = loginLockoutKeys(scope, email);
   if (redisClient) {
     try {
-      return Boolean(await redisClient.get(lockKey));
+      const ttl = await redisClient.ttl(lockKey);
+      return ttl > 0 ? ttl : 0;
     } catch (err) {
       console.warn("Login lockout check: Redis unavailable, using in-memory fallback.", err.message);
     }
   }
   const entry = loginLockoutsMemory.get(lockKey);
-  if (entry && entry.until > Date.now()) return true;
+  if (entry && entry.until > Date.now()) return Math.ceil((entry.until - Date.now()) / 1000);
   if (entry) loginLockoutsMemory.delete(lockKey);
-  return false;
+  return 0;
 }
 
 // Call after a failed password check. Locks the account once the attempt
-// count reaches LOGIN_LOCKOUT_MAX_ATTEMPTS.
+// count reaches LOGIN_LOCKOUT_MAX_ATTEMPTS. Returns the lockout's remaining
+// seconds if this failure just triggered it, 0 otherwise.
 async function recordFailedLogin(scope, email) {
   const { failKey, lockKey } = loginLockoutKeys(scope, email);
   if (redisClient) {
@@ -741,9 +745,9 @@ async function recordFailedLogin(scope, email) {
       if (attempts >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
         await redisClient.set(lockKey, "1", { EX: LOGIN_LOCKOUT_SECONDS });
         await redisClient.del(failKey);
-        return true; // just got locked out
+        return LOGIN_LOCKOUT_SECONDS; // just got locked out
       }
-      return false;
+      return 0;
     } catch (err) {
       console.warn("Login lockout record: Redis unavailable, using in-memory fallback.", err.message);
     }
@@ -758,9 +762,16 @@ async function recordFailedLogin(scope, email) {
   if (entry.count >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
     loginLockoutsMemory.set(lockKey, { until: now + LOGIN_LOCKOUT_SECONDS * 1000 });
     loginAttemptsMemory.delete(failKey);
-    return true;
+    return LOGIN_LOCKOUT_SECONDS;
   }
-  return false;
+  return 0;
+}
+
+// Redirect target for a locked-out login attempt. Carries the exact
+// remaining seconds (not just a static message) so the login page can run a
+// live, non-dismissable countdown - see partials/header copy.ejs.
+function loginLockedRedirect(seconds) {
+  return "/login/user?locked=1&seconds=" + encodeURIComponent(seconds);
 }
 
 // Call after a successful login, so a later unrelated failure doesn't
@@ -3079,10 +3090,9 @@ app.post("/user-login", async (req, res) => {
 
     const { email, password } = req.body;
 
-    if (await isLoginLocked("user", email)) {
-      return res.redirect(
-        "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
-      );
+    const lockedFor = await getLoginLockRemainingSeconds("user", email);
+    if (lockedFor > 0) {
+      return res.redirect(loginLockedRedirect(lockedFor));
     }
 
     // FETCH USER
@@ -3092,10 +3102,10 @@ app.post("/user-login", async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
-      const justLocked = await recordFailedLogin("user", email);
+      const justLockedFor = await recordFailedLogin("user", email);
       return res.redirect(
-        justLocked
-          ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+        justLockedFor > 0
+          ? loginLockedRedirect(justLockedFor)
           : "/login/user?message=Invalid email or password"
       );
     }
@@ -3117,10 +3127,10 @@ app.post("/user-login", async (req, res) => {
     );
 
     if (!isMatch) {
-      const justLocked = await recordFailedLogin("user", email);
+      const justLockedFor = await recordFailedLogin("user", email);
       return res.redirect(
-        justLocked
-          ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+        justLockedFor > 0
+          ? loginLockedRedirect(justLockedFor)
           : "/login/user?message=Invalid email or password"
       );
     }
@@ -3494,8 +3504,9 @@ app.post("/chair-login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (await isLoginLocked("chair", email)) {
-      return res.redirect("/login/user?message=Too many failed login attempts. Please try again in 5 minutes.");
+    const lockedFor = await getLoginLockRemainingSeconds("chair", email);
+    if (lockedFor > 0) {
+      return res.redirect(loginLockedRedirect(lockedFor));
     }
 
     // fetch user
@@ -3505,9 +3516,9 @@ app.post("/chair-login", async (req, res) => {
     );
 
     if (userResult.rows.length === 0) {
-      const justLocked = await recordFailedLogin("chair", email);
-      return res.redirect(justLocked
-        ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+      const justLockedFor = await recordFailedLogin("chair", email);
+      return res.redirect(justLockedFor > 0
+        ? loginLockedRedirect(justLockedFor)
         : "/login/user?message=Invalid email or password");
     }
 
@@ -3517,9 +3528,9 @@ app.post("/chair-login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      const justLocked = await recordFailedLogin("chair", email);
-      return res.redirect(justLocked
-        ? "/login/user?message=Too many failed login attempts. Please try again in 5 minutes."
+      const justLockedFor = await recordFailedLogin("chair", email);
+      return res.redirect(justLockedFor > 0
+        ? loginLockedRedirect(justLockedFor)
         : "/login/user?message=Invalid email or password");
     }
 

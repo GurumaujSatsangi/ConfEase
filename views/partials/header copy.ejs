@@ -64,3 +64,48 @@
     })();
   </script>
 <% } %>
+<script>
+  // Account lockout countdown: after too many failed login attempts, the
+  // server redirects here with ?locked=1&seconds=<remaining>. While that
+  // remains, the popup can't be dismissed (no close button, no outside
+  // click, no Escape) and counts down live until the lockout actually ends.
+  (function () {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      let remaining = parseInt(params.get('seconds'), 10);
+      if (params.get('locked') !== '1' || !(remaining > 0)) return;
+
+      const format = (s) => {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return m + ':' + String(sec).padStart(2, '0');
+      };
+
+      Swal.fire({
+        icon: 'error',
+        title: 'Too Many Failed Attempts',
+        html: 'For your account\'s security, login is temporarily locked.<br><br>Please try again in <b id="lockout-countdown">' + format(remaining) + '</b>.',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        showCloseButton: false,
+        didOpen: () => {
+          const el = document.getElementById('lockout-countdown');
+          const interval = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(interval);
+              Swal.close();
+              // Drop the query string so a refresh doesn't re-show an expired countdown.
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else if (el) {
+              el.textContent = format(remaining);
+            }
+          }, 1000);
+        },
+      });
+    } catch (e) {
+      console.error('Error showing login lockout countdown', e);
+    }
+  })();
+</script>
