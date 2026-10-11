@@ -1295,10 +1295,10 @@ async function invalidateConferenceSubmissionCache(emails, conferenceId) {
   await Promise.all(uniqueKeys.map((key) => redisClient.del(key)));
 }
 
-// Ownership helpers (use existing data: conferences.created_by/co_chairs, track_reviewers, panelists)
+// Ownership helpers (use existing data: conferences.created_by, track_reviewers, panelists)
 async function chairOwnsConference(email, conferenceId) {
   const result = await pool.query(
-    "select 1 from conferences where conference_id = $1 and (created_by = $2 or $2 = any(co_chairs))",
+    "select 1 from conferences where conference_id = $1 and created_by = $2",
     [conferenceId, email]
   );
   return result.rows.length > 0;
@@ -5166,16 +5166,15 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
     acceptance_notification,
     camera_ready_paper_submission,
     deadline_peer_review,
-    co_chairs,
-    communication
+    cfp_link
   } = req.body;
 
   try {
     // 1. Insert conference and return row
     const confResult = await pool.query(
       `INSERT INTO conferences
-      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,co_chairs,created_by,communication)
-      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,array[$9],$10,array[$11])
+      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,created_by,cfp_link)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10)
       RETURNING conference_id;`,
       [
         title,
@@ -5186,9 +5185,8 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
         acceptance_notification,
         camera_ready_paper_submission,
         deadline_peer_review,
-        co_chairs,
         req.user.email,
-        communication
+        cfp_link || null
       ]
     );
 
@@ -6115,6 +6113,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
     full_paper_submission,
     acceptance_notification,
     camera_ready_paper_submission,
+    cfp_link,
   } = req.body;
 
   try {
@@ -6129,8 +6128,9 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
            conference_end_date = $4,
            full_paper_submission = $5,
            acceptance_notification = $6,
-           camera_ready_paper_submission = $7
-       WHERE conference_id = $8;`,
+           camera_ready_paper_submission = $7,
+           cfp_link = $8
+       WHERE conference_id = $9;`,
       [
         title,
         sanitizeDescription(description),
@@ -6139,6 +6139,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
         full_paper_submission,
         acceptance_notification,
         camera_ready_paper_submission,
+        cfp_link || null,
         conferenceId
       ]
     );

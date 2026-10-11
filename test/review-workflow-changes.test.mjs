@@ -205,3 +205,52 @@ test("AI detection columns are gone from the schema", async () => {
   );
   assert.equal(cols.rows.length, 0, "ai_score/is_ai must not exist on submissions or revised_submissions anymore");
 });
+
+test("cfp_link: set at creation, shown on the conference page, editable afterwards", async () => {
+  const userToken = jwt.sign({ typ: "access", email: "rw-test-author@example.com", name: "RW Author", user_id: 4, role: "user", roles: {} }, secret, { expiresIn: "5m" });
+
+  const createRes = await post("/create-new-conference", chairToken, {
+    title: "RW_TEST_CFP_" + crypto.randomBytes(3).toString("hex"),
+    description: "d",
+    conference_start_date: "2027-01-01",
+    conference_end_date: "2027-01-02",
+    full_paper_submission: "2027-01-01",
+    acceptance_notification: "2027-01-01",
+    camera_ready_paper_submission: "2027-01-01",
+    deadline_peer_review: "2027-01-01",
+    cfp_link: "https://example.com/cfp-v1.pdf",
+  });
+  assert.equal(createRes.status, 302);
+
+  const created = await pool.query("select conference_id, cfp_link from conferences where cfp_link = $1", ["https://example.com/cfp-v1.pdf"]);
+  assert.equal(created.rows.length, 1, "the conference must be saved with the submitted cfp_link");
+  const conferenceId = created.rows[0].conference_id;
+  conferenceIds.push(conferenceId);
+
+  const pageHtml = await (await get(`/conference/${conferenceId}`, userToken)).text();
+  assert.ok(pageHtml.includes("https://example.com/cfp-v1.pdf"), "the public conference page must show the CFP link");
+
+  const updateRes = await post(`/chair/dashboard/update-conference/${conferenceId}`, chairToken, {
+    title: "RW_TEST_CFP_updated",
+    description: "d2",
+    conference_start_date: "2027-01-01",
+    conference_end_date: "2027-01-02",
+    full_paper_submission: "2027-01-01",
+    acceptance_notification: "2027-01-01",
+    camera_ready_paper_submission: "2027-01-01",
+    cfp_link: "https://example.com/cfp-v2.pdf",
+  });
+  assert.equal(updateRes.status, 302);
+
+  const updated = await pool.query("select cfp_link from conferences where conference_id = $1", [conferenceId]);
+  assert.equal(updated.rows[0].cfp_link, "https://example.com/cfp-v2.pdf", "update-conference must save the new cfp_link");
+});
+
+test("a chair who is neither the creator nor (the now-removed) a co-chair cannot manage someone else's conference", async () => {
+  const conferenceId = await makeConference();
+  const strangerChairToken = jwt.sign({ typ: "chair", email: "rw-test-stranger-chair@example.com", name: "Stranger Chair", user_id: 5, role: "chair" }, secret, { expiresIn: "5m" });
+
+  const res = await get(`/chair/dashboard/edit-conference/${conferenceId}`, strangerChairToken);
+  assert.equal(res.status, 302);
+  assert.match(decodeURIComponent(res.headers.get("location") || ""), /not authorized/);
+});

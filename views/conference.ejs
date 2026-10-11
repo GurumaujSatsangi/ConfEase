@@ -14,7 +14,11 @@
 
         <h4><%= conference.title %></h4>
 
-        <% 
+      <% if (conference.cfp_link) { %>
+        <p class="small"><a href="<%= conference.cfp_link %>" target="_blank" rel="noopener"><i class="bi bi-file-earmark-text"></i> Call for Papers</a></p>
+      <% } %>
+
+        <%
           let roleStr = "";
           
           if (user && user.roles) {

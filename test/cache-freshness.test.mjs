@@ -152,8 +152,6 @@ test("conferences cache: create -> read shows the new conference without waiting
     acceptance_notification: "2027-01-01",
     camera_ready_paper_submission: "2027-01-01",
     deadline_peer_review: "2027-01-01",
-    co_chairs: "",
-    communication: "",
   });
   assert.equal(createRes.status, 302, "create-new-conference should redirect on success");
 
