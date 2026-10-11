@@ -206,15 +206,20 @@ test("generateCertificatePdfUrl: a failed autofill job throws with Canva's error
 
 // --- /admin/canva/* routes (real app, real DB, real session, no Canva network) ---
 
-const CANVA_ROUTES = [
+// /admin/canva/callback is deliberately NOT in this list: Canva's redirect
+// back to it is a cross-site navigation, so the browser does not send the
+// SameSite=strict login cookie on it - checkAuth would reject a legitimate
+// callback, which is exactly the bug this was built to avoid (see the test
+// further below). Its own security gate is the session-stashed `state`
+// match instead, covered separately.
+const ADMIN_GATED_CANVA_ROUTES = [
   ["GET", "/admin/canva/connect"],
-  ["GET", "/admin/canva/callback"],
   ["GET", "/admin/canva/dataset"],
   ["POST", "/admin/canva/disconnect"],
 ];
 
-test("every /admin/canva/* route is blocked for a non-admin", async () => {
-  for (const [method, path] of CANVA_ROUTES) {
+test("every admin-gated /admin/canva/* route is blocked for a non-admin", async () => {
+  for (const [method, path] of ADMIN_GATED_CANVA_ROUTES) {
     const res = await fetch(base + path, { method, redirect: "manual", headers: { Authorization: `Bearer ${nonAdminToken}` } });
     assert.equal(res.status, 403, `${method} ${path}`);
   }
@@ -246,6 +251,48 @@ test("GET /admin/canva/callback rejects a state that doesn't match what /connect
 
   const row = await pool.query("select 1 from canva_connection where id = 1");
   assert.equal(row.rows.length, 0, "a state mismatch must not result in a stored connection");
+});
+
+test("GET /admin/canva/callback succeeds with ONLY the session cookie, no login cookie at all (the real cross-site-redirect scenario)", async () => {
+  // This reproduces a real bug: the login cookie is SameSite=strict, so the
+  // browser does NOT send it on Canva's cross-site redirect back to this
+  // route. Earlier, this route required checkAuth and so always bounced a
+  // real user to /login/user right after they clicked "Allow" on Canva's
+  // own consent screen - this test sends no Authorization header and no
+  // access_token cookie at all, only the session cookie /connect started,
+  // exactly like the real browser request.
+  const connectRes = await fetch(base + "/admin/canva/connect", { redirect: "manual", headers: { Authorization: `Bearer ${adminToken}` } });
+  const sessionCookie = (connectRes.headers.get("set-cookie") || "").split(";")[0];
+  const state = new URL(connectRes.headers.get("location")).searchParams.get("state");
+
+  // Stubbing global fetch would also intercept the request this test makes
+  // to its OWN local server below (both go through the same global
+  // fetch) - not just canva.js's internal call to Canva's token endpoint.
+  // So the stub here passes through anything that isn't the Canva token
+  // endpoint to the real fetch, instead of queuing a response for it.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url) === "https://api.canva.com/rest/v1/oauth/token") {
+      return { ok: true, status: 200, json: async () => ({ access_token: "AT-real", refresh_token: "RT-real", token_type: "Bearer", expires_in: 14400 }) };
+    }
+    return originalFetch(url, opts);
+  };
+
+  let callbackRes;
+  try {
+    callbackRes = await fetch(base + `/admin/canva/callback?code=real-code&state=${state}`, {
+      redirect: "manual",
+      headers: { Cookie: sessionCookie }, // no Authorization header, no access_token cookie
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(callbackRes.status, 302);
+  assert.match(decodeURIComponent(callbackRes.headers.get("location") || ""), /connected successfully/i);
+
+  const row = await pool.query("select connected_by from canva_connection where id = 1");
+  assert.equal(row.rows[0].connected_by, adminEmail, "connected_by must come from the session-stashed admin, not req.user (unavailable on this route)");
 });
 
 test("GET /admin/canva/callback with no prior session (no pending PKCE/state) also rejects cleanly", async () => {

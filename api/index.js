@@ -3552,7 +3552,11 @@ function canvaRedirectUri() {
 app.get("/admin/canva/connect", checkAuth, requireAdmin, (req, res) => {
   try {
     const { codeVerifier, codeChallenge, state } = canva.generatePkce();
-    req.session.canvaOAuth = { codeVerifier, state };
+    // adminEmail travels with the session (not the login cookie) because the
+    // login cookie is SameSite=strict and will NOT be sent back by the
+    // browser when Canva redirects here across origins - see the callback
+    // route below for why it doesn't require checkAuth.
+    req.session.canvaOAuth = { codeVerifier, state, adminEmail: req.user.email };
     const authorizeUrl = canva.buildAuthorizeUrl({ codeChallenge, state, redirectUri: canvaRedirectUri() });
     return res.redirect(authorizeUrl);
   } catch (err) {
@@ -3561,7 +3565,18 @@ app.get("/admin/canva/connect", checkAuth, requireAdmin, (req, res) => {
   }
 });
 
-app.get("/admin/canva/callback", checkAuth, requireAdmin, async (req, res) => {
+// Deliberately NOT behind checkAuth/requireAdmin: Canva's redirect back here
+// is a cross-site navigation, and the login cookie is SameSite=strict, so
+// the browser will not send it on this request even though the same person
+// is still logged in - checkAuth would reject a legitimate callback. The
+// express-session cookie (SameSite=lax by default) does survive a top-level
+// cross-site redirect like this one, so the real security check here is
+// that req.session.canvaOAuth exists and its `state` matches what Canva
+// echoes back - that pairing could only have been created by
+// /admin/canva/connect, which IS checkAuth+requireAdmin gated. The admin's
+// identity for the connected_by record also comes from that same stashed
+// session data, not from req.user (which isn't available here).
+app.get("/admin/canva/callback", async (req, res) => {
   const pending = req.session.canvaOAuth;
   delete req.session.canvaOAuth;
 
@@ -3574,7 +3589,7 @@ app.get("/admin/canva/callback", checkAuth, requireAdmin, async (req, res) => {
 
   try {
     const tokens = await canva.exchangeCodeForTokens(req.query.code, pending.codeVerifier, canvaRedirectUri());
-    await canva.saveConnection(tokens, req.user.email);
+    await canva.saveConnection(tokens, pending.adminEmail);
     return res.redirect("/admin?message=" + encodeURIComponent("Canva connected successfully."));
   } catch (err) {
     console.error("Error completing Canva connect flow:", err);
