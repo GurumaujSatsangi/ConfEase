@@ -140,6 +140,28 @@
     </div>
   </div>
 
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCanva" aria-expanded="false" aria-controls="collapseCanva">
+        <strong>Canva Integration (Certificates)</strong>
+      </button>
+    </h2>
+    <div id="collapseCanva" class="accordion-collapse collapse" data-bs-parent="#accordionExample">
+      <div class="accordion-body">
+        <p class="small">Certificates are generated in bulk via Canva's Autofill API against the configured Brand Template. This is a one-time, app-wide connection - any Chair's "Enable PDF Download" uses it once it's set up here.</p>
+        <% if (canvaConnection) { %>
+          <p class="text-success"><i class="bi bi-check-circle-fill"></i> Connected by <%= canvaConnection.connected_by %> on <%= new Date(canvaConnection.connected_at).toLocaleString() %>.</p>
+          <form method="post" action="/admin/canva/disconnect" class="d-inline" onsubmit="return confirm('Disconnect Canva? Bulk certificate generation will stop working until it is reconnected.');">
+            <button type="submit" class="btn btn-warning btn-sm">Disconnect Canva</button>
+          </form>
+        <% } else { %>
+          <p class="text-danger"><i class="bi bi-x-circle-fill"></i> Not connected.</p>
+          <a href="/admin/canva/connect" class="btn btn-primary btn-sm">Connect Canva</a>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
 <hr>
 
  

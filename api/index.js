@@ -4,8 +4,6 @@ import cookieParser from "cookie-parser";
 import { createClient } from 'redis';
 import passport from "passport";
 import { RedisStore } from "connect-redis";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import fs from "fs";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import passwordValidator from 'password-validator';
@@ -22,6 +20,7 @@ import { name } from "ejs";
 import crypto from "crypto";
 import sanitizeHtml from "sanitize-html";
 import { sendMail } from "../mailer.js"
+import * as canva from "../canva.js"
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
 const DESCRIPTION_OPTIONS = {
@@ -3519,7 +3518,8 @@ app.get("/admin",  async(req,res)=>{
 
 const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
 const conferences = await pool.query("select conference_id, title, created_by from conferences");
-res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null});
+const canvaConnection = await canva.getConnectionInfo();
+res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null, canvaConnection});
 })
 
 // Admin authorization: explicit allow-list in ADMIN_EMAILS (comma-separated). Fails closed when unset or empty.
@@ -3536,6 +3536,70 @@ function requireAdmin(req, res, next) {
   }
   return next();
 }
+
+// Canva has no server-to-server login - every access token traces back to a
+// real person authorizing the app once via the browser. This one-time
+// connection is app-wide (one shared canva_connection row), set up by an
+// Admin here. codeVerifier/state live in the session between these two
+// routes only - never sent to the browser as anything but the opaque
+// `state` query parameter.
+function canvaRedirectUri() {
+  const base = getAppUrl();
+  if (!base) throw new Error("APP_URL is not configured; Canva's redirect URI cannot be built.");
+  return `${base}/admin/canva/callback`;
+}
+
+app.get("/admin/canva/connect", checkAuth, requireAdmin, (req, res) => {
+  try {
+    const { codeVerifier, codeChallenge, state } = canva.generatePkce();
+    req.session.canvaOAuth = { codeVerifier, state };
+    const authorizeUrl = canva.buildAuthorizeUrl({ codeChallenge, state, redirectUri: canvaRedirectUri() });
+    return res.redirect(authorizeUrl);
+  } catch (err) {
+    console.error("Error starting Canva connect flow:", err);
+    return res.redirect("/admin?message=" + encodeURIComponent("Could not start the Canva connection: " + err.message));
+  }
+});
+
+app.get("/admin/canva/callback", checkAuth, requireAdmin, async (req, res) => {
+  const pending = req.session.canvaOAuth;
+  delete req.session.canvaOAuth;
+
+  if (req.query.error) {
+    return res.redirect("/admin?message=" + encodeURIComponent("Canva authorization was not completed: " + req.query.error));
+  }
+  if (!pending || !req.query.state || req.query.state !== pending.state) {
+    return res.redirect("/admin?message=" + encodeURIComponent("Canva connection failed: the authorization response could not be verified. Please try connecting again."));
+  }
+
+  try {
+    const tokens = await canva.exchangeCodeForTokens(req.query.code, pending.codeVerifier, canvaRedirectUri());
+    await canva.saveConnection(tokens, req.user.email);
+    return res.redirect("/admin?message=" + encodeURIComponent("Canva connected successfully."));
+  } catch (err) {
+    console.error("Error completing Canva connect flow:", err);
+    return res.redirect("/admin?message=" + encodeURIComponent("Could not complete the Canva connection: " + err.message));
+  }
+});
+
+app.post("/admin/canva/disconnect", checkAuth, requireAdmin, async (req, res) => {
+  await canva.disconnect();
+  return res.redirect("/admin?message=" + encodeURIComponent("Canva has been disconnected."));
+});
+
+// Diagnostic: the real placeholder names/types in the connected Brand
+// Template's dataset, so the certificate field mapping in
+// /chair/dashboard/enable-pdf-download/:id is set from what the template
+// actually has, not guessed.
+app.get("/admin/canva/dataset", checkAuth, requireAdmin, async (req, res) => {
+  try {
+    const dataset = await canva.getBrandTemplateDataset();
+    return res.json(dataset);
+  } catch (err) {
+    console.error("Error fetching Canva brand template dataset:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // Issues a 24-hour one-time setup link for a chair. Only the SHA-256 hash of the token is stored.
 async function issueAccountSetupLink(email) {
@@ -4794,100 +4858,114 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
 // author clicks Download - nothing is rendered or stored here. Idempotent:
 // re-clicking for the same conference just skips submissions that already
 // have a row (ON CONFLICT on the submission_id unique constraint).
+// Field names in the connected Canva Brand Template's own dataset (see
+// GET /admin/canva/dataset) - whatever the template's placeholders are
+// actually named. A field in CANVA_CERTIFICATE_FIELDS below that doesn't
+// match a real dataset key is simply ignored by Canva's Autofill API, not
+// an error, so these must be kept in sync with the template by hand.
+const CANVA_CERTIFICATE_FIELDS = {
+  name: "Name",
+  conferenceTitle: "Conference Title",
+  paperTitle: "Paper Title",
+};
+
 app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO certificates (conference_id, submission_id, status)
-       SELECT conference_id, submission_id, 'GENERATED'
-       FROM submissions
-       WHERE conference_id = $1 AND submission_status IN ('Poster Scored', 'Presentation Completed')
-       ON CONFLICT (submission_id) DO NOTHING
-       RETURNING submission_id;`,
+    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [req.params.id]);
+    const conferenceTitle = conferenceResult.rows[0]?.title || "";
+
+    // Only submissions that don't already have a GENERATED certificate with
+    // a stored file - re-clicking the button for a conference just fills in
+    // whatever is still missing, it never regenerates existing ones.
+    const eligible = await pool.query(
+      `select s.submission_id, s.title, s.paper_number, s.primary_author, s.co_authors
+       from submissions s
+       left join certificates c on c.submission_id = s.submission_id::text
+       where s.conference_id = $1
+         and s.submission_status in ('Poster Scored', 'Presentation Completed')
+         and (c.submission_id is null or c.status is distinct from 'GENERATED' or c.file_url is null)`,
       [req.params.id]
     );
-    res.redirect(`/chair/dashboard?message=PDF download enabled for ${result.rows.length} submission(s).`);
+
+    let generatedCount = 0;
+    const failures = [];
+    for (const submission of eligible.rows) {
+      try {
+        const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
+        const usersResult = authorEmails.length
+          ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
+          : { rows: [] };
+        const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
+        const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
+
+        // 1. Autofill the Canva Brand Template and export it as a PDF. The
+        // export URL Canva returns is only valid for 24 hours, so it's
+        // downloaded and re-uploaded to Cloudinary (step 2) right away -
+        // that permanent URL is what actually gets stored and served.
+        const canvaPdfUrl = await canva.generateCertificatePdfUrl({
+          [CANVA_CERTIFICATE_FIELDS.name]: combinedName,
+          [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
+          [CANVA_CERTIFICATE_FIELDS.paperTitle]: submission.title,
+        });
+
+        const pdfResponse = await fetch(canvaPdfUrl);
+        if (!pdfResponse.ok) throw new Error(`Could not download the generated PDF from Canva (HTTP ${pdfResponse.status})`);
+        const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+
+        const uploadResult = await uploadBufferToCloudinary(pdfBuffer, {
+          resource_type: "raw",
+          folder: "certificates",
+          public_id: `${submission.submission_id}-certificate`,
+          format: "pdf",
+        });
+
+        // 2. Record it - upsert so a retry of a submission whose earlier
+        // attempt failed partway doesn't collide with migration 009's
+        // unique constraint on submission_id.
+        await pool.query(
+          `insert into certificates (conference_id, submission_id, status, file_url)
+           values ($1, $2, 'GENERATED', $3)
+           on conflict (submission_id) do update set status = excluded.status, file_url = excluded.file_url`,
+          [req.params.id, submission.submission_id, uploadResult.secure_url]
+        );
+        generatedCount++;
+
+        // 3. Notify the author - only after the certificate is actually
+        // stored and downloadable, so the email never promises something
+        // that isn't there yet.
+        const authorName = await getUserDisplayName(submission.primary_author);
+        const paperId = formatPaperId(submission.paper_number);
+        await sendMail(
+          submission.primary_author,
+          `Certificate for Paper ID - ${paperId} | ${conferenceTitle}`,
+          null,
+          `${greeting(authorName)}<br><br>Thank you for participating in the conference!<br><br>Your certificate is now available on the dashboard. Click on My Submissions to download the certificate.`,
+          submission.co_authors
+        );
+      } catch (certErr) {
+        console.error(`Error generating certificate for submission ${submission.submission_id}:`, certErr);
+        failures.push(submission.submission_id);
+        // Keep going - one submission's Canva/Cloudinary failure shouldn't
+        // block the rest of the batch.
+      }
+    }
+
+    const failureNote = failures.length ? ` (${failures.length} failed - check the server log)` : "";
+    res.redirect(`/chair/dashboard?message=${encodeURIComponent(`PDF download enabled for ${generatedCount} submission(s)${failureNote}.`)}`);
   } catch (err) {
     console.error("Error enabling PDF download:", err);
-    res.redirect("/chair/dashboard?message=An unexpected error occurred.");
+    res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred: " + err.message));
   }
 });
-
-// Certificate PDFs are never stored - each download request generates the
-// PDF fresh from the template image plus the submission's own data, so
-// there's nothing on disk to go stale or to clean up.
-const CERTIFICATE_TEMPLATE_PATH = path.join(rootDir, "assets", "certificate_template.png");
-let certificateTemplateBytesCache = null;
-function loadCertificateTemplateBytes() {
-  if (!certificateTemplateBytesCache) {
-    certificateTemplateBytesCache = fs.readFileSync(CERTIFICATE_TEMPLATE_PATH);
-  }
-  return certificateTemplateBytesCache;
-}
-
-async function generateCertificatePdf({ name, conferenceTitle, submissionTitle }) {
-  const pdfDoc = await PDFDocument.create();
-  const pngImage = await pdfDoc.embedPng(loadCertificateTemplateBytes());
-
-  // A4 landscape points - the template's own aspect ratio (2000x1414) is
-  // close enough to A4 landscape (~1.41) that stretching it in doesn't
-  // noticeably distort the artwork.
-  const pageWidth = 841.89;
-  const pageHeight = 595.28;
-  const page = pdfDoc.addPage([pageWidth, pageHeight]);
-  page.drawImage(pngImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-
-  const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
-  const goldColor = rgb(0.66, 0.44, 0.09);
-  const darkColor = rgb(0.15, 0.15, 0.15);
-
-  // Each drawn element below covers the template's own placeholder text
-  // with a white rectangle first, then centers the real value in its
-  // place - fractions are measured against the 2000x1414 template image.
-  const drawCentered = (text, { yFrac, fontSize, font, color, coverBandFrac }) => {
-    const y = pageHeight - yFrac * pageHeight;
-    if (coverBandFrac) {
-      page.drawRectangle({
-        x: 0,
-        y: y - (coverBandFrac * pageHeight) / 2,
-        width: pageWidth,
-        height: coverBandFrac * pageHeight,
-        color: rgb(1, 1, 1),
-      });
-    }
-    const textWidth = font.widthOfTextAtSize(text, fontSize);
-    page.drawText(text, {
-      x: (pageWidth - textWidth) / 2,
-      y: y - fontSize * 0.35,
-      size: fontSize,
-      font,
-      color,
-    });
-  };
-
-  drawCentered(name, { yFrac: 0.414, fontSize: 30, font: italicFont, color: goldColor, coverBandFrac: 0.07 });
-  drawCentered(`for presenting a poster / paper at the ${conferenceTitle}`, {
-    yFrac: 0.513,
-    fontSize: 14,
-    font: regularFont,
-    color: darkColor,
-    coverBandFrac: 0.05,
-  });
-  drawCentered(submissionTitle, { yFrac: 0.62, fontSize: 13, font: italicFont, color: darkColor });
-
-  return pdfDoc.save();
-}
 
 app.get("/submission/download-certificate/:id", checkAuth, async (req, res) => {
   try {
     const submissionResult = await pool.query(
-      `SELECT s.*, c.title AS conference_title FROM submissions s
-       JOIN conferences c ON c.conference_id::text = s.conference_id
-       WHERE s.submission_id = $1 LIMIT 1;`,
+      `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
       [req.params.id]
     );
     const submission = submissionResult.rows[0];
@@ -4899,32 +4977,21 @@ app.get("/submission/download-certificate/:id", checkAuth, async (req, res) => {
     }
 
     const certificateResult = await pool.query(
-      "select 1 from certificates where submission_id = $1 and status = 'GENERATED'",
+      "select file_url from certificates where submission_id = $1 and status = 'GENERATED'",
       [req.params.id]
     );
-    if (certificateResult.rows.length === 0) {
+    const fileUrl = certificateResult.rows[0]?.file_url;
+    if (!fileUrl) {
       return res.redirect(`/conference/${submission.conference_id}?message=Certificate has not been generated yet.`);
     }
 
-    const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
-    const usersResult = authorEmails.length
-      ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
-      : { rows: [] };
-    const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
-    const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
-
-    const pdfBytes = await generateCertificatePdf({
-      name: combinedName,
-      conferenceTitle: submission.conference_title,
-      submissionTitle: submission.title,
-    });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="certificate-${req.params.id}.pdf"`);
-    res.send(Buffer.from(pdfBytes));
+    // The certificate is a permanent Cloudinary file by this point (see
+    // /chair/dashboard/enable-pdf-download/:id), not generated on demand -
+    // just hand the browser straight to it.
+    return res.redirect(fileUrl);
   } catch (err) {
-    console.error("Error generating certificate PDF:", err);
-    res.redirect("/dashboard?message=An unexpected error occurred while generating the certificate.");
+    console.error("Error downloading certificate:", err);
+    res.redirect("/dashboard?message=An unexpected error occurred while downloading the certificate.");
   }
 });
 
