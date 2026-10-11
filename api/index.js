@@ -331,6 +331,82 @@ async function sendRoleInvitationEmail(email, role, conferenceId) {
   return sendMail(email, subject, null, body);
 }
 
+function submissionDetailsBlock(label, items) {
+  const rows = items
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `<li><b>${key}:</b> ${value}</li>`)
+    .join("");
+  return `<b>${label}</b><ul>${rows}</ul>`;
+}
+
+const SUBMISSION_LIFECYCLE_EMAILS = {
+  submission_created: ({ conferenceName, authorName, title, paperId, paperCode }) => ({
+    subject: `Submission Confirmation – ${paperId} | ${conferenceName}`,
+    body:
+      `${greeting(authorName)}<br><br>` +
+      `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
+      `This email is to confirm that your paper has been successfully submitted to ${conferenceName}. The details of your submission are provided below:<br><br>` +
+      submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode]]) +
+      `<br><br>Please retain these details for future reference. The Paper ID can be used to identify your submission, while the Paper Code can be shared with your co-authors to enable them to join the paper through the DEI CMT portal.<br><br>` +
+      `You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view your submission details and track its progress.<br><br>` +
+      `Please ensure that all the information provided in your submission is accurate and complete.<br><br>` +
+      `We appreciate your interest in ${conferenceName} and look forward to your participation.`,
+  }),
+  submission_edited: ({ conferenceName, authorName, title, paperId, paperCode, updatedAt }) => ({
+    subject: `Submission Updated Successfully – ${paperId} | ${conferenceName}`,
+    body:
+      `${greeting(authorName)}<br><br>` +
+      `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
+      `This email is to inform you that your submission has been successfully updated on the DEI CMT portal.<br><br>` +
+      submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode], ["Last Updated On", updatedAt]]) +
+      `<br><br>The latest changes have been saved successfully. You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to review the updated submission details.<br><br>` +
+      `Thank you for your continued engagement with ${conferenceName}.`,
+  }),
+  desk_review_decision: ({ conferenceName, authorName, title, paperId, decision, remarks }) => ({
+    subject: `Desk Review Decision – ${paperId} | ${conferenceName}`,
+    body:
+      `${greeting(authorName)}<br><br>` +
+      `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
+      `We would like to inform you that the desk review of your submission has been completed. The decision and relevant details are provided below.<br><br>` +
+      submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Desk Review Decision", decision], ["Remarks", remarks]]) +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
+      `If revisions are requested, we kindly ask you to follow the instructions provided and adhere to the specified deadline, if applicable.`,
+  }),
+  peer_review_decision: ({ conferenceName, authorName, title, paperId, decision, reviewerComments }) => ({
+    subject: `Peer Review Decision – ${paperId} | ${conferenceName}`,
+    body:
+      `${greeting(authorName)}<br><br>` +
+      `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
+      `We are writing to inform you that the peer review process for your submission to ${conferenceName} has been completed. The decision regarding your paper is provided below.<br><br>` +
+      submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Peer Review Decision", decision], ["Reviewer Comments", reviewerComments]]) +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision, reviewer feedback, and any further instructions.<br><br>` +
+      `If your paper has been accepted subject to revisions, please carefully review the comments and submit the revised manuscript within the specified deadline. If your paper has been accepted, further instructions regarding presentation and other conference requirements will be communicated through the portal, as applicable.<br><br>` +
+      `We appreciate your contribution to ${conferenceName} and thank you for your interest in the conference.`,
+  }),
+  certificate_available: ({ conferenceName, authorName, title, paperId, certificateType }) => ({
+    subject: `Certificate for ${paperId} – ${conferenceName}`,
+    body:
+      `${greeting(authorName)}<br><br>` +
+      `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
+      `We are pleased to inform you that your certificate for ${conferenceName} is now available for download through the DEI CMT portal.<br><br>` +
+      submissionDetailsBlock("Certificate Details", [["Paper Title", title], ["Paper ID", paperId], ["Certificate Type", certificateType]]) +
+      `<br><br>You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> and navigate to the relevant section to view and download your certificate.<br><br>` +
+      `We appreciate your participation in ${conferenceName} and hope the conference has been a valuable academic experience for you.`,
+  }),
+};
+
+// event-specific raw params are escaped here (except authorName, which
+// greeting() already escapes) so every call site can pass plain DB values.
+async function sendSubmissionLifecycleEmail(email, event, rawParams, cc) {
+  const params = { authorName: rawParams.authorName };
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (key === "authorName") continue;
+    params[key] = typeof value === "string" ? escapeHtml(value) : value;
+  }
+  const { subject, body } = SUBMISSION_LIFECYCLE_EMAILS[event](params);
+  return sendMail(email, subject, null, body, cc);
+}
+
 
 const schema = new passwordValidator();
 
@@ -1306,6 +1382,17 @@ function getCurrentDateIST() {
   return `${year}-${month}-${day}`;
 }
 
+function getCurrentDateTimeIST() {
+  const now = new Date();
+  const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(istTime.getUTCDate()).padStart(2, "0");
+  const hours = String(istTime.getUTCHours()).padStart(2, "0");
+  const minutes = String(istTime.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes} IST`;
+}
+
 // =====================
 // Data Fetch Functions
 // =====================
@@ -1658,7 +1745,19 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
     return res.redirect("/chair/dashboard/desk/remarks-for-rejection/"+submission_id);
   }else {
     const authorName = await getUserDisplayName(data.rows[0].primary_author);
-    await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title+paperIdSubjectSuffix(data.rows[0].paper_number),null,greeting(authorName)+"<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> ACCEPTED<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+    const deskConference = await pool.query("select title from conferences where conference_id = $1", [data.rows[0].conference_id]);
+    await sendSubmissionLifecycleEmail(
+      data.rows[0].primary_author,
+      "desk_review_decision",
+      {
+        authorName,
+        conferenceName: deskConference.rows[0]?.title || "the conference",
+        title: data.rows[0].title,
+        paperId: formatPaperId(data.rows[0].paper_number),
+        decision: "ACCEPTED",
+      },
+      data.rows[0].co_authors
+    );
     return res.redirect("/chair/dashboard/desk/"+data.rows[0].conference_id+"?message=Submission Status Updated ("+decision+")");
   }
 })
@@ -1678,11 +1777,24 @@ app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
 
   const conference = await pool.query("select conference_id from submissions where submission_id = $1",[submission_id]);
 
-  const data = await pool.query("select title, primary_author, paper_number from submissions where submission_id=$1",[submission_id]);
+  const data = await pool.query("select title, primary_author, co_authors, paper_number, conference_id from submissions where submission_id=$1",[submission_id]);
 
   await pool.query("update desk_review set remarks=$1 where paper_id = $2",[remarks,submission_id]);
       const authorName = await getUserDisplayName(data.rows[0].primary_author);
-      await sendMail(data.rows[0].primary_author,"DESK REVIEW DECISION: "+data.rows[0].title+paperIdSubjectSuffix(data.rows[0].paper_number),null,greeting(authorName)+"<br><br>The Desk Review for your submission titled <b>"+escapeHtml(data.rows[0].title)+"</b> is completed. Please log in to the DEI CMT portal to check the status of your submission. The decision is also given below for your convinience:<br><br><b>DECISION:</b> REJECTED<br>REMARKS:"+escapeHtml(remarks)+"<br><br>Incase of any technical queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+      const deskRejectConference = await pool.query("select title from conferences where conference_id = $1", [data.rows[0].conference_id]);
+      await sendSubmissionLifecycleEmail(
+        data.rows[0].primary_author,
+        "desk_review_decision",
+        {
+          authorName,
+          conferenceName: deskRejectConference.rows[0]?.title || "the conference",
+          title: data.rows[0].title,
+          paperId: formatPaperId(data.rows[0].paper_number),
+          decision: "REJECTED",
+          remarks,
+        },
+        data.rows[0].co_authors
+      );
 
   return res.redirect("/chair/dashboard/desk/"+conference.rows[0].conference_id+"?message=Remarks Saved and Status Updated!");
 })
@@ -1883,7 +1995,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
-  const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors, paper_number from submissions where conference_id = $1",[conference_id]);
+  const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors, paper_number, remarks from submissions where conference_id = $1",[conference_id]);
 
   // Apply any outstanding meta-reviewer decisions now, at publish time - and
   // only now. The chair must not be aware of a meta-reviewer's recommendation
@@ -1903,7 +2015,10 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
         [decision.status, decision.remarks, decision.submission_id]
       );
       const author = authors.rows.find((a) => a.submission_id === decision.submission_id);
-      if (author) author.submission_status = decision.status;
+      if (author) {
+        author.submission_status = decision.status;
+        author.remarks = decision.remarks;
+      }
     }
     if (metaDecisions.rows.length > 0) {
       await pool.query(
@@ -1931,7 +2046,19 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
     }
     else {
       const authorName = await getUserDisplayName(authors.rows[i].primary_author);
-      await sendMail(authors.rows[i].primary_author,"Acceptance Notification | "+conference_data.rows[0].title+paperIdSubjectSuffix(authors.rows[i].paper_number),null,greeting(authorName)+" <br>This is to inform you that the Acceptance Status of your submission for "+escapeHtml(conference_data.rows[0].title)+" is now available on the DEI CMT Portal. The same is given below for your convinience. <br><br><table style='border: 1px solid black' class='table'><tr><th>Submission Title</th><th>Acceptance Status</th></tr><tr><td>"+escapeHtml(authors.rows[i].title)+"</td><td>"+authors.rows[i].submission_status+"</td></tr></table><br>Incase of any query regarding the conference, please reach out to the Conference Chairs (Email IDs are available on the portal).  <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",authors.rows[i].co_authors);
+      await sendSubmissionLifecycleEmail(
+        authors.rows[i].primary_author,
+        "peer_review_decision",
+        {
+          authorName,
+          conferenceName: conference_data.rows[0].title,
+          title: authors.rows[i].title,
+          paperId: formatPaperId(authors.rows[i].paper_number),
+          decision: authors.rows[i].submission_status,
+          reviewerComments: authors.rows[i].remarks,
+        },
+        authors.rows[i].co_authors
+      );
     }
   }
 
@@ -5137,11 +5264,17 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req,
         // isn't there yet.
         const authorName = await getUserDisplayName(submission.primary_author);
         const paperId = formatPaperId(submission.paper_number);
-        await sendMail(
+        const certificateType = submission.submission_status === "Poster Scored" ? "Poster Presentation Certificate" : "Paper Presentation Certificate";
+        await sendSubmissionLifecycleEmail(
           submission.primary_author,
-          `Certificate for Paper ID - ${paperId} | ${conferenceTitle}`,
-          null,
-          `${greeting(authorName)}<br><br>Thank you for participating in the conference!<br><br>Your certificate is now available on the dashboard. Click on My Submissions to download the certificate.`,
+          "certificate_available",
+          {
+            authorName,
+            conferenceName: conferenceTitle,
+            title: submission.title,
+            paperId,
+            certificateType,
+          },
           submission.co_authors
         );
       } catch (certErr) {
@@ -6887,7 +7020,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 
       // Authorization: only the primary author or a co-author may edit this submission
       const editOwnerResult = await pool.query(
-        `SELECT primary_author, co_authors, submission_status, conference_id FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+        `SELECT primary_author, co_authors, submission_status, conference_id, paper_number, paper_code FROM submissions WHERE submission_id = $1 LIMIT 1;`,
         [id]
       );
       const editRow = editOwnerResult.rows[0];
@@ -6963,6 +7096,22 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       await invalidateConferenceSubmissionCache(
         [editRow.primary_author, ...(editRow.co_authors || [])],
         editRow.conference_id
+      );
+
+      const editConferenceResult = await pool.query("select title from conferences where conference_id = $1", [editRow.conference_id]);
+      const editAuthorName = await getUserDisplayName(editRow.primary_author);
+      await sendSubmissionLifecycleEmail(
+        editRow.primary_author,
+        "submission_edited",
+        {
+          authorName: editAuthorName,
+          conferenceName: editConferenceResult.rows[0]?.title || "the conference",
+          title,
+          paperId: formatPaperId(editRow.paper_number),
+          paperCode: editRow.paper_code,
+          updatedAt: getCurrentDateTimeIST(),
+        },
+        editRow.co_authors
       );
 
       return res.redirect("/dashboard?message=Submission updated successfully!");
@@ -7144,11 +7293,16 @@ app.post("/submit", checkAuth, async (req, res) => {
       console.log("ADDED TO CACHE!");
 
       // Send Confirmation Email
-      await sendMail(
+      await sendSubmissionLifecycleEmail(
         req.user.email,
-        "Submission Created | " + title + paperIdSubjectSuffix(paperNumber),
-        null,
-        `${greeting(req.user.name)} <br><br>Your paper titled <b>${escapeHtml(title)}</b> has been submitted successfully for <b>${escapeHtml(conference_data.rows[0].title)}</b> and will be reviewed by the Peer Reviewers soon. If your submission has any Co-Authors, please share the Paper Code (available on the Dashboard under 'My Submissions' section) with your Co-Authors. Once your Co-Authors try to join your submission using the Paper Code, you being the Primary Author will have to approve their requests from the Dashboard. You can check the status of your submission at the DEI CMT Dashboard. <br><br>In case of technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+        "submission_created",
+        {
+          authorName: req.user.name,
+          conferenceName: conference_data.rows[0].title,
+          title,
+          paperId: formatPaperId(paperNumber),
+          paperCode,
+        }
       );
 
       return res.redirect("/dashboard?message=Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
