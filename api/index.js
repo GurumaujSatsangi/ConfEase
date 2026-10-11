@@ -278,6 +278,59 @@ function greeting(name) {
   return `Dear ${escapeHtml(name || "User")},`;
 }
 
+const ROLE_INVITATION_EMAILS = {
+  reviewer: (name) => ({
+    subject: `Invitation to Serve as a Reviewer – ${name}`,
+    body:
+      `Dear Sir/Ma'am,<br><br>` +
+      `Greetings from the <b>${name}</b> Organizing Committee.<br><br>` +
+      `We are pleased to inform you that you have been invited to serve as a <b>Reviewer</b> for ${name}.<br><br>` +
+      `We highly value your academic expertise and experience, and we believe that your contribution to the review process will be instrumental in maintaining the quality and academic standards of the conference.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We look forward to your valuable contribution to the conference and appreciate your willingness to support the academic review process.`,
+  }),
+  session_chair: (name) => ({
+    subject: `Appointment as Session Chair – ${name}`,
+    body:
+      `Dear Sir/Ma'am,<br><br>` +
+      `Greetings from the ${name} Organizing Committee.<br><br>` +
+      `We are pleased to inform you that you have been appointed as a <b>Session Chair</b> for ${name}.<br><br>` +
+      `Your role will be important in ensuring the smooth and effective conduct of the assigned session, facilitating academic discussions, managing the presentation schedule, and encouraging meaningful interaction between presenters and participants.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `Further information regarding the session schedule, assigned presentations, and other responsibilities will be communicated to you through the conference portal or by the organizing team.<br><br>` +
+      `We look forward to your valuable contribution to the successful conduct of the conference.`,
+  }),
+  poster_presentation_coordinator: (name) => ({
+    subject: `Appointment as Poster Presentation Coordinator – ${name}`,
+    body:
+      `Dear Sir/Ma'am,<br><br>` +
+      `Greetings from the ${name} Organizing Committee.<br><br>` +
+      `We are pleased to inform you that you have been appointed as the <b>Poster Presentation Coordinator</b> for ${name}.<br><br>` +
+      `In this role, you will help coordinate the poster presentation sessions and facilitate the smooth conduct of poster presentations. Your responsibilities include communicating relevant instructions, managing presentation schedules and scoring the posters.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `Further details regarding the assigned sessions, schedules, and coordination responsibilities will be shared through the conference portal or by the organizing team.<br><br>` +
+      `We look forward to your support and valuable contribution to the successful organization of the conference.`,
+  }),
+  meta_reviewer: (name) => ({
+    subject: `Invitation to Serve as a Meta-Reviewer – ${name}`,
+    body:
+      `Dear Sir/Ma'am,<br><br>` +
+      `Greetings from the ${name} Organizing Committee.<br><br>` +
+      `We are pleased to inform you that you have been invited to serve as a <b>Meta-Reviewer</b> for ${name}.<br><br>` +
+      `We highly value your academic expertise and experience, and we believe that your contribution will be valuable in ensuring a fair, consistent, and high-quality paper evaluation process.<br><br>` +
+      `As a Meta-Reviewer, you will be expected to review the feedback provided by the assigned reviewers, assess their recommendations, and provide an overall evaluation to assist the conference committee in making informed decisions regarding paper acceptance.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We look forward to your valuable contribution to maintaining the academic quality and integrity of the conference.`,
+  }),
+};
+
+async function sendRoleInvitationEmail(email, role, conferenceId) {
+  const conferenceRow = (await pool.query("select title from conferences where conference_id=$1", [conferenceId])).rows[0];
+  const conferenceName = escapeHtml(conferenceRow?.title || "the conference");
+  const { subject, body } = ROLE_INVITATION_EMAILS[role](conferenceName);
+  return sendMail(email, subject, null, body);
+}
+
 
 const schema = new passwordValidator();
 
@@ -2499,8 +2552,7 @@ try {
 // Only notify newly added coordinators - not everyone, every time the
 // chair re-saves the same list (e.g. just changing the date/time).
 for (const coordinator of coordinatorDiff.added) {
-  const coordinatorName = await getUserDisplayName(coordinator);
-  await sendMail(coordinator,"Poster Presentation Coordinator Role Assigned",null,greeting(coordinatorName)+" <br><br>You have been asigned a Poster Presentation Coordinator Role for a conference being hosted on DEI CMT Portal. The Session Details are as follows:<br><br><b>Date:</b> "+escapeHtml(session_date)+"<br><b>Timings:</b> "+escapeHtml(start_time)+" - "+escapeHtml(end_time)+" <br><br>If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit");
+  await sendRoleInvitationEmail(coordinator, "poster_presentation_coordinator", conference_id);
 }
 
     res.redirect(
@@ -4144,11 +4196,7 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
     }
     for (const email of reviewerDiff.added) {
       if (await ensureConferenceRole(conferenceId, email, "reviewer")) {
-        const reviewerName = await getUserDisplayName(email);
-        await sendMail(
-          email, "Reviewer Role Assigned", null,
-          greeting(reviewerName) + "<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-        );
+        await sendRoleInvitationEmail(email, "reviewer", conferenceId);
       }
     }
     for (const email of sessionChairDiff.removed) {
@@ -4156,11 +4204,7 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
     }
     for (const email of sessionChairDiff.added) {
       if (await ensureConferenceRole(conferenceId, email, "session_chair")) {
-        const chairName = await getUserDisplayName(email);
-        await sendMail(
-          email, "Session Chair Role Assigned", null,
-          greeting(chairName) + " <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-        );
+        await sendRoleInvitationEmail(email, "session_chair", conferenceId);
       }
     }
 
@@ -4611,33 +4655,17 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     await pool.query("insert into conference_roles values($1, $2, $3)",[req.params.id, reviewerEmail, "reviewer"]);
 
-      const reviewerName = await getUserDisplayName(reviewerEmail);
-      await sendMail(
-        reviewerEmail,"Reviewer Role Assigned",null,
-
-        greeting(reviewerName)+"<br><br> You have assigned as a reviewer for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-      );
+      await sendRoleInvitationEmail(reviewerEmail, "reviewer", req.params.id);
     }
 
     if (metaReviewerEmail) {
-      const metaReviewerName = await getUserDisplayName(metaReviewerEmail);
-      await sendMail(
-        metaReviewerEmail,"Meta-Reviewer Role Assigned",null,
-
-        greeting(metaReviewerName)+"<br><br> You have assigned as a Meta-Reviewer for a conference at the DEI CMT portal. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-      );
+      await sendRoleInvitationEmail(metaReviewerEmail, "meta_reviewer", req.params.id);
     }
 
     for (const chairEmail of sessionChairsArray) {
 
       await pool.query("insert into conference_roles values ($1,$2,$3)",[req.params.id,chairEmail,"session_chair"]);
-      const sessionChairName = await getUserDisplayName(chairEmail);
-      await sendMail(
-        chairEmail,
-        "Session Chair Role Assigned",null,
-
-        greeting(sessionChairName)+" <br><br>You have assigned as a Session Chair for a conference at the DEI CMT. If you do not have an account on the portal, please visit https://cmt.gurumaujsatsangi.in/registration/user to create one else login using the credentials. <br><br>Incase of any technical assistance,please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit"
-      );
+      await sendRoleInvitationEmail(chairEmail, "session_chair", req.params.id);
     }
 
 
