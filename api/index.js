@@ -74,6 +74,32 @@ function uploadBufferToCloudinary(buffer, options) {
   });
 }
 
+// Certificates use a different Canva Brand Template per submission status /
+// role (see /chair/dashboard/enable-pdf-download/:id and GET
+// /admin/canva/dataset). Some of these are deliberately empty until their
+// template is created in Canva - callers must check for that and skip,
+// not assume every role is configured.
+const CANVA_TEMPLATE_IDS = {
+  poster: process.env.BRAND_TEMPLATE_ID_POSTER,
+  paper: process.env.BRAND_TEMPLATE_ID_PAPER,
+  reviewer: process.env.BRAND_TEMPLATE_ID_REVIEWER,
+  session_chair: process.env.BRAND_TEMPLATE_ID_SESSION_CHAIR,
+  invited_speaker: process.env.BRAND_TEMPLATE_ID_INVITED_SPEAKER,
+};
+
+// Field names in each connected Canva Brand Template's own dataset (see GET
+// /admin/canva/dataset) - whatever the templates' placeholders are actually
+// named. A field below that doesn't match a real dataset key is simply
+// ignored by Canva's Autofill API, not an error, so these must be kept in
+// sync with the templates by hand. Assumed to be the same field names
+// across all five templates for now (confirmed for poster/paper; TBD for
+// the other three once those templates exist).
+const CANVA_CERTIFICATE_FIELDS = {
+  name: "Name",
+  conferenceTitle: "Conference Title",
+  paperTitle: "Paper Title",
+};
+
 async function getJsonCacheValue(key) {
   if (!redisClient) {
     return null;
@@ -712,6 +738,13 @@ const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_MAX_ATTEMPTS = 10;
 const AUTH_MAX_KEYS = 10000;
 async function authRateLimitMemory(req, res, next) {
+  // Same test-only reasoning as the global rate limiter above - see its
+  // comment. This one is keyed by path+IP too, so concurrently-running
+  // test files sharing 127.0.0.1 and the same real Redis can trip it just
+  // as easily.
+  if (process.env.SKIP_AUTOLISTEN === "1") {
+    return next();
+  }
   if (redisClient) {
     try {
       const key = "authrl:" + req.path + ":" + req.ip;
@@ -869,7 +902,14 @@ const DATA_CACHE_TTL_SECONDS = 300;
 app.set('trust proxy', 1);
 
 app.use(async (req, res, next) => {
-  if (!redisClient) {
+  // SKIP_AUTOLISTEN (test-only - see the module-level app.listen below) also
+  // means this request is coming from one of many concurrently-running
+  // test files, all of which appear as the same client IP (127.0.0.1) and
+  // share the same real Redis instance. Without this, their combined
+  // request volume routinely trips this limiter and fails unrelated tests
+  // with a 429 - never a real concern in production, where SKIP_AUTOLISTEN
+  // is never set.
+  if (!redisClient || process.env.SKIP_AUTOLISTEN === "1") {
     return next();
   }
 
@@ -3602,18 +3642,42 @@ app.post("/admin/canva/disconnect", checkAuth, requireAdmin, async (req, res) =>
   return res.redirect("/admin?message=" + encodeURIComponent("Canva has been disconnected."));
 });
 
-// Diagnostic: the real placeholder names/types in the connected Brand
+// Diagnostic: the real placeholder names/types in a connected Brand
 // Template's dataset, so the certificate field mapping in
 // /chair/dashboard/enable-pdf-download/:id is set from what the template
-// actually has, not guessed.
+// actually has, not guessed. ?role=poster|paper|reviewer|session_chair|invited_speaker
+// checks that one template; with no ?role, checks every configured one
+// (CANVA_TEMPLATE_IDS) and reports per-role results, skipping any whose
+// template id isn't set yet rather than erroring.
 app.get("/admin/canva/dataset", checkAuth, requireAdmin, async (req, res) => {
-  try {
-    const dataset = await canva.getBrandTemplateDataset();
-    return res.json(dataset);
-  } catch (err) {
-    console.error("Error fetching Canva brand template dataset:", err);
-    return res.status(500).json({ error: err.message });
+  const role = req.query.role;
+  if (role) {
+    const templateId = CANVA_TEMPLATE_IDS[role];
+    if (!templateId) {
+      return res.status(400).json({ error: `Unknown or unconfigured role "${role}". Known roles: ${Object.keys(CANVA_TEMPLATE_IDS).join(", ")}` });
+    }
+    try {
+      return res.json({ role, templateId, dataset: await canva.getBrandTemplateDataset(templateId) });
+    } catch (err) {
+      console.error(`Error fetching Canva brand template dataset for role "${role}":`, err);
+      return res.status(500).json({ error: err.message });
+    }
   }
+
+  const results = {};
+  for (const [roleName, templateId] of Object.entries(CANVA_TEMPLATE_IDS)) {
+    if (!templateId) {
+      results[roleName] = { configured: false };
+      continue;
+    }
+    try {
+      results[roleName] = { configured: true, templateId, dataset: await canva.getBrandTemplateDataset(templateId) };
+    } catch (err) {
+      console.error(`Error fetching Canva brand template dataset for role "${roleName}":`, err);
+      results[roleName] = { configured: true, templateId, error: err.message };
+    }
+  }
+  return res.json(results);
 });
 
 // Issues a 24-hour one-time setup link for a chair. Only the SHA-256 hash of the token is stored.
@@ -4867,48 +4931,113 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
   }
 });
 
-// For every submission in this conference whose status is Poster Scored or
-// Presentation Completed, mark a certificate as available (a certificates
-// row with status GENERATED). The PDF itself is built on demand when the
-// author clicks Download - nothing is rendered or stored here. Idempotent:
-// re-clicking for the same conference just skips submissions that already
-// have a row (ON CONFLICT on the submission_id unique constraint).
-// Field names in the connected Canva Brand Template's own dataset (see
-// GET /admin/canva/dataset) - whatever the template's placeholders are
-// actually named. A field in CANVA_CERTIFICATE_FIELDS below that doesn't
-// match a real dataset key is simply ignored by Canva's Autofill API, not
-// an error, so these must be kept in sync with the template by hand.
-const CANVA_CERTIFICATE_FIELDS = {
-  name: "Name",
-  conferenceTitle: "Conference Title",
-  paperTitle: "Paper Title",
-};
+// Runs an autofill -> export against the given Brand Template, downloads
+// the (24h-only) result, and re-uploads it to Cloudinary for a permanent
+// URL. Shared by every certificate category below.
+async function generateCertificateAndUpload(templateId, fields, publicId) {
+  const canvaPdfUrl = await canva.generateCertificatePdfUrl(templateId, fields);
+  const pdfResponse = await fetch(canvaPdfUrl);
+  if (!pdfResponse.ok) throw new Error(`Could not download the generated PDF from Canva (HTTP ${pdfResponse.status})`);
+  const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+  const uploadResult = await uploadBufferToCloudinary(pdfBuffer, {
+    resource_type: "raw",
+    folder: "certificates",
+    public_id: publicId,
+    format: "pdf",
+  });
+  return uploadResult.secure_url;
+}
 
+// Generates (if not already generated - see role_certificates' unique
+// constraint) and emails a certificate link to a Reviewer, Session Chair,
+// or Invited Speaker. Unlike author certificates, these are never shown on
+// a dashboard - the email IS the delivery mechanism, so this both
+// generates and sends in one step. Returns "generated", "skipped" (no
+// email on file, or already has one), or "failed".
+async function generateAndEmailRoleCertificate({ conferenceId, role, email, contextId, templateId, conferenceTitle, roleLabel, paperTitle }) {
+  if (!email) return "skipped";
+  try {
+    const existing = await pool.query(
+      "select 1 from role_certificates where conference_id = $1 and role = $2 and lower(email) = lower($3) and context_id = $4 and status = 'GENERATED' and file_url is not null",
+      [conferenceId, role, email, contextId]
+    );
+    if (existing.rows.length > 0) return "skipped";
+
+    // Invited Speakers' names live in `invitees` (invited_talk_submissions
+    // itself only has their email and talk title, not a name column);
+    // everyone else is a regular portal account, looked up the same way
+    // author certificates look up a name.
+    const name =
+      role === "invited_speaker"
+        ? (await pool.query("select name from invitees where conference_id = $1 and lower(email) = lower($2) limit 1", [conferenceId, email])).rows[0]?.name
+        : await getUserDisplayName(email);
+
+    const fields = {
+      [CANVA_CERTIFICATE_FIELDS.name]: name || email,
+      [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
+    };
+    if (paperTitle) fields[CANVA_CERTIFICATE_FIELDS.paperTitle] = paperTitle;
+
+    const safeEmail = email.replace(/[^a-zA-Z0-9]/g, "_");
+    const fileUrl = await generateCertificateAndUpload(templateId, fields, `${role}-${contextId}-${safeEmail}-certificate`);
+
+    await pool.query(
+      `insert into role_certificates (conference_id, role, email, context_id, status, file_url)
+       values ($1,$2,$3,$4,'GENERATED',$5)
+       on conflict (conference_id, role, email, context_id) do update set status = excluded.status, file_url = excluded.file_url`,
+      [conferenceId, role, email, contextId, fileUrl]
+    );
+
+    await sendMail(
+      email,
+      `Certificate of Appreciation | ${conferenceTitle}`,
+      null,
+      `${greeting(name)}<br><br>Thank you for your valuable contribution as a ${roleLabel} for ${escapeHtml(conferenceTitle)}!<br><br>Your certificate of appreciation is ready. You can download it using the link below:<br><br><a href="${fileUrl}">Download Certificate</a>`
+    );
+
+    return "generated";
+  } catch (err) {
+    console.error(`Error generating ${role} certificate for ${email} (conference ${conferenceId}, context ${contextId}):`, err);
+    return "failed";
+  }
+}
+
+// One button drives four certificate categories, all gated on the matching
+// CANVA_TEMPLATE_IDS entry being configured (several start out empty until
+// their Brand Template exists in Canva - see the comment on
+// CANVA_TEMPLATE_IDS). Every category is independently idempotent
+// (certificates / role_certificates), so re-clicking this for a conference
+// only ever fills in whatever is still missing across all four.
 app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
 
+  const conferenceId = req.params.id;
+  const counts = { authors: 0, reviewers: 0, sessionChairs: 0, invitedSpeakers: 0 };
+  const failures = [];
+
   try {
-    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [req.params.id]);
+    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [conferenceId]);
     const conferenceTitle = conferenceResult.rows[0]?.title || "";
 
-    // Only submissions that don't already have a GENERATED certificate with
-    // a stored file - re-clicking the button for a conference just fills in
-    // whatever is still missing, it never regenerates existing ones.
-    const eligible = await pool.query(
-      `select s.submission_id, s.title, s.paper_number, s.primary_author, s.co_authors
+    // --- Authors: Poster Scored -> the poster template, Presentation Completed -> the paper template ---
+    const eligibleSubmissions = await pool.query(
+      `select s.submission_id, s.title, s.paper_number, s.primary_author, s.co_authors, s.submission_status
        from submissions s
        left join certificates c on c.submission_id = s.submission_id::text
        where s.conference_id = $1
          and s.submission_status in ('Poster Scored', 'Presentation Completed')
          and (c.submission_id is null or c.status is distinct from 'GENERATED' or c.file_url is null)`,
-      [req.params.id]
+      [conferenceId]
     );
 
-    let generatedCount = 0;
-    const failures = [];
-    for (const submission of eligible.rows) {
+    for (const submission of eligibleSubmissions.rows) {
+      const templateId = submission.submission_status === "Poster Scored" ? CANVA_TEMPLATE_IDS.poster : CANVA_TEMPLATE_IDS.paper;
+      if (!templateId) {
+        failures.push(`submission ${submission.submission_id} (no Brand Template configured for "${submission.submission_status}")`);
+        continue;
+      }
       try {
         const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
         const usersResult = authorEmails.length
@@ -4917,41 +5046,32 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req,
         const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
         const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
 
-        // 1. Autofill the Canva Brand Template and export it as a PDF. The
-        // export URL Canva returns is only valid for 24 hours, so it's
-        // downloaded and re-uploaded to Cloudinary (step 2) right away -
-        // that permanent URL is what actually gets stored and served.
-        const canvaPdfUrl = await canva.generateCertificatePdfUrl({
-          [CANVA_CERTIFICATE_FIELDS.name]: combinedName,
-          [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
-          [CANVA_CERTIFICATE_FIELDS.paperTitle]: submission.title,
-        });
+        // The export URL Canva returns is only valid for 24 hours, so it's
+        // downloaded and re-uploaded to Cloudinary right away - that
+        // permanent URL is what actually gets stored and served.
+        const fileUrl = await generateCertificateAndUpload(
+          templateId,
+          {
+            [CANVA_CERTIFICATE_FIELDS.name]: combinedName,
+            [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
+            [CANVA_CERTIFICATE_FIELDS.paperTitle]: submission.title,
+          },
+          `${submission.submission_id}-certificate`
+        );
 
-        const pdfResponse = await fetch(canvaPdfUrl);
-        if (!pdfResponse.ok) throw new Error(`Could not download the generated PDF from Canva (HTTP ${pdfResponse.status})`);
-        const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
-
-        const uploadResult = await uploadBufferToCloudinary(pdfBuffer, {
-          resource_type: "raw",
-          folder: "certificates",
-          public_id: `${submission.submission_id}-certificate`,
-          format: "pdf",
-        });
-
-        // 2. Record it - upsert so a retry of a submission whose earlier
-        // attempt failed partway doesn't collide with migration 009's
-        // unique constraint on submission_id.
+        // Upsert so a retry of a submission whose earlier attempt failed
+        // partway doesn't collide with migration 009's unique constraint.
         await pool.query(
           `insert into certificates (conference_id, submission_id, status, file_url)
            values ($1, $2, 'GENERATED', $3)
            on conflict (submission_id) do update set status = excluded.status, file_url = excluded.file_url`,
-          [req.params.id, submission.submission_id, uploadResult.secure_url]
+          [conferenceId, submission.submission_id, fileUrl]
         );
-        generatedCount++;
+        counts.authors++;
 
-        // 3. Notify the author - only after the certificate is actually
-        // stored and downloadable, so the email never promises something
-        // that isn't there yet.
+        // Notify the author only after the certificate is actually stored
+        // and downloadable, so the email never promises something that
+        // isn't there yet.
         const authorName = await getUserDisplayName(submission.primary_author);
         const paperId = formatPaperId(submission.paper_number);
         await sendMail(
@@ -4963,14 +5083,80 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req,
         );
       } catch (certErr) {
         console.error(`Error generating certificate for submission ${submission.submission_id}:`, certErr);
-        failures.push(submission.submission_id);
+        failures.push(`submission ${submission.submission_id}`);
         // Keep going - one submission's Canva/Cloudinary failure shouldn't
         // block the rest of the batch.
       }
     }
 
+    // --- Reviewers and Session Chairs: one certificate per (Subject Area, person) ---
+    if (CANVA_TEMPLATE_IDS.reviewer || CANVA_TEMPLATE_IDS.session_chair) {
+      const tracks = await pool.query("select track_id, track_reviewers, panelists from conference_tracks where conference_id = $1", [conferenceId]);
+
+      for (const track of tracks.rows) {
+        if (CANVA_TEMPLATE_IDS.reviewer) {
+          for (const email of track.track_reviewers || []) {
+            const outcome = await generateAndEmailRoleCertificate({
+              conferenceId,
+              role: "reviewer",
+              email,
+              contextId: track.track_id,
+              templateId: CANVA_TEMPLATE_IDS.reviewer,
+              conferenceTitle,
+              roleLabel: "Reviewer",
+            });
+            if (outcome === "generated") counts.reviewers++;
+            if (outcome === "failed") failures.push(`reviewer ${email}`);
+          }
+        }
+        if (CANVA_TEMPLATE_IDS.session_chair) {
+          for (const email of track.panelists || []) {
+            const outcome = await generateAndEmailRoleCertificate({
+              conferenceId,
+              role: "session_chair",
+              email,
+              contextId: track.track_id,
+              templateId: CANVA_TEMPLATE_IDS.session_chair,
+              conferenceTitle,
+              roleLabel: "Session Chair",
+            });
+            if (outcome === "generated") counts.sessionChairs++;
+            if (outcome === "failed") failures.push(`session chair ${email}`);
+          }
+        }
+      }
+    }
+
+    // --- Invited Speakers: one certificate per invited talk submission ---
+    if (CANVA_TEMPLATE_IDS.invited_speaker) {
+      const invitedTalks = await pool.query(
+        "select paper_id, invitee_email, title from invited_talk_submissions where conference_id = $1",
+        [conferenceId]
+      );
+      for (const talk of invitedTalks.rows) {
+        const outcome = await generateAndEmailRoleCertificate({
+          conferenceId,
+          role: "invited_speaker",
+          email: talk.invitee_email,
+          contextId: talk.paper_id,
+          templateId: CANVA_TEMPLATE_IDS.invited_speaker,
+          conferenceTitle,
+          roleLabel: "Invited Speaker",
+          paperTitle: talk.title,
+        });
+        if (outcome === "generated") counts.invitedSpeakers++;
+        if (outcome === "failed") failures.push(`invited speaker ${talk.invitee_email}`);
+      }
+    }
+
+    const parts = [];
+    if (counts.authors) parts.push(`${counts.authors} author(s)`);
+    if (counts.reviewers) parts.push(`${counts.reviewers} reviewer(s)`);
+    if (counts.sessionChairs) parts.push(`${counts.sessionChairs} session chair(s)`);
+    if (counts.invitedSpeakers) parts.push(`${counts.invitedSpeakers} invited speaker(s)`);
+    const summary = parts.length ? parts.join(", ") : "0 recipients";
     const failureNote = failures.length ? ` (${failures.length} failed - check the server log)` : "";
-    res.redirect(`/chair/dashboard?message=${encodeURIComponent(`PDF download enabled for ${generatedCount} submission(s)${failureNote}.`)}`);
+    res.redirect(`/chair/dashboard?message=${encodeURIComponent(`Certificates generated for ${summary}${failureNote}.`)}`);
   } catch (err) {
     console.error("Error enabling PDF download:", err);
     res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred: " + err.message));

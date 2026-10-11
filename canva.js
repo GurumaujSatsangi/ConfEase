@@ -142,11 +142,14 @@ async function canvaApiRequest(path, { method = "GET", body } = {}) {
   return data;
 }
 
-// For diagnostics (see GET /admin/canva/dataset) - lists the brand
-// template's real placeholder names and types, so the certificate-field
-// mapping below is set from what the template actually has, not guessed.
-export async function getBrandTemplateDataset() {
-  const data = await canvaApiRequest(`/brand-templates/${process.env.BRAND_TEMPLATE_ID}/dataset`);
+// For diagnostics (see GET /admin/canva/dataset) - lists a brand template's
+// real placeholder names and types, so the certificate-field mapping in
+// api/index.js is set from what the template actually has, not guessed.
+// There are several brand templates now (one per submission status/role -
+// see CANVA_TEMPLATE_IDS in api/index.js), so this takes the template id
+// as a parameter rather than reading a single env var itself.
+export async function getBrandTemplateDataset(brandTemplateId) {
+  const data = await canvaApiRequest(`/brand-templates/${brandTemplateId}/dataset`);
   return data.dataset;
 }
 
@@ -163,17 +166,17 @@ async function pollJob(getFn, { intervalMs = 2000, timeoutMs = 90_000 } = {}) {
   }
 }
 
-// Fills the brand template with the given text fields (dataset key -> plain
-// string value; keys not present in the template's own dataset are simply
-// ignored by Canva), waits for the autofilled design, exports it as a PDF,
-// waits for the export, and returns the (temporary - 24h) download URL for
-// the generated PDF's first page. Caller is responsible for fetching that
-// URL and storing the bytes somewhere permanent right away.
-export async function generateCertificatePdfUrl(textFields) {
+// Fills the given brand template with the given text fields (dataset key ->
+// plain string value; keys not present in the template's own dataset are
+// simply ignored by Canva), waits for the autofilled design, exports it as
+// a PDF, waits for the export, and returns the (temporary - 24h) download
+// URL for the generated PDF's first page. Caller is responsible for
+// fetching that URL and storing the bytes somewhere permanent right away.
+export async function generateCertificatePdfUrl(brandTemplateId, textFields) {
   const createData = await canvaApiRequest("/autofills", {
     method: "POST",
     body: {
-      brand_template_id: process.env.BRAND_TEMPLATE_ID,
+      brand_template_id: brandTemplateId,
       data: Object.fromEntries(Object.entries(textFields).map(([key, value]) => [key, { type: "text", text: String(value) }])),
     },
   });

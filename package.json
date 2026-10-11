@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node api/index.js",
     "dev": "nodemon",
-    "test": "node --test \"test/**/*.test.mjs\""
+    "test": "node --import ./test/_setup.mjs --test \"test/**/*.test.mjs\""
   },
   "author": "Gurumauj Satsangi",
   "license": "ISC",

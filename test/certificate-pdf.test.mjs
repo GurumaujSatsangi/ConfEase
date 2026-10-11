@@ -1,27 +1,16 @@
-// Regression tests for the Canva-based bulk certificate generation feature:
-// - POST /chair/dashboard/enable-pdf-download/:id selects every Poster
-//   Scored / Presentation Completed submission in the conference that
-//   doesn't already have a GENERATED certificate with a stored file, and
-//   (per submission) autofills the connected Canva Brand Template, exports
-//   it as a PDF, uploads that PDF to Cloudinary, stores the permanent URL
-//   on the certificates row, and emails the author. It's blocked for a
-//   chair who doesn't own the conference.
-// - GET /submission/download-certificate/:id just redirects to the
-//   permanently-stored file - it no longer generates anything on request.
+// Regression tests for POST /chair/dashboard/enable-pdf-download/:id's
+// authorization, and for GET /submission/download-certificate/:id, which
+// just redirects to a submission's permanently-stored certificate file -
+// it no longer generates anything on request.
 //
-// This test environment has no live Canva connection (that requires a real
-// person completing a one-time browser-based OAuth consent - see
-// /admin/canva/connect - which isn't something an automated test can do),
-// so the actual Canva autofill/export calls cannot be exercised here. What
-// IS tested with the real routes and real local Postgres database:
-// authorization, the eligibility query, graceful per-submission failure
-// when Canva isn't connected (genuinely true in this environment, so this
-// is real behavior, not a stub), and download-certificate's redirect logic
-// against directly-seeded certificates rows. The Canva API calls
-// themselves (PKCE/token exchange, autofill+export polling) are covered
-// separately in test/canva.test.mjs against a stubbed fetch.
+// The eligibility query, the per-status Brand Template selection, the
+// Reviewer/Session Chair/Invited Speaker categories, and the graceful
+// no-partial-write failure path when Canva isn't connected all live in
+// test/canva.test.mjs instead, since they depend on canva_connection's
+// state and that table is a true app-wide singleton - see that file's
+// header comment for why every test touching it has to live in one place.
 
-import { test, after } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
@@ -46,8 +35,28 @@ const strangerToken = jwt.sign({ typ: "access", email: strangerEmail, name: "Cer
 const post = (path, token) => fetch(base + path, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${token}` } });
 const get = (path, token) => fetch(base + path, { redirect: "manual", headers: { Authorization: `Bearer ${token}` } });
 
+// This file deliberately never reads or writes canva_connection (a true,
+// app-wide singleton - id always 1). Any test that needs a specific
+// connected/disconnected state lives in test/canva.test.mjs instead, which
+// is the one file responsible for that table, precisely so two test FILES
+// (node --test runs separate files in parallel) never race on it - and so
+// this suite never risks silently destroying a real, working Canva
+// connection an Admin has already set up for real.
 let conferenceId;
 let otherChairConferenceId;
+
+before(async () => {
+  const conf = await pool.query(
+    "insert into conferences (title, created_by) values ($1,$2) returning conference_id",
+    ["CERT_PDF_TEST_" + crypto.randomBytes(3).toString("hex"), chairEmail]
+  );
+  conferenceId = conf.rows[0].conference_id;
+  await pool.query(
+    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status) values ($1,$2,'Poster Paper','CPA','Poster Scored')",
+    [conferenceId, authorEmail]
+  );
+});
+
 after(async () => {
   for (const id of [conferenceId, otherChairConferenceId].filter(Boolean)) {
     await pool.query("delete from certificates where conference_id = $1", [id]);
@@ -57,40 +66,6 @@ after(async () => {
   server.close();
   await pool.end();
   setImmediate(() => process.exit(0));
-});
-
-test("enable-pdf-download: with Canva not connected, every eligible submission fails gracefully (no rows written, no crash, failure count reported)", async () => {
-  const conf = await pool.query(
-    "insert into conferences (title, created_by) values ($1,$2) returning conference_id",
-    ["CERT_PDF_TEST_" + crypto.randomBytes(3).toString("hex"), chairEmail]
-  );
-  conferenceId = conf.rows[0].conference_id;
-
-  const posterScored = await pool.query(
-    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status) values ($1,$2,'Poster Paper','CPA','Poster Scored') returning submission_id",
-    [conferenceId, authorEmail]
-  );
-  await pool.query(
-    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status) values ($1,$2,'Oral Paper','CPB','Presentation Completed')",
-    [conferenceId, authorEmail]
-  );
-  const notEligible = await pool.query(
-    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status) values ($1,$2,'Still Pending','CPC','DESK ACCEPT') returning submission_id",
-    [conferenceId, authorEmail]
-  );
-
-  const res = await post(`/chair/dashboard/enable-pdf-download/${conferenceId}`, chairToken);
-  assert.equal(res.status, 302);
-  assert.match(decodeURIComponent(res.headers.get("location") || ""), /0 submission\(s\)/, "Canva is not connected in this test environment, so nothing should have been generated");
-
-  const rows = await pool.query("select submission_id, status, file_url from certificates where conference_id = $1", [conferenceId]);
-  assert.equal(rows.rows.length, 0, "a failed Canva call must not leave a half-written certificates row behind");
-
-  const stillUngenerated = await pool.query(
-    "select 1 from submissions where submission_id = ANY($1) and submission_id::text not in (select submission_id from certificates)",
-    [[posterScored.rows[0].submission_id, notEligible.rows[0].submission_id]]
-  );
-  assert.equal(stillUngenerated.rows.length, 2);
 });
 
 test("enable-pdf-download is blocked for a chair who does not own the conference", async () => {

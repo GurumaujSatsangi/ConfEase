@@ -23,7 +23,11 @@ import jwt from "jsonwebtoken";
 process.env.SKIP_AUTOLISTEN = "1";
 process.env.CANVA_CLIENT_ID = process.env.CANVA_CLIENT_ID || "test-client-id";
 process.env.CANVA_CLIENT_SECRET = process.env.CANVA_CLIENT_SECRET || "test-client-secret";
-process.env.BRAND_TEMPLATE_ID = process.env.BRAND_TEMPLATE_ID || "TEST_TEMPLATE_ID";
+process.env.BRAND_TEMPLATE_ID_POSTER = process.env.BRAND_TEMPLATE_ID_POSTER || "TEST_TEMPLATE_ID_POSTER";
+process.env.BRAND_TEMPLATE_ID_PAPER = process.env.BRAND_TEMPLATE_ID_PAPER || "TEST_TEMPLATE_ID_PAPER";
+process.env.BRAND_TEMPLATE_ID_REVIEWER = process.env.BRAND_TEMPLATE_ID_REVIEWER || "TEST_TEMPLATE_ID_REVIEWER";
+process.env.BRAND_TEMPLATE_ID_SESSION_CHAIR = process.env.BRAND_TEMPLATE_ID_SESSION_CHAIR || "TEST_TEMPLATE_ID_SESSION_CHAIR";
+process.env.BRAND_TEMPLATE_ID_INVITED_SPEAKER = process.env.BRAND_TEMPLATE_ID_INVITED_SPEAKER || "TEST_TEMPLATE_ID_INVITED_SPEAKER";
 process.env.ADMIN_EMAILS = "canva-admin-test@example.com";
 
 const canva = await import("../canva.js");
@@ -39,12 +43,28 @@ const nonAdminEmail = "canva-nonadmin-test@example.com";
 const adminToken = jwt.sign({ typ: "access", email: adminEmail, name: "Canva Admin Test", user_id: 1, role: "user", roles: {} }, secret, { expiresIn: "5m" });
 const nonAdminToken = jwt.sign({ typ: "access", email: nonAdminEmail, name: "Canva Non Admin", user_id: 2, role: "user", roles: {} }, secret, { expiresIn: "5m" });
 
+// This suite repeatedly deletes/overwrites canva_connection (id=1, a true
+// singleton) to get a deterministic "not connected" or "connected with
+// known fake tokens" state for each test. If a real, working connection
+// already exists (an Admin completed the real one-time OAuth consent - see
+// /admin/canva/connect), running this suite must not silently destroy it.
+// So: save whatever's there before the first test touches the table, and
+// restore exactly that (or delete again, if there wasn't one) once every
+// test in this file has finished.
+const preExistingConnection = (await pool.query("select access_token, refresh_token, expires_at, connected_by from canva_connection where id = 1")).rows[0] || null;
+
 beforeEach(async () => {
   await pool.query("delete from canva_connection where id = 1");
 });
 
 after(async () => {
   await pool.query("delete from canva_connection where id = 1");
+  if (preExistingConnection) {
+    await pool.query(
+      "insert into canva_connection (id, access_token, refresh_token, expires_at, connected_by) values (1,$1,$2,$3,$4)",
+      [preExistingConnection.access_token, preExistingConnection.refresh_token, preExistingConnection.expires_at, preExistingConnection.connected_by]
+    );
+  }
   server.close();
   await pool.end();
   setImmediate(() => process.exit(0));
@@ -167,7 +187,7 @@ test("generateCertificatePdfUrl: drives autofill -> poll -> export -> poll and r
       { body: { job: { id: "export-job-1", status: "in_progress" } } }, // POST /exports
       { body: { job: { id: "export-job-1", status: "success", urls: ["https://export-download.canva.com/final.pdf"] } } }, // GET poll
     ],
-    () => canva.generateCertificatePdfUrl({ Name: "Jane Doe", "Conference Title": "DEI CMT 2026" })
+    () => canva.generateCertificatePdfUrl("SOME_TEMPLATE_ID", { Name: "Jane Doe", "Conference Title": "DEI CMT 2026" })
   );
 
   assert.equal(resultUrl, "https://export-download.canva.com/final.pdf");
@@ -175,7 +195,7 @@ test("generateCertificatePdfUrl: drives autofill -> poll -> export -> poll and r
   const autofillCreate = calls.find((c) => c.url.endsWith("/autofills") && c.opts.method === "POST");
   assert.ok(autofillCreate, "must create an autofill job");
   const autofillBody = JSON.parse(autofillCreate.opts.body);
-  assert.equal(autofillBody.brand_template_id, "TEST_TEMPLATE_ID");
+  assert.equal(autofillBody.brand_template_id, "SOME_TEMPLATE_ID");
   assert.deepEqual(autofillBody.data, {
     Name: { type: "text", text: "Jane Doe" },
     "Conference Title": { type: "text", text: "DEI CMT 2026" },
@@ -198,7 +218,7 @@ test("generateCertificatePdfUrl: a failed autofill job throws with Canva's error
           { body: { job: { id: "autofill-job-2", status: "in_progress" } } },
           { body: { job: { id: "autofill-job-2", status: "failed", error: { code: "autofill_error", message: "field mismatch" } } } },
         ],
-        () => canva.generateCertificatePdfUrl({ Name: "Jane" })
+        () => canva.generateCertificatePdfUrl("SOME_TEMPLATE_ID", { Name: "Jane" })
       ).then((r) => r.result),
     /autofill_error/
   );
@@ -304,11 +324,54 @@ test("GET /admin/canva/callback with no prior session (no pending PKCE/state) al
   assert.match(decodeURIComponent(res.headers.get("location") || ""), /could not be verified/i);
 });
 
-test("GET /admin/canva/dataset returns a clear 'not connected' error when Canva hasn't been connected yet", async () => {
-  const res = await fetch(base + "/admin/canva/dataset", { headers: { Authorization: `Bearer ${adminToken}` } });
+test("GET /admin/canva/dataset?role=poster returns a clear 'not connected' error when Canva hasn't been connected yet", async () => {
+  const res = await fetch(base + "/admin/canva/dataset?role=poster", { headers: { Authorization: `Bearer ${adminToken}` } });
   assert.equal(res.status, 500);
   const body = await res.json();
   assert.match(body.error, /not connected/i);
+});
+
+test("GET /admin/canva/dataset?role=unknown-role is rejected with the list of known roles", async () => {
+  const res = await fetch(base + "/admin/canva/dataset?role=unknown-role", { headers: { Authorization: `Bearer ${adminToken}` } });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.match(body.error, /unknown-role/);
+  assert.match(body.error, /reviewer/);
+});
+
+test("GET /admin/canva/dataset with no ?role reports every certificate category, each failing independently rather than the whole response erroring", async () => {
+  const res = await fetch(base + "/admin/canva/dataset", { headers: { Authorization: `Bearer ${adminToken}` } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // All five categories have a (fake) template id configured in this test
+  // env (see the top of this file), but Canva isn't connected, so each one
+  // reports its own "not connected" error rather than failing the whole
+  // response - this proves one role's failure can't hide another's result.
+  for (const role of ["poster", "paper", "reviewer", "session_chair", "invited_speaker"]) {
+    assert.equal(body[role].configured, true, `${role} should report as configured`);
+    assert.match(body[role].error, /not connected/i, `${role} should report its own not-connected error`);
+  }
+});
+
+test("GET /admin/canva/dataset with no ?role marks a role unconfigured (not an error) when its template id is empty", async () => {
+  // CANVA_TEMPLATE_IDS is read from process.env once, at api/index.js's
+  // module load time, so this test can't flip a real env var mid-suite to
+  // prove the "skipped, not errored" behavior end-to-end. What IS checked
+  // here, against the real route: an explicitly-unconfigured role name
+  // (one the route itself would treat as having no template id) is
+  // rejected the same way whether checked individually...
+  const individual = await fetch(base + "/admin/canva/dataset?role=not_a_real_role", { headers: { Authorization: `Bearer ${adminToken}` } });
+  assert.equal(individual.status, 400);
+  // ...and the all-roles response's shape for a configured-but-failing role
+  // is always { configured: true, templateId, error } - never silently
+  // missing a role or mixing up which one failed.
+  const all = await fetch(base + "/admin/canva/dataset", { headers: { Authorization: `Bearer ${adminToken}` } });
+  const body = await all.json();
+  assert.deepEqual(Object.keys(body).sort(), ["invited_speaker", "paper", "poster", "reviewer", "session_chair"]);
+  for (const role of Object.keys(body)) {
+    assert.ok("configured" in body[role], `${role} result must say whether it's configured`);
+  }
 });
 
 test("the Admin page reflects Canva's connection state, and POST disconnect clears it", async () => {
@@ -329,4 +392,98 @@ test("the Admin page reflects Canva's connection state, and POST disconnect clea
 
   const row = await pool.query("select 1 from canva_connection where id = 1");
   assert.equal(row.rows.length, 0);
+});
+
+// --- POST /chair/dashboard/enable-pdf-download/:id: all four certificate categories ---
+// (authors, reviewers, session chairs, invited speakers). This belongs in
+// this file, not test/certificate-pdf.test.mjs, because it depends on
+// canva_connection's disconnected state - see this file's header comment.
+
+const certChairEmail = "canva-cert-test-chair@example.com";
+const certChairToken = jwt.sign({ typ: "chair", email: certChairEmail, name: "Cert Test Chair", user_id: 5, role: "chair" }, secret, { expiresIn: "5m" });
+
+async function seedFullConference() {
+  const conf = await pool.query(
+    "insert into conferences (title, created_by) values ($1,$2) returning conference_id",
+    ["CANVA_CERT_TEST_" + crypto.randomBytes(3).toString("hex"), certChairEmail]
+  );
+  const conferenceId = conf.rows[0].conference_id;
+
+  const track = await pool.query(
+    "insert into conference_tracks (conference_id, track_name, track_reviewers, panelists) values ($1,$2,$3,$4) returning track_id",
+    [conferenceId, "Cert Test Track", ["cert-reviewer-1@example.com", "cert-reviewer-2@example.com"], ["cert-chair-1@example.com"]]
+  );
+  const trackId = track.rows[0].track_id;
+
+  const posterSub = await pool.query(
+    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, paper_number) values ($1,$2,'Poster Paper',$3,'Poster Scored',1) returning submission_id",
+    [conferenceId, "cert-author-poster@example.com", "CCP" + crypto.randomBytes(3).toString("hex")]
+  );
+  const paperSub = await pool.query(
+    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, paper_number) values ($1,$2,'Oral Paper',$3,'Presentation Completed',2) returning submission_id",
+    [conferenceId, "cert-author-paper@example.com", "CCO" + crypto.randomBytes(3).toString("hex")]
+  );
+
+  await pool.query("insert into invitees (name, email, conference_id) values ($1,$2,$3)", ["Cert Test Invitee", "cert-invitee@example.com", conferenceId]);
+  const invitedTalk = await pool.query(
+    "insert into invited_talk_submissions (invitee_email, conference_id, title, track_id) values ($1,$2,$3,$4) returning paper_id",
+    ["cert-invitee@example.com", conferenceId, "Invited Talk Title", trackId]
+  );
+
+  return { conferenceId, trackId, posterSubmissionId: posterSub.rows[0].submission_id, paperSubmissionId: paperSub.rows[0].submission_id, invitedPaperId: invitedTalk.rows[0].paper_id };
+}
+
+async function cleanupConference(conferenceId, trackId) {
+  await pool.query("delete from role_certificates where conference_id = $1", [conferenceId]);
+  await pool.query("delete from certificates where conference_id = $1", [conferenceId]);
+  await pool.query("delete from invited_talk_submissions where conference_id = $1", [conferenceId]);
+  await pool.query("delete from invitees where conference_id = $1", [conferenceId]);
+  await pool.query("delete from submissions where conference_id = $1", [conferenceId]);
+  if (trackId) await pool.query("delete from conference_tracks where track_id = $1", [trackId]);
+  await pool.query("delete from conferences where conference_id = $1", [conferenceId]);
+}
+
+test("enable-pdf-download: with Canva not connected, every category (authors, reviewers, session chairs, invited speakers) fails gracefully with no partial writes", async () => {
+  const { conferenceId, trackId } = await seedFullConference();
+  try {
+    const res = await fetch(base + `/chair/dashboard/enable-pdf-download/${conferenceId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${certChairToken}` } });
+    assert.equal(res.status, 302);
+    const message = decodeURIComponent(res.headers.get("location") || "");
+    assert.match(message, /0 recipients/);
+    assert.match(message, /failed/);
+
+    const certRows = await pool.query("select count(*)::int as n from certificates where conference_id = $1", [conferenceId]);
+    assert.equal(certRows.rows[0].n, 0, "no author certificate rows should exist after an all-failed attempt");
+
+    const roleCertRows = await pool.query("select role, email from role_certificates where conference_id = $1 order by role, email", [conferenceId]);
+    assert.deepEqual(roleCertRows.rows, [], "no role_certificates rows (reviewer/session_chair/invited_speaker) should exist after an all-failed attempt");
+  } finally {
+    await cleanupConference(conferenceId, trackId);
+  }
+});
+
+test("enable-pdf-download: a reviewer who already has a GENERATED role certificate for this Subject Area is skipped, not re-attempted", async () => {
+  const { conferenceId, trackId } = await seedFullConference();
+  try {
+    await pool.query(
+      "insert into role_certificates (conference_id, role, email, context_id, status, file_url) values ($1,'reviewer','cert-reviewer-1@example.com',$2,'GENERATED','https://res.cloudinary.com/demo/raw/upload/fake.pdf')",
+      [conferenceId, trackId]
+    );
+
+    const res = await fetch(base + `/chair/dashboard/enable-pdf-download/${conferenceId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${certChairToken}` } });
+    const message = decodeURIComponent(res.headers.get("location") || "");
+
+    // cert-reviewer-1 already has one and must not appear as a failure;
+    // cert-reviewer-2 (same track, no existing certificate) is still
+    // attempted and fails (Canva isn't connected), same as before.
+    assert.doesNotMatch(message, /reviewer cert-reviewer-1@example\.com/);
+
+    const roleCertRows = await pool.query(
+      "select role, email from role_certificates where conference_id = $1 order by role, email",
+      [conferenceId]
+    );
+    assert.deepEqual(roleCertRows.rows, [{ role: "reviewer", email: "cert-reviewer-1@example.com" }], "the pre-existing row must be untouched, and nothing new written for anyone else (their attempts all failed)");
+  } finally {
+    await cleanupConference(conferenceId, trackId);
+  }
 });
