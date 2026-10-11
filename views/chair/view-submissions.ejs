@@ -44,9 +44,6 @@
             </button>
           <% } %>
         </form>
-
-      
-
         <hr>
 
         <div class="row mb-4">
@@ -155,12 +152,6 @@
                               'bg-secondary' %>">
                           <%= submission.submission_status %>
                         </span>
-
-                        <!-- <% if(submission.submission_status=='Submitted Revised Paper') { %>
-
-                          <a class="small" href="/chair/dashboard/resolve-re-review-conflicts/<%= submission.submission_id %>">Resolve Re-Review Conflicts</a>
-                        
-                        <% } %> -->
                        </td>
 
                       <td>
@@ -230,9 +221,7 @@
                           <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper' && submission.submission_status!='DESK ACCEPT') { %>
                           <p class="small" style="color:green"><i class="bi bi-check2-circle"></i> Submitted Final Decision</p>
                           <% } else { %>
- <a href="/chair/dashboard/resolve-conflicts/<%= submission.submission_id %>" target="_blank" class="btn btn-success btn-sm">
-                             Final Decision
-                          </a>
+                          <p class="small text-muted"><i class="bi bi-hourglass-split"></i> Pending Meta-Reviewer Decision</p>
                             <% } %>
                          
                         </div>

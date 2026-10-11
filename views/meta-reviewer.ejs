@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>DEI CMT</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
 </head>
@@ -48,6 +48,9 @@
                         SUBMISSION TITLE
                     </th>
                     <th>
+                        ROUND
+                    </th>
+                    <th>
                         REVIEWS RECEIVED
                     </th>
                     <th>
@@ -65,6 +68,9 @@ ACTION
     </td>
     <td>
         <%= submission.title %>
+    </td>
+    <td>
+        <%= submission.round %>
     </td>
     <td>
         <%= submission.review_count %>

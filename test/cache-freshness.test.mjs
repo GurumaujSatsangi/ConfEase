@@ -212,18 +212,19 @@ test("conferences cache entry has a short, bounded TTL (defense in depth, not th
 test("submissions cache: read -> chair decision -> read shows the new status, not the cached old one", { skip: !redisAvailable && "Redis not reachable from this environment" }, () =>
   withTestConference(async ({ conferenceId, insertSubmission }) => {
     const viewer = accessToken(authorEmail);
-    const chair = chairAccessToken(chairEmail);
     const submissionId = await insertSubmission({ primary_author: authorEmail, title: "CACHE_TEST_Paper_Status" });
 
     const before1 = await (await get(`/conference/${conferenceId}`, viewer)).text();
     assert.ok(before1.includes("Submitted for Review"), "page should show the seeded status before any decision");
 
-    // Real mutation route (no file upload, no email).
-    const decideRes = await post(`/resolve-conflict/${submissionId}/${conferenceId}`, chair, {
-      final_remarks: "looks good",
-      status: "Accepted for Oral Presentation",
-    });
-    assert.equal(decideRes.status, 302);
+    // The Chair no longer decides a submission directly (that now only
+    // happens via a Meta-Reviewer recommendation applied at
+    // /publish/review-results, which also emails the author - not something
+    // to trigger from a cache test). Exercise the exact UPDATE + invalidation
+    // sequence that route performs, in that order, directly - same pattern as
+    // the revised-paper test below.
+    await pool.query(`UPDATE submissions SET submission_status = $1 WHERE submission_id = $2`, ["Accepted for Oral Presentation", submissionId]);
+    await redisProbe.del(submissionsCacheKey(authorEmail, conferenceId));
 
     const dbRow = await pool.query("SELECT submission_status FROM submissions WHERE submission_id = $1", [submissionId]);
     assert.equal(dbRow.rows[0].submission_status, "Accepted for Oral Presentation", "sanity: DB was actually updated");
@@ -263,12 +264,17 @@ test("submissions cache key is case-insensitive on the author's email (chair-typ
     await redisProbe.set(normalizedKey, JSON.stringify([{ stale: true }]), { EX: 3600 });
     assert.ok(await redisProbe.get(normalizedKey), "sanity: cache entry exists before the mutation");
 
+    // DESK REJECT (not DESK ACCEPT) deliberately: it's a real, still-existing
+    // chair mutation route that calls the same invalidateConferenceSubmissionCache
+    // helper, but does not send an email itself - the rejection email only
+    // goes out from the separate /submit-desk-rejection-remarks/:id step,
+    // which this test never calls.
     const chair = chairAccessToken(chairEmail);
-    const decideRes = await post(`/resolve-conflict/${submissionId}/${conferenceId}`, chair, { final_remarks: "ok", status: "Rejected" });
+    const decideRes = await post(`/submit-desk-decision/${submissionId}`, chair, { decision: "DESK REJECT" });
     assert.equal(decideRes.status, 302);
 
     const stillCached = await redisProbe.get(normalizedKey);
-    assert.equal(stillCached, null, "resolve-conflict's invalidation (built from submissions.primary_author, stored as 'Cache-Test-Mixed@Example.com') must still hit the lowercase-normalized key");
+    assert.equal(stillCached, null, "submit-desk-decision's invalidation (built from submissions.primary_author, stored as 'Cache-Test-Mixed@Example.com') must still hit the lowercase-normalized key");
   })
 );
 

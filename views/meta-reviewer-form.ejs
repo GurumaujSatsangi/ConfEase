@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>DEI CMT</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
 </head>
@@ -15,11 +15,13 @@
     <div class="container">
         <h4>
             Recommendation Submission
-        </h4><hr>
+        </h4>
+        <p class="small text-muted"><%= isRevised ? "Showing re-reviews of the Revised Paper." : "Showing first-round peer reviews." %></p>
+        <hr>
 
         <table class="table">
             <tr>
-                <th>PEER REVIEW ID</th>
+                <th>REVIEWER</th>
                 <th>ORIGINALITY SCORE</th>
                 <th>RELEVANCE SCORE</th>
                 <TH>TECHNICAL QUALITY SCORE</TH>
@@ -34,7 +36,7 @@
         <% peer_review.forEach(function(peer_review){ %>
 
             <tr>
-                <td><%= peer_review.id %></td>
+                <td><%= peer_review.reviewer %></td>
                 <td><%= peer_review.originality_score %></td>
                 <td><%= peer_review.relevance_score %></td>
                 <td><%= peer_review.technical_quality_score %></td>

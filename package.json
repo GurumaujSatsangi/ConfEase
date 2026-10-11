@@ -12,7 +12,6 @@
   "author": "Gurumauj Satsangi",
   "license": "ISC",
   "dependencies": {
-    "ai-text-detector": "^1.0.8",
     "bcrypt": "^5.1.1",
     "body-parser": "^2.2.0",
     "cloudinary": "^2.6.1",

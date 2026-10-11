@@ -14,7 +14,7 @@
     <div class="container">
 
         <h4>Pending Acceptance Notification</h4>
-        <h6>Acceptance Notification was not sent to the authors of the following submissions because the status of these submissions is either 'Submitted for Review' or 'Submitted Revised Paper'.</h6>
+        <h6>Acceptance Notification was not sent to the authors of the following submissions because the status of these submissions is either 'Submitted for Review' or 'Submitted Revised Paper'. These are waiting for the assigned Meta-Reviewer to record a recommendation; publish again once that is done.</h6>
         <hr>
 <% if(pending_acceptance_notifications.length>0){ %>
 
@@ -23,8 +23,8 @@
         <% pending_acceptance_notifications.forEach(function(pending_acceptance_notifications){ %>
 
 
-        <li>Submission ID: <a target="_blank" href="/chair/dashboard/resolve-conflicts/<%= pending_acceptance_notifications %>"><%= pending_acceptance_notifications %></a></li>
-        
+        <li>Submission ID: <%= pending_acceptance_notifications %></li>
+
         <% }) %>
     
         </ul>

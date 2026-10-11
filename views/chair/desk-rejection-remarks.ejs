@@ -3,21 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>DEI CMT</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
 </head>
 <body>
         <%- include('../partials/dashboard/header') %>
 
-    <h4>Remarks for Desk Rejection</h4>
-    <p class="small">Inorder to maintain transparency in the entire review process, submitting a reason for Desk Rejection is mandatory.</p>
     <div class="container">
-<form action="/submit-desk-rejection-remarks/<%= submission_id %>" method="post">
-        <textarea class="form-control" name="remarks"></textarea>
-        <button class="btn btn-primary btn-sm" type="submit">Save Remarks & Submit Desk Decision</button>
-    </form>
-
+        <h4>Remarks for Desk Rejection</h4>
+        <p class="small">Inorder to maintain transparency in the entire review process, submitting a reason for Desk Rejection is mandatory.</p>
+        <hr>
+        <form action="/submit-desk-rejection-remarks/<%= submission_id %>" method="post">
+            <div class="mb-3">
+                <textarea class="form-control" name="remarks" rows="5" required placeholder="Reason for desk rejection"></textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" type="submit">Save Remarks & Submit Desk Decision</button>
+        </form>
     </div>
     
     <%- include('../partials/footer') %>

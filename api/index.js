@@ -4,19 +4,12 @@ import cookieParser from "cookie-parser";
 import { createClient } from 'redis';
 import passport from "passport";
 import { RedisStore } from "connect-redis";
-import {PDFParse} from 'pdf-parse';
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fs from "fs";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import passwordValidator from 'password-validator';
 import generator from 'generate-password';
-
-import {
-  detectAIText,
-  getConfidenceScore,
-} from "ai-text-detector";
-
 import jwt from "jsonwebtoken";
 import session from "express-session";
 import dotenv from "dotenv";
@@ -2790,6 +2783,13 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
     );
     const conferenceRaw = conferenceResult.rows[0];
 
+    // Peer-review deadline: once it has passed, a reviewer can no longer open this form
+    if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
+      return res.render("error.ejs", {
+        message: "The peer-review deadline for this conference has passed. You can no longer review submissions.",
+      });
+    }
+
     // Helper function to format dates
     const formatDate = (dateString) => {
       if (!dateString) return dateString;
@@ -2896,6 +2896,14 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
       [submissionData.conference_id]
     );
     const conferenceRaw = conferenceResult.rows[0];
+
+    // Peer-review deadline: once it has passed, a reviewer can no longer open this form
+    if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
+      return res.render("error.ejs", {
+        message: "The peer-review deadline for this conference has passed. You can no longer review submissions.",
+      });
+    }
+
     const conferencedata = {
       ...conferenceRaw,
       conference_start_date: formatDate(conferenceRaw.conference_start_date),
@@ -2971,6 +2979,12 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
       }
 
+      // Peer-review deadline: once it has passed, no new re-review can be submitted
+      const reReviewDeadlineCheck = await pool.query("select deadline_peer_review from conferences where conference_id = $1", [submissionData.conference_id]);
+      if (deadlineClosed(reReviewDeadlineCheck.rows[0]?.deadline_peer_review)) {
+        return res.redirect("/reviewer/dashboard?message=The peer-review deadline for this conference has passed. You can no longer review submissions.");
+      }
+
     //
     // 2. Compute mean score
     //
@@ -3003,9 +3017,11 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
       ]
     );
 
-    // NOTE: submission_status is intentionally left as "Submitted Revised Paper" here,
-    // matching /mark-as-reviewed. The chair's resolve-conflicts flow looks it up by
-    // that status until a final decision is recorded via /resolve-re-review-conflicts.
+    // NOTE: submission_status is intentionally left as "Submitted Revised Paper" here.
+    // The Meta-Reviewer dashboard picks up revised submissions that have at least one
+    // re-review, and the status only changes once a recommendation is applied at
+    // /publish/review-results - the Chair no longer resolves this directly (see
+    // the removed /resolve-re-review-conflicts route).
 
     return res.redirect("/reviewer/"+conference_id+"?message=Revised paper review submitted successfully.");
 
@@ -3014,27 +3030,6 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     return res.redirect("/reviewer/dashboard?message=Error processing re-review.");
   }
 });
-
-
-app.post("/resolve-re-review-conflicts/:id/:confid",checkChairAuth,async(req,res)=>{
-
-  const submission_id = req.params.id;
-  const conference_id = req.params.confid;
-
-  const {final_remarks,status} = req.body;
-
-  const data = await pool.query("update submissions set submission_status=$1, remarks=$2 where submission_id=$3 returning *",[status,final_remarks,submission_id]);
-
-  if(data.rows[0]){
-    await invalidateConferenceSubmissionCache(
-      [data.rows[0].primary_author, ...(data.rows[0].co_authors || [])],
-      conference_id
-    );
-    return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submitted Final Decision!")
-  }
-  return res.redirect("/chair/dashboard?message=Submission not found.");
-
-})
 
 
 
@@ -4249,6 +4244,12 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
       }
 
+      // Peer-review deadline: once it has passed, no new review can be submitted
+      const reviewDeadlineCheck = await pool.query("select deadline_peer_review from conferences where conference_id = $1", [submissionData.conference_id]);
+      if (deadlineClosed(reviewDeadlineCheck.rows[0]?.deadline_peer_review)) {
+        return res.redirect("/reviewer/dashboard?message=The peer-review deadline for this conference has passed. You can no longer review submissions.");
+      }
+
     //
     // 3. Insert review into peer_review
     //
@@ -4284,13 +4285,10 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
       ]
     );
 
-    // NOTE: submission_status is intentionally left as "Submitted for Review" here.
-    // The chair's "Final Decision" / resolve-conflicts flow expects that status until
-    // a decision is recorded (see /chair/dashboard/resolve-conflicts/:id and
-    // /resolve-conflict/:id/:conf_id). Flipping it to "Reviewed" after a single
-    // reviewer submits broke that flow: the chair's "Final Decision" link only shows
-    // for status 'Submitted for Review' / 'Submitted Revised Paper' / 'DESK ACCEPT',
-    // so the submission appeared stuck with no way to resolve it further.
+    // NOTE: submission_status is intentionally left unchanged (still "DESK ACCEPT")
+    // here. The Meta-Reviewer dashboard picks up DESK ACCEPT submissions that have
+    // at least one review, and the status only changes once the Meta-Reviewer's
+    // recommendation is applied at /publish/review-results.
 
     //
     // 5. If revision required → insert record for revision
@@ -4467,19 +4465,34 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
 
   const assigned_tracks = await pool.query("select * from conference_tracks where lower(meta_reviewer) = lower($1) and conference_id = $2",[req.user.email,conference_id]);
 
-  // One row per SUBMISSION (not per peer review) across all of this
-  // meta-reviewer's assigned tracks - a submission reviewed by multiple
-  // reviewers must appear only once here, with every one of those reviews
-  // shown together on its recommendation-submission page so the
-  // meta-reviewer can weigh them all before deciding.
+  // One row per SUBMISSION (not per review) across all of this meta-reviewer's
+  // assigned tracks - a submission reviewed by multiple reviewers must appear
+  // only once here, with every one of those reviews shown together on its
+  // recommendation-submission page so the meta-reviewer can weigh them all
+  // before deciding. Both a first-round "DESK ACCEPT" submission (once
+  // reviewed) and a "Submitted Revised Paper" submission (once re-reviewed)
+  // land here - the Chair no longer resolves either of these directly, so the
+  // Meta-Reviewer is the only path to a final decision on both rounds.
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
-        `select s.submission_id, s.title, s.paper_number, count(pr.id)::int as review_count
-         from submissions s
-         join peer_review pr on pr.submission_id = s.submission_id::text
-         where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT'
-           and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)
-         group by s.submission_id, s.title, s.paper_number`,
+        `select submission_id, title, paper_number, review_count, round from (
+           select s.submission_id, s.title, s.paper_number, count(pr.id)::int as review_count, 'First Review' as round
+           from submissions s
+           join peer_review pr on pr.submission_id = s.submission_id::text
+           where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT'
+             and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)
+           group by s.submission_id, s.title, s.paper_number
+
+           union all
+
+           select s.submission_id, s.title, s.paper_number, count(*)::int as review_count, 'Re-Review' as round
+           from submissions s
+           join revised_submissions rs on rs.submission_id = s.submission_id::text
+           where s.track_id = ANY($1::uuid[]) and s.submission_status = 'Submitted Revised Paper'
+             and not exists (select 1 from meta_reviewer_decision d where d.submission_id = rs.submission_id)
+           group by s.submission_id, s.title, s.paper_number
+         ) combined
+         order by title`,
         [assigned_tracks.rows.map((t) => t.track_id)]
       )
     : { rows: [] };
@@ -4494,16 +4507,22 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
 
   // Authorization: only the meta-reviewer assigned to this submission's track may open this form
   const metaCheck = await pool.query(
-    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
+    "select s.submission_status from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
     [submission_id, req.user.email]
   );
   if (metaCheck.rows.length === 0) {
     return res.redirect("/dashboard?message=You are not assigned as the meta-reviewer for this submission.");
   }
 
-  const peer_review = await pool.query("select * from peer_review where submission_id = $1",[submission_id]);
+  // A revised submission's re-reviews live in their own table (revised_submissions),
+  // separate from the first round's peer_review table - show whichever round this
+  // submission is currently at.
+  const isRevised = metaCheck.rows[0].submission_status === "Submitted Revised Paper";
+  const peer_review = isRevised
+    ? await pool.query("select * from revised_submissions where submission_id = $1", [submission_id])
+    : await pool.query("select * from peer_review where submission_id = $1", [submission_id]);
 
-  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id});
+  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised});
 
 })
 
@@ -6134,118 +6153,13 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
   }
 });
 
-app.get("/chair/dashboard/resolve-re-review-conflicts/:id",checkChairAuth,async(req,res)=>{
-
-  const submission_id = req.params.id;
-  const submission = await pool.query("select * from submissions where submission_id=$1 and submission_status=$2",[submission_id,'Submitted Revised Paper']);
-
-  if(!submission || submission.rows.length==0){
-    return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission");
-  }
-
-  const re_reviews = await pool.query("select * from revised_submissions where submission_id=$1",[submission_id]);
-
-  if(re_reviews){
-    return res.render("chair/re-review-conflicts.ejs",{re_reviews:re_reviews.rows,submission:submission.rows[0]});
-  }
-
-})
-
-app.get("/chair/dashboard/resolve-conflicts/:id", checkChairAuth, async (req, res) => {
-  try {
-    const submission_id = req.params.id;
-
-    // 1. Fetch the submission once
-    const result = await pool.query(
-      "SELECT * FROM submissions WHERE submission_id = $1", 
-      [submission_id]
-    );
-
-    // 2. Check if it exists at all
-    if (result.rows.length === 0) {
-      return res.redirect("/chair/dashboard?message=Submission not found!");
-    }
-
-    const currentData = result.rows[0];
-    const status = currentData.submission_status;
-
-    // 3. Define a base payload with null fallbacks so the EJS template doesn't crash
-    const renderPayload = {
-      submission: null,
-      submission2: null,
-      reviews: null,
-      meta_reviewer:null,
-      re_reviews: null
-    };
-
-    // 4. Handle based on the specific status
-    // 'DESK ACCEPT' is also a pending-decision state: desk review moves a
-    // submission from 'Submitted for Review' to 'DESK ACCEPT', and nothing
-    // moves it further until the chair records a final decision here (peer
-    // reviews are collected while the status sits at 'DESK ACCEPT'). Treating
-    // only 'Submitted for Review' as pending meant this page was permanently
-    // unreachable for any desk-accepted submission - it always looked like a
-    // decision had already been made.
-    if (status === 'Submitted for Review' || status === 'DESK ACCEPT') {
-        const reviews = await pool.query(
-          "SELECT * FROM peer_review WHERE submission_id = $1",
-          [submission_id]
-        );
-
-        // The meta-reviewer's decision (if any) is deliberately not fetched
-        // or shown here - the chair should not see it before Publish Review
-        // Results. See /publish/review-results.
-        renderPayload.submission = currentData;
-        renderPayload.reviews = reviews.rows;
-
-        return res.render("chair/resolve-conflicts.ejs", renderPayload);
-
-    } else if (status === 'Submitted Revised Paper') {
-        const re_reviews = await pool.query(
-          "SELECT * FROM revised_submissions WHERE submission_id = $1",
-          [submission_id]
-        );
-
-        renderPayload.submission2 = currentData;
-        renderPayload.re_reviews = re_reviews.rows;
-
-        return res.render("chair/resolve-conflicts.ejs", renderPayload);
-
-    } else {
-        // 5. If it's neither of the above statuses, a decision was likely already made
-        return res.redirect("/chair/dashboard?message=Chair has already submitted the Final Decision for this Submission!");
-    }
-
-  } catch (error) {
-    // 6. Catch any database errors
-    console.error("Error fetching conflict resolution data:", error);
-    return res.status(500).send("Internal Server Error");
-  }
-});
-
-app.post("/resolve-conflict/:id/:conf_id",checkChairAuth,async(req,res)=>{
-
-  const {final_remarks, status} = req.body;
-
-  const conference_id = req.params.conf_id;
-
-  const submission_id = req.params.id;
-
-  const submission = await pool.query("update submissions set remarks=$1, submission_status=$2 where submission_id=$3 returning *",[final_remarks,status,submission_id]);
-
-  if(submission.rowCount){
-    await invalidateConferenceSubmissionCache(
-      [submission.rows[0].primary_author, ...(submission.rows[0].co_authors || [])],
-      conference_id
-    );
-    return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Submission Updated Succesfully!");
-  }
-  return res.redirect("/chair/dashboard?message=Submission not found.");
-
-
-
-})
-
+// The Chair no longer records a submission's final decision directly - both a
+// first-round "DESK ACCEPT" submission (once reviewed) and a "Submitted
+// Revised Paper" submission (once re-reviewed) now go to the Meta-Reviewer
+// for a recommendation, applied at /publish/review-results. The routes that
+// used to let a Chair read reviews directly and set the decision themselves
+// (GET/POST resolve-conflicts, GET/POST resolve-re-review-conflicts) have
+// been removed.
 
 app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
@@ -6789,15 +6703,6 @@ app.post("/submit", checkAuth, async (req, res) => {
       }
       console.log(`Generated and safely saved unique code: ${paperCode}`);
 
-      // PDF & AI Text Parsing
-      const parser = new PDFParse({ url: uploadResult.secure_url });
-      const result = await Promise.race([
-        parser.getText(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("PDF parsing timed out")), 20000)),
-      ]);
-      const aidetection = detectAIText(result.text);
-      const confidence = getConfidenceScore(result.text);
-
       // Sequential, per-conference paper number (e.g. 0001, 0002, ...), distinct
       // from the random paper_code used for co-author linking. Allocated once,
       // outside the retry loop below, since a paper_code collision there is a
@@ -6810,8 +6715,8 @@ app.post("/submit", checkAuth, async (req, res) => {
       try {
       submission_result = await pool.query(
         `INSERT INTO submissions
-         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, ai_score, is_ai, paper_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
+         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, paper_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;`,
         [
           id,
           req.user.email,
@@ -6820,8 +6725,6 @@ app.post("/submit", checkAuth, async (req, res) => {
           areas,
           uploadResult.secure_url,
           paperCode,
-          confidence,
-          aidetection.isAIGenerated,
           paperNumber
         ]
       );
