@@ -1217,6 +1217,19 @@ app.get("/invitee/dashboard", checkAuth, async (req, res) => {
 // =====================
 // Utilities
 // =====================
+function formatConferenceDateRange(startDate, endDate) {
+  const fmt = (d) => {
+    if (!d) return null;
+    const date = new Date(d);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  };
+  const start = fmt(startDate);
+  const end = fmt(endDate);
+  if (start && end) return start === end ? start : `${start} - ${end}`;
+  return start || end || "the scheduled dates";
+}
+
 function formatDateISO(dateString) {
   if (!dateString) return dateString;
   // DB dates are already 'YYYY-MM-DD' strings thanks to pg type parser
@@ -4261,6 +4274,19 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
     const data2= await pool.query("select * from invitees where conference_id=$1 and email=$2",[conference_id,email]);
 
     const data = await pool.query("select * from users where email=$1",[email]);
+    const conferenceRow = (await pool.query("select title, conference_start_date, conference_end_date from conferences where conference_id=$1",[conference_id])).rows[0];
+    const conferenceName = conferenceRow?.title || "the conference";
+    const conferenceDates = formatConferenceDateRange(conferenceRow?.conference_start_date, conferenceRow?.conference_end_date);
+    const invitedTalkEmailIntro =
+      "Dear " + escapeHtml(name) + ",<br><br>" +
+      "Greetings from the " + escapeHtml(conferenceName) + " Organizing Committee.<br><br>" +
+      "We are pleased to invite you to deliver an Invited Talk at " + escapeHtml(conferenceName) + ", to be held on " + escapeHtml(conferenceDates) + " at Dayalbagh Educational Institute (Deemed to be University), Agra.<br><br>" +
+      "We would be honoured to have you share your valuable knowledge, expertise, and insights with the participants. Your presence and contribution would greatly enrich the academic discussions and enhance the overall experience of the conference.<br><br>";
+    const invitedTalkEmailOutro =
+      "We sincerely hope you will accept our invitation and look forward to your participation in the conference.<br><br>" +
+      "Thank you for your valuable time and consideration.<br><br>" +
+      "Thanks & Regards,<br>" + escapeHtml(conferenceName) + " Organizing Committee";
+    const invitedTalkEmailSubject = "Invitation to Deliver an Invited Talk at " + conferenceName;
     if(data.rows[0] && !data2.rows[0]){
       await pool.query(
       `INSERT INTO invitees (conference_id, name, email)
@@ -4268,7 +4294,11 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
       [conference_id, name, email]
     );
       await pool.query("insert into conference_roles values($1, $2, $3)",[conference_id, email, "invitee"]);
-     await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit, https://cmt.gurumaujsatsangi.in/registration/user to create your account and submit your paper for the Invited Talk. <br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit")
+     await sendMail(email,invitedTalkEmailSubject,null,
+      invitedTalkEmailIntro +
+      "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
+      invitedTalkEmailOutro
+     )
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
     }
     else if (data.rows[0] && data2.rows[0]){
@@ -4295,7 +4325,12 @@ await pool.query(
           `INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)`,
           [email, hashToken(inviteToken), new Date(Date.now() + 1000 * 60 * 60 * 24)]
         );
-        await sendMail(email,name+", You are invited!",null,"Dear "+escapeHtml(name)+" <br>Greetings from DEI Conference Management Toolkit! <br><br>You have been invited as an Invited Speaker to present your paper. Please visit the link below to set up your account password and then submit your paper for the Invited Talk. <br><br><a href='"+(getAppUrl() || "")+"/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a> <br><br>This link is valid for 24 hours.<br><br>Incase of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit").catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
+        await sendMail(email,invitedTalkEmailSubject,null,
+          invitedTalkEmailIntro +
+          "We kindly request you to visit the DEI CMT portal to create your account and submit your paper/details under the Invited Talk category. Please use the link below to set up your account password:<br><br>" +
+          "<a href='"+(getAppUrl() || "")+"/invited-user/password-update/"+encodeURIComponent(email)+"?token="+inviteToken+"'>Set up your account</a><br><br>This link is valid for 24 hours." +
+          invitedTalkEmailOutro
+        ).catch((mailErr) => console.error("Invitee setup email failed:", mailErr));
         return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Instructions to set up account has been sent to Invitee via Email.");
 
     }
