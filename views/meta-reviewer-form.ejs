@@ -16,6 +16,13 @@
         <h4>
             Recommendation Submission
         </h4>
+        <p>
+            <strong>Paper ID:</strong> <%= submission.paper_number %>
+            &nbsp;
+            <a href="<%= submission.file_url %>" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm" title="View Paper">
+                <i class="bi bi-file-earmark-text"></i> View Paper
+            </a>
+        </p>
         <p class="small text-muted"><%= isRevised ? "Showing re-reviews of the Revised Paper." : "Showing first-round peer reviews." %></p>
         <hr>
 

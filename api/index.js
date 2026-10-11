@@ -1312,6 +1312,26 @@ async function isTrackReviewer(email, trackId) {
   return result.rows.length > 0;
 }
 
+// True once every reviewer assigned to a submission's Subject Area has
+// submitted a review (peer_review) or re-review (revised_submissions) for
+// it - not as soon as the first one has. Used to gate the Meta-Reviewer's
+// recommendation page/submission so a recommendation is never made on an
+// incomplete set of reviews.
+async function allReviewersSubmitted(submissionId, { revised }) {
+  const table = revised ? "revised_submissions" : "peer_review";
+  const result = await pool.query(
+    `select not exists (
+       select 1 from unnest(t.track_reviewers) as required(email)
+       where not exists (select 1 from ${table} r where r.submission_id = s.submission_id::text and lower(r.reviewer) = lower(required.email))
+     ) as complete
+     from submissions s
+     join conference_tracks t on t.track_id = s.track_id
+     where s.submission_id = $1`,
+    [submissionId]
+  );
+  return result.rows.length > 0 && result.rows[0].complete === true;
+}
+
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
 const posterAccess = await pool.query(
@@ -4473,23 +4493,39 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
   // reviewed) and a "Submitted Revised Paper" submission (once re-reviewed)
   // land here - the Chair no longer resolves either of these directly, so the
   // Meta-Reviewer is the only path to a final decision on both rounds.
+  //
+  // A submission only appears once EVERY reviewer assigned to its Subject
+  // Area has submitted their review (or re-review) - not as soon as the
+  // first one comes in. "not exists a reviewer in track_reviewers who hasn't
+  // reviewed yet" expresses that without assuming review counts line up
+  // (e.g. if the reviewer list changes after some reviews are already in).
   const peer_review = assigned_tracks.rows.length
     ? await pool.query(
         `select submission_id, title, paper_number, review_count, round from (
            select s.submission_id, s.title, s.paper_number, count(pr.id)::int as review_count, 'First Review' as round
            from submissions s
+           join conference_tracks t on t.track_id = s.track_id
            join peer_review pr on pr.submission_id = s.submission_id::text
            where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT'
              and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)
+             and not exists (
+               select 1 from unnest(t.track_reviewers) as required(email)
+               where not exists (select 1 from peer_review pr2 where pr2.submission_id = s.submission_id::text and lower(pr2.reviewer) = lower(required.email))
+             )
            group by s.submission_id, s.title, s.paper_number
 
            union all
 
            select s.submission_id, s.title, s.paper_number, count(*)::int as review_count, 'Re-Review' as round
            from submissions s
+           join conference_tracks t on t.track_id = s.track_id
            join revised_submissions rs on rs.submission_id = s.submission_id::text
            where s.track_id = ANY($1::uuid[]) and s.submission_status = 'Submitted Revised Paper'
              and not exists (select 1 from meta_reviewer_decision d where d.submission_id = rs.submission_id)
+             and not exists (
+               select 1 from unnest(t.track_reviewers) as required(email)
+               where not exists (select 1 from revised_submissions rs2 where rs2.submission_id = s.submission_id::text and lower(rs2.reviewer) = lower(required.email))
+             )
            group by s.submission_id, s.title, s.paper_number
          ) combined
          order by title`,
@@ -4518,11 +4554,21 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
   // separate from the first round's peer_review table - show whichever round this
   // submission is currently at.
   const isRevised = metaCheck.rows[0].submission_status === "Submitted Revised Paper";
+
+  // Gate of record: this page must not open until every reviewer assigned to
+  // this submission's Subject Area has submitted their review (or
+  // re-review). The dashboard already filters this out, but a direct URL
+  // visit must be blocked too.
+  if (!(await allReviewersSubmitted(submission_id, { revised: isRevised }))) {
+    return res.redirect("/dashboard?message=Not every reviewer has submitted their review for this submission yet.");
+  }
+
+  const submissionResult = await pool.query("select title, paper_number, file_url from submissions where submission_id = $1", [submission_id]);
   const peer_review = isRevised
     ? await pool.query("select * from revised_submissions where submission_id = $1", [submission_id])
     : await pool.query("select * from peer_review where submission_id = $1", [submission_id]);
 
-  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised});
+  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised, submission: submissionResult.rows[0]});
 
 })
 
@@ -4530,7 +4576,7 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
   // Authorization: only the meta-reviewer assigned to this submission's track may submit a decision
   const metaCheck = await pool.query(
-    "select 1 from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
+    "select s.submission_status from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
     [req.params.id, req.user.email]
   );
   if (metaCheck.rows.length === 0) {
@@ -4538,6 +4584,12 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
   }
 
   const submission_id = req.params.id;
+
+  // Same completeness gate as the form page - block a direct POST too.
+  const isRevisedDecision = metaCheck.rows[0].submission_status === "Submitted Revised Paper";
+  if (!(await allReviewersSubmitted(submission_id, { revised: isRevisedDecision }))) {
+    return res.redirect("/dashboard?message=Not every reviewer has submitted their review for this submission yet.");
+  }
 
   const {status, remarks} = req.body;
 

@@ -65,8 +65,8 @@ async function makeTrack(conferenceId, overrides = {}) {
 
 async function makeSubmission(conferenceId, trackId, status) {
   const sub = await pool.query(
-    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, track_id) values ($1,$2,$3,$4,$5,$6) returning submission_id",
-    [conferenceId, "rw-test-author@example.com", "RW Test Submission", "RW" + crypto.randomBytes(3).toString("hex"), status, trackId]
+    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, track_id, file_url) values ($1,$2,$3,$4,$5,$6,$7) returning submission_id",
+    [conferenceId, "rw-test-author@example.com", "RW Test Submission", "RW" + crypto.randomBytes(3).toString("hex"), status, trackId, "https://example.com/rw-test-paper.pdf"]
   );
   submissionIds.push(sub.rows[0].submission_id);
   return sub.rows[0].submission_id;
@@ -244,6 +244,51 @@ test("cfp_link: set at creation, shown on the conference page, editable afterwar
 
   const updated = await pool.query("select cfp_link from conferences where conference_id = $1", [conferenceId]);
   assert.equal(updated.rows[0].cfp_link, "https://example.com/cfp-v2.pdf", "update-conference must save the new cfp_link");
+});
+
+test("Meta-Reviewer dashboard/form/decision are all gated on EVERY assigned reviewer having submitted", async () => {
+  const conferenceId = await makeConference();
+  const secondReviewerEmail = "review-workflow-test-reviewer-2@example.com";
+  const trackId = await makeTrack(conferenceId, { track_reviewers: [reviewerEmail, secondReviewerEmail] });
+  const metaToken = jwt.sign({ typ: "access", email: metaReviewerEmail, name: "RW Meta 2", user_id: 6, role: "user", roles: { [conferenceId]: ["meta_reviewer"] } }, secret, { expiresIn: "5m" });
+
+  const submissionId = await makeSubmission(conferenceId, trackId, "DESK ACCEPT");
+  await pool.query("update submissions set paper_number = 7 where submission_id = $1", [submissionId]);
+  // Only the first of the two assigned reviewers has reviewed so far.
+  await pool.query(
+    "insert into peer_review (conference_id, submission_id, originality_score, relevance_score, technical_quality_score, clarity_score, impact_score, mean_score, acceptance_status, remarks, reviewer, review_status) values ($1,$2,3,3,3,3,3,3,'Accepted for Oral Presentation','ok',$3,'Reviewed')",
+    [conferenceId, submissionId, reviewerEmail]
+  );
+
+  const dashboardHtml = await (await get(`/meta-reviewer/dashboard/${conferenceId}`, metaToken)).text();
+  assert.ok(!dashboardHtml.includes(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`), "a submission with an outstanding reviewer must not appear on the dashboard yet");
+
+  const formRes = await get(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`, metaToken);
+  assert.equal(formRes.status, 302);
+  assert.match(decodeURIComponent(formRes.headers.get("location") || ""), /not.*submitted/i);
+
+  const postRes = await post(`/submit-meta-reviewer-decision/${submissionId}`, metaToken, { status: "Accepted for Oral Presentation", remarks: "trying anyway" });
+  assert.equal(postRes.status, 302);
+  assert.match(decodeURIComponent(postRes.headers.get("location") || ""), /not.*submitted/i);
+  const decisionRow = await pool.query("select 1 from meta_reviewer_decision where submission_id = $1", [submissionId]);
+  assert.equal(decisionRow.rows.length, 0, "no recommendation should have been recorded while a reviewer is still outstanding");
+
+  // Now the second reviewer submits too - the submission must appear, and
+  // the recommendation form/page must now work.
+  await pool.query(
+    "insert into peer_review (conference_id, submission_id, originality_score, relevance_score, technical_quality_score, clarity_score, impact_score, mean_score, acceptance_status, remarks, reviewer, review_status) values ($1,$2,4,4,4,4,4,4,'Accepted for Oral Presentation','ok too',$3,'Reviewed')",
+    [conferenceId, submissionId, secondReviewerEmail]
+  );
+
+  const dashboardHtml2 = await (await get(`/meta-reviewer/dashboard/${conferenceId}`, metaToken)).text();
+  assert.ok(dashboardHtml2.includes(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`), "the submission must appear once every assigned reviewer has submitted");
+
+  const formHtml2 = await (await get(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`, metaToken)).text();
+  assert.ok(formHtml2.includes(reviewerEmail) && formHtml2.includes(secondReviewerEmail), "both reviewers must be shown");
+  // Paper ID and a link to the paper must be shown on the form.
+  const paperRow = await pool.query("select paper_number, file_url from submissions where submission_id = $1", [submissionId]);
+  assert.ok(formHtml2.includes(String(paperRow.rows[0].paper_number)), "the Paper ID must be shown on the recommendation form");
+  assert.ok(formHtml2.includes(paperRow.rows[0].file_url), "a link to the paper file must be shown on the recommendation form");
 });
 
 test("a chair who is neither the creator nor (the now-removed) a co-chair cannot manage someone else's conference", async () => {
