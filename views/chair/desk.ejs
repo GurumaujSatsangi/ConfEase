@@ -19,6 +19,7 @@
             
             <table class="table">
                 <tr>
+                    <th>PAPER ID</th>
                     <th>TITLE</th>
                     <th>ABSTRACT</th>
                     <th>VIEW PAPER</th>
@@ -29,6 +30,7 @@
 
 <form action="/submit-desk-decision/<%= submission.submission_id %>" method="post">
               <tr>
+                <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
                 <td><%= submission.title %></td>
                 <td><a class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#exampleModal1">Read</a></td>
                 <td><a target="_blank" href="<%= submission.file_url %>" class="btn btn-primary btn-sm">View</a></td>

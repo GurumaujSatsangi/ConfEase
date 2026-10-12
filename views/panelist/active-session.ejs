@@ -35,6 +35,7 @@
 <% if (session && session.length > 0) { %>
         <table class="table">
           <tr>
+            <td><b>Paper ID</b></td>
             <td><b>Paper Title</b></td>
             <td><b>Primary/Co-Authors</b></td>
             <td><b>View Paper</b></td>
@@ -47,6 +48,7 @@
         <input type="hidden" name="track_id" value="<%= session.track_id %>">
 
 
+            <td><%= session.paper_number != null ? String(session.paper_number).padStart(4, '0') : '—' %></td>
             <td><%= session.title %></td>
             <td>Primary Author: <%=session.primary_author_formatted%> | Co-Authors: <%=session.co_authors_formatted || 'None' %> </td>
            

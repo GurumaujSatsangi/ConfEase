@@ -64,7 +64,7 @@ ACTION
 
 <tr>
     <td>
-        <%= submission.paper_number %>
+        <%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %>
     </td>
     <td>
         <%= submission.title %>

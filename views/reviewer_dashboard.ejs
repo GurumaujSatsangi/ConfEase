@@ -57,6 +57,7 @@
           <table class="table table-bordered">
             <thead class="table-light">
               <tr>
+                <th>Paper ID</th>
                 <th>Paper Title</th>
                 <th>Subject Area</th>
                 <th>Action</th>
@@ -65,6 +66,7 @@
             <tbody>
               <% userSubmissions.forEach(function(submission) { %>
                 <tr>
+                  <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
                   <td><%= submission.title %></td>
                   <td><%= getTrackName(submission.track_id) %></td>
                   <td>
@@ -92,6 +94,7 @@
           <table class="table table-bordered">
             <thead class="table-light">
               <tr>
+                <th>Paper ID</th>
                 <th>Paper Title</th>
                 <th>Subject Area</th>
                 <th>Action</th>
@@ -100,6 +103,7 @@
             <tbody>
               <% revisedSubmissions.forEach(function(submission) { %>
                 <tr>
+                  <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
                   <td><%= submission.title %></td>
                   <td><%= getTrackName(submission.track_id) %></td>
                   <td>

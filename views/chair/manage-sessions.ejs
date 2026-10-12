@@ -15,6 +15,9 @@
         
         <h4>Manage Oral Presentation Sessions</h4>
         <h6>Conference: <%= conference.title %></h6>
+        <a href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>/export" class="btn btn-outline-success btn-sm">
+          <i class="bi bi-file-earmark-excel"></i> Export as Excel
+        </a>
         <hr />
         
           <% if (tracks && tracks.length > 0) { %> <%
@@ -72,6 +75,7 @@
                             <thead class="table-light">
                               <tr>
                                 <th style="min-width: 60px;">Rank</th>
+                                <th style="min-width: 100px;">Paper ID</th>
                                 <th style="min-width: 150px;">Paper Title</th>
                                 <th style="min-width: 120px;">Primary Author</th>
                                 <th style="min-width: 120px;">Co-Authors</th>
@@ -98,6 +102,7 @@
                                       <span class="text-muted">N/A</span>
                                     <% } %>
                                   </td>
+                                  <td><%= submission.paperId %></td>
                                   <td>
                                     <div class="fw-bold"><%= submission.title %></div>
                                     <small class="text-muted">Status: <%= submission.submission_status %></small>
@@ -157,6 +162,7 @@
       <table class="table table-sm table-hover">
         <thead class="table-light">
           <tr>
+            <th>Paper ID</th>
             <th>Title</th>
             <th>Primary Author</th>
             <th>Co-Authors</th>
@@ -166,6 +172,7 @@
         <tbody>
           <% track.finalCameraReadyPapers.forEach(function(paper) { %>
             <tr>
+              <td><%= paper.paperId %></td>
               <td class="fw-bold"><%= paper.title %></td>
               <td><%= paper.primary_author_formatted %></td>
               <td>

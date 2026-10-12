@@ -1525,21 +1525,73 @@ async function allReviewersSubmitted(submissionId, { revised }) {
   return result.rows.length > 0 && result.rows[0].complete === true;
 }
 
+async function checkPosterCoordinatorAccess(conferenceId, email) {
+  const posterAccess = await pool.query(
+    "select 1 from poster_session p where p.conference_id = $1 and $2 = any(p.coodinators) union all select 1 from conference_tracks tr where tr.conference_id = $1 and $2 = any(tr.panelists) limit 1",
+    [conferenceId, email]
+  );
+  return posterAccess.rows.length > 0;
+}
+
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
-const posterAccess = await pool.query(
-  "select 1 from poster_session p where p.conference_id = $1 and $2 = any(p.coodinators) union all select 1 from conference_tracks tr where tr.conference_id = $1 and $2 = any(tr.panelists) limit 1",
-  [req.params.id, req.user.email]
-);
-if (posterAccess.rows.length === 0) {
+if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
   return res.redirect("/dashboard?message=You are not authorized to view this page.");
 }
 
-const data = await pool.query("select * from submissions where conference_id = $1 and submission_status=$2",[req.params.id,"Submitted Final Camera Ready Paper for Poster Presentation"]);
-const  result = data.rows;
-res.render("score-posters.ejs",{result, user:req.user})
+const data = await loadPosterSessionsDashboardData(req.params.id);
+if (!data) {
+  return res.redirect("/dashboard?message=Conference not found.");
+}
+res.render("score-posters.ejs",{
+  result: data.submissions,
+  conference: data.conference,
+  posterSession: data.posterSession,
+  leaderboard: data.leaderboard,
+  user: req.user,
+  message: req.query.message || null,
+})
 
 })
+
+app.get("/score-posters/:id/export", checkAuth, async (req, res) => {
+  if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
+    return res.redirect("/dashboard?message=You are not authorized to view this page.");
+  }
+  try {
+    const data = await loadPosterSessionsDashboardData(req.params.id);
+    if (!data) {
+      return res.redirect("/dashboard?message=Conference not found.");
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Final Camera Ready Papers");
+    sheet.columns = [
+      { header: "Paper ID", key: "paperId", width: 12 },
+      { header: "Paper Title", key: "title", width: 40 },
+      { header: "Primary Author", key: "primaryAuthor", width: 30 },
+      { header: "Co-Authors", key: "coAuthors", width: 30 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const sub of data.submissions) {
+      sheet.addRow({
+        paperId: sub.paperId,
+        title: sub.title,
+        primaryAuthor: sub.primary_author_formatted,
+        coAuthors: sub.co_authors_formatted,
+      });
+    }
+
+    const fileName = `score-posters-${req.params.id}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (err) {
+    console.error("Error exporting score-posters data:", err);
+    return res.redirect("/dashboard?message=Error exporting data.");
+  }
+});
 
 app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(req,res)=>{
 
@@ -2204,6 +2256,219 @@ app.get("/virtual-poster-presentation/:id", async (req, res) => {
   }
 });
 
+// Shared by the chair's manage-sessions (oral presentation) page and its
+// Excel export - same per-track leaderboard / Final Camera Ready Papers
+// data the page already builds.
+async function loadOralSessionsDashboardData(conferenceId) {
+  // ---------- helper ----------
+  const formatDate = (dateString) => {
+    if (!dateString) return dateString;
+    const d = new Date(dateString);
+    return `${String(d.getUTCDate()).padStart(2, "0")}-${String(
+      d.getUTCMonth() + 1
+    ).padStart(2, "0")}-${d.getUTCFullYear()}`;
+  };
+
+  // ---------- conference ----------
+  const confResult = await pool.query(
+    `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1`,
+    [conferenceId]
+  );
+  const conferenceRaw = confResult.rows[0];
+  if (!conferenceRaw) return null;
+
+  const conference = {
+    ...conferenceRaw,
+    conference_start_date: formatDate(conferenceRaw.conference_start_date),
+    conference_end_date: formatDate(conferenceRaw.conference_end_date),
+    full_paper_submission: formatDate(conferenceRaw.full_paper_submission),
+    acceptance_notification: formatDate(
+      conferenceRaw.acceptance_notification
+    ),
+    camera_ready_paper_submission: formatDate(
+      conferenceRaw.camera_ready_paper_submission
+    ),
+  };
+
+  // ---------- tracks ----------
+  const tracksResult = await pool.query(
+    `SELECT * FROM conference_tracks WHERE conference_id = $1`,
+    [conferenceId]
+  );
+
+  const tracks = tracksResult.rows.map((t) => ({
+    ...t,
+    presentation_date: formatDate(t.presentation_date),
+  }));
+
+  // ---------- leaderboard submissions (ONLY presentation completed) ----------
+  const leaderboardSubsResult = await pool.query(
+    `SELECT * FROM submissions
+     WHERE conference_id = $1
+     AND submission_status = $2`,
+    [conferenceId, "Presentation Completed"]
+  );
+  const leaderboardSubs = leaderboardSubsResult.rows;
+
+  // ---------- count per track ----------
+  const trackCounts = {};
+  leaderboardSubs.forEach((s) => {
+    trackCounts[s.track_id] = (trackCounts[s.track_id] || 0) + 1;
+  });
+
+  const count = tracks.map((t) => ({
+    track_id: t.track_id,
+    track_name: t.track_name,
+    count: trackCounts[t.track_id] || 0,
+  }));
+
+  // ---------- build per-track data ----------
+  const tracksWithData = await Promise.all(
+    tracks.map(async (track) => {
+      const formatAuthor = (email, emailToNameMap = {}) =>
+        emailToNameMap[email] ? `${emailToNameMap[email]} (${email})` : email;
+
+      // ===== LEADERBOARD =====
+      const trackLeaderboardSubs = leaderboardSubs.filter(
+        (s) => s.track_id === track.track_id
+      );
+
+      const leaderboard = await Promise.all(
+        trackLeaderboardSubs.map(async (sub) => {
+
+          // ==========================================
+          // EDITED: Fetch revised scores if present
+          // ==========================================
+          const reviewResult = await pool.query(
+            `SELECT
+               pr.reviewer,
+               COALESCE(rs.mean_score, pr.mean_score) AS final_score,
+               (rs.mean_score IS NOT NULL) AS is_revised
+             FROM peer_review pr
+             LEFT JOIN revised_submissions rs
+               ON pr.submission_id = rs.submission_id
+               AND pr.reviewer = rs.reviewer
+             WHERE pr.submission_id = $1`,
+            [sub.submission_id]
+          );
+
+          let reviewerScore = null;
+          let usedRevisedScore = false;
+
+          if (reviewResult.rows.length > 0) {
+            reviewerScore =
+              reviewResult.rows.reduce((sum, r) => {
+                if (r.is_revised) usedRevisedScore = true;
+                return sum + (r.final_score || 0);
+              }, 0) / reviewResult.rows.length;
+          }
+          // ==========================================
+
+          // panelist score
+          const panelistResult = await pool.query(
+            `SELECT panelist_score
+             FROM final_camera_ready_submissions
+             WHERE submission_id = $1
+             LIMIT 1`,
+            [sub.submission_id]
+          );
+
+          const panelistScore =
+            panelistResult.rows[0]?.panelist_score ?? null;
+
+          // combined avg
+          let averageScore = null;
+          if (reviewerScore !== null && panelistScore !== null)
+            averageScore = (reviewerScore + panelistScore) / 2;
+          else averageScore = reviewerScore ?? panelistScore;
+
+          // author names
+          const emails = [
+            sub.primary_author,
+            ...(sub.co_authors || []),
+          ];
+          const usersResult = await pool.query(
+            `SELECT email, name FROM users WHERE email = ANY($1)`,
+            [emails]
+          );
+
+          const userMap = Object.fromEntries(
+            usersResult.rows.map((u) => [u.email, u.name])
+          );
+
+          return {
+            ...sub,
+            paperId: formatPaperId(sub.paper_number) || "—",
+            reviewerScore:
+              reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+            scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // Added this line for the EJS file
+            panelistScore:
+              panelistScore !== null ? +panelistScore.toFixed(2) : null,
+            averageScore:
+              averageScore !== null ? +averageScore.toFixed(2) : null,
+            primary_author_formatted: formatAuthor(sub.primary_author, userMap),
+            co_authors_formatted: (sub.co_authors || [])
+              .map((email) => formatAuthor(email, userMap))
+              .join(", "),
+          };
+        })
+      );
+
+      const ranked = leaderboard
+        .filter((l) => l.averageScore !== null)
+        .sort((a, b) => b.averageScore - a.averageScore)
+        .map((l, i) => ({ ...l, rank: i + 1 }));
+
+      const unranked = leaderboard
+        .filter((l) => l.averageScore === null)
+        .map((l) => ({ ...l, rank: null }));
+
+      // ===== FINAL CAMERA READY TABLE =====
+      const finalCameraReadyResult = await pool.query(
+        `SELECT *
+         FROM submissions
+         WHERE conference_id = $1
+         AND track_id = $2
+         AND submission_status = $3`,
+        [
+          conferenceId,
+          track.track_id,
+          "Submitted Final Camera Ready Paper for Oral Presentation",
+        ]
+      );
+
+      // Format author names for final camera ready papers. formatAuthor
+      // needs an email->name map to actually resolve a name (otherwise it
+      // just returns the raw email) - that map was never built here, so
+      // this table always showed emails instead of names.
+      const fcrpEmails = [...new Set(
+        finalCameraReadyResult.rows.flatMap((p) => [p.primary_author, ...(p.co_authors || [])]).filter(Boolean)
+      )];
+      const fcrpUsersResult = fcrpEmails.length
+        ? await pool.query(`SELECT email, name FROM users WHERE email = ANY($1)`, [fcrpEmails])
+        : { rows: [] };
+      const fcrpUserMap = Object.fromEntries(fcrpUsersResult.rows.map((u) => [u.email, u.name]));
+
+      const finalCameraReadyFormatted = finalCameraReadyResult.rows.map(paper => ({
+        ...paper,
+        paperId: formatPaperId(paper.paper_number) || "—",
+        primary_author_formatted: formatAuthor(paper.primary_author, fcrpUserMap),
+        co_authors_formatted: (paper.co_authors || [])
+          .map((email) => formatAuthor(email, fcrpUserMap))
+          .join(", ")
+      }));
+
+      return {
+        ...track,
+        leaderboard: [...ranked, ...unranked],
+        finalCameraReadyPapers: finalCameraReadyFormatted,
+      };
+    })
+  );
+
+  return { conference, tracks: tracksWithData, count };
+}
+
 app.get(
   "/chair/dashboard/manage-sessions/:id",
   checkChairAuth,
@@ -2212,204 +2477,15 @@ app.get(
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
     try {
-      // ---------- helper ----------
-      const formatDate = (dateString) => {
-        if (!dateString) return dateString;
-        const d = new Date(dateString);
-        return `${String(d.getUTCDate()).padStart(2, "0")}-${String(
-          d.getUTCMonth() + 1
-        ).padStart(2, "0")}-${d.getUTCFullYear()}`;
-      };
-
-      // ---------- conference ----------
-      const confResult = await pool.query(
-        `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1`,
-        [req.params.id]
-      );
-
-      const conferenceRaw = confResult.rows[0];
-      const conference = {
-        ...conferenceRaw,
-        conference_start_date: formatDate(conferenceRaw.conference_start_date),
-        conference_end_date: formatDate(conferenceRaw.conference_end_date),
-        full_paper_submission: formatDate(conferenceRaw.full_paper_submission),
-        acceptance_notification: formatDate(
-          conferenceRaw.acceptance_notification
-        ),
-        camera_ready_paper_submission: formatDate(
-          conferenceRaw.camera_ready_paper_submission
-        ),
-      };
-
-      // ---------- tracks ----------
-      const tracksResult = await pool.query(
-        `SELECT * FROM conference_tracks WHERE conference_id = $1`,
-        [req.params.id]
-      );
-
-      const tracks = tracksResult.rows.map((t) => ({
-        ...t,
-        presentation_date: formatDate(t.presentation_date),
-      }));
-
-      // ---------- leaderboard submissions (ONLY presentation completed) ----------
-      const leaderboardSubsResult = await pool.query(
-        `SELECT * FROM submissions
-         WHERE conference_id = $1
-         AND submission_status = $2`,
-        [req.params.id, "Presentation Completed"]
-      );
-      const leaderboardSubs = leaderboardSubsResult.rows;
-
-      // ---------- count per track ----------
-      const trackCounts = {};
-      leaderboardSubs.forEach((s) => {
-        trackCounts[s.track_id] = (trackCounts[s.track_id] || 0) + 1;
-      });
-
-      const count = tracks.map((t) => ({
-        track_id: t.track_id,
-        track_name: t.track_name,
-        count: trackCounts[t.track_id] || 0,
-      }));
-
-      // ---------- build per-track data ----------
-      const tracksWithData = await Promise.all(
-        tracks.map(async (track) => {
-          const formatAuthor = (email, emailToNameMap = {}) =>
-            emailToNameMap[email] ? `${emailToNameMap[email]} (${email})` : email;
-
-          // ===== LEADERBOARD =====
-          const trackLeaderboardSubs = leaderboardSubs.filter(
-            (s) => s.track_id === track.track_id
-          );
-
-          const leaderboard = await Promise.all(
-            trackLeaderboardSubs.map(async (sub) => {
-              
-              // ==========================================
-              // EDITED: Fetch revised scores if present
-              // ==========================================
-              const reviewResult = await pool.query(
-                `SELECT 
-                   pr.reviewer, 
-                   COALESCE(rs.mean_score, pr.mean_score) AS final_score,
-                   (rs.mean_score IS NOT NULL) AS is_revised
-                 FROM peer_review pr
-                 LEFT JOIN revised_submissions rs 
-                   ON pr.submission_id = rs.submission_id 
-                   AND pr.reviewer = rs.reviewer
-                 WHERE pr.submission_id = $1`,
-                [sub.submission_id]
-              );
-
-              let reviewerScore = null;
-              let usedRevisedScore = false;
-
-              if (reviewResult.rows.length > 0) {
-                reviewerScore =
-                  reviewResult.rows.reduce((sum, r) => {
-                    if (r.is_revised) usedRevisedScore = true;
-                    return sum + (r.final_score || 0);
-                  }, 0) / reviewResult.rows.length;
-              }
-              // ==========================================
-
-              // panelist score
-              const panelistResult = await pool.query(
-                `SELECT panelist_score
-                 FROM final_camera_ready_submissions
-                 WHERE submission_id = $1
-                 LIMIT 1`,
-                [sub.submission_id]
-              );
-
-              const panelistScore =
-                panelistResult.rows[0]?.panelist_score ?? null;
-
-              // combined avg
-              let averageScore = null;
-              if (reviewerScore !== null && panelistScore !== null)
-                averageScore = (reviewerScore + panelistScore) / 2;
-              else averageScore = reviewerScore ?? panelistScore;
-
-              // author names
-              const emails = [
-                sub.primary_author,
-                ...(sub.co_authors || []),
-              ];
-              const usersResult = await pool.query(
-                `SELECT email, name FROM users WHERE email = ANY($1)`,
-                [emails]
-              );
-
-              const userMap = Object.fromEntries(
-                usersResult.rows.map((u) => [u.email, u.name])
-              );
-
-              return {
-                ...sub,
-                reviewerScore:
-                  reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-                scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // Added this line for the EJS file
-                panelistScore:
-                  panelistScore !== null ? +panelistScore.toFixed(2) : null,
-                averageScore:
-                  averageScore !== null ? +averageScore.toFixed(2) : null,
-                primary_author_formatted: formatAuthor(sub.primary_author, userMap),
-                co_authors_formatted: (sub.co_authors || [])
-                  .map((email) => formatAuthor(email, userMap))
-                  .join(", "),
-              };
-            })
-          );
-
-          const ranked = leaderboard
-            .filter((l) => l.averageScore !== null)
-            .sort((a, b) => b.averageScore - a.averageScore)
-            .map((l, i) => ({ ...l, rank: i + 1 }));
-
-          const unranked = leaderboard
-            .filter((l) => l.averageScore === null)
-            .map((l) => ({ ...l, rank: null }));
-
-          // ===== FINAL CAMERA READY TABLE =====
-          const finalCameraReadyResult = await pool.query(
-            `SELECT *
-             FROM submissions
-             WHERE conference_id = $1
-             AND track_id = $2
-             AND submission_status = $3`,
-            [
-              req.params.id,
-              track.track_id,
-              "Submitted Final Camera Ready Paper for Oral Presentation",
-            ]
-          );
-
-          // Format author names for final camera ready papers
-          const finalCameraReadyFormatted = finalCameraReadyResult.rows.map(paper => ({
-            ...paper,
-            primary_author_formatted: formatAuthor(paper.primary_author),
-            co_authors_formatted: (paper.co_authors || [])
-              .map((email) => formatAuthor(email))
-              .join(", ")
-          }));
-
-          return {
-            ...track,
-            leaderboard: [...ranked, ...unranked],
-            finalCameraReadyPapers: finalCameraReadyFormatted,
-          };
-        })
-      );
-
-      // ---------- render ----------
+      const data = await loadOralSessionsDashboardData(req.params.id);
+      if (!data) {
+        return res.status(404).send("Conference not found.");
+      }
       res.render("chair/manage-sessions.ejs", {
         user: req.user,
-        tracks: tracksWithData,
-        conference,
-        count,
+        tracks: data.tracks,
+        conference: data.conference,
+        count: data.count,
         message: req.query.message || null,
       });
     } catch (err) {
@@ -2419,202 +2495,365 @@ app.get(
   }
 );
 
+app.get(
+  "/chair/dashboard/manage-sessions/:id/export",
+  checkChairAuth,
+  async (req, res) => {
+    if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+    }
+    try {
+      const data = await loadOralSessionsDashboardData(req.params.id);
+      if (!data) {
+        return res.status(404).send("Conference not found.");
+      }
+
+      const workbook = new ExcelJS.Workbook();
+
+      const leaderboardSheet = workbook.addWorksheet("Leaderboard");
+      leaderboardSheet.columns = [
+        { header: "Subject Area", key: "trackName", width: 25 },
+        { header: "Rank", key: "rank", width: 8 },
+        { header: "Paper ID", key: "paperId", width: 12 },
+        { header: "Paper Title", key: "title", width: 40 },
+        { header: "Primary Author", key: "primaryAuthor", width: 30 },
+        { header: "Co-Authors", key: "coAuthors", width: 30 },
+        { header: "Reviewer Score", key: "reviewerScore", width: 16 },
+        { header: "Panelist Score", key: "panelistScore", width: 16 },
+        { header: "Average Score", key: "averageScore", width: 16 },
+      ];
+      leaderboardSheet.getRow(1).font = { bold: true };
+      for (const track of data.tracks) {
+        for (const sub of track.leaderboard) {
+          leaderboardSheet.addRow({
+            trackName: track.track_name,
+            rank: sub.rank ?? "N/A",
+            paperId: sub.paperId,
+            title: sub.title,
+            primaryAuthor: sub.primary_author_formatted,
+            coAuthors: sub.co_authors_formatted,
+            reviewerScore: sub.reviewerScore ?? "",
+            panelistScore: sub.panelistScore ?? "",
+            averageScore: sub.averageScore ?? "",
+          });
+        }
+      }
+
+      const fcrpSheet = workbook.addWorksheet("Final Camera Ready Papers");
+      fcrpSheet.columns = [
+        { header: "Subject Area", key: "trackName", width: 25 },
+        { header: "Paper ID", key: "paperId", width: 12 },
+        { header: "Paper Title", key: "title", width: 40 },
+        { header: "Primary Author", key: "primaryAuthor", width: 30 },
+        { header: "Co-Authors", key: "coAuthors", width: 30 },
+      ];
+      fcrpSheet.getRow(1).font = { bold: true };
+      for (const track of data.tracks) {
+        for (const paper of track.finalCameraReadyPapers) {
+          fcrpSheet.addRow({
+            trackName: track.track_name,
+            paperId: paper.paperId,
+            title: paper.title,
+            primaryAuthor: paper.primary_author_formatted,
+            coAuthors: paper.co_authors_formatted,
+          });
+        }
+      }
+
+      const fileName = `oral-sessions-${req.params.id}.xlsx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      await workbook.xlsx.write(res);
+      return res.end();
+    } catch (err) {
+      console.error("Error exporting oral sessions:", err);
+      return res.status(500).send("Error exporting data.");
+    }
+  }
+);
 
 
 
+
+
+// Shared by the chair's manage-poster-sessions page, its Excel export, and
+// the Poster Presentation Coordinator's score-posters page - all three show
+// the same session details / leaderboard / Final Camera Ready Papers data,
+// just with a different authorization check and (for score-posters) an
+// added scoring form on top of the FCRP table.
+async function loadPosterSessionsDashboardData(conferenceId) {
+  // Helper function to format dates for display (dd-mm-yyyy)
+  const formatDate = (dateString) => {
+    if (!dateString) return dateString;
+    const date = new Date(dateString);
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const confRaw = await pool.query(
+    `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+    [conferenceId]
+  );
+  if (!confRaw.rows[0]) return null;
+
+  const conference = {
+    ...confRaw.rows[0],
+    conference_start_date: formatDate(confRaw.rows[0].conference_start_date),
+    conference_end_date: formatDate(confRaw.rows[0].conference_end_date),
+    full_paper_submission: formatDate(confRaw.rows[0].full_paper_submission),
+    acceptance_notification: formatDate(confRaw.rows[0].acceptance_notification),
+    camera_ready_paper_submission: formatDate(confRaw.rows[0].camera_ready_paper_submission)
+  };
+
+  const posterSessionResult = await pool.query(
+    `SELECT * FROM poster_session WHERE conference_id = $1 LIMIT 1;`,
+    [conferenceId]
+  );
+  const posterSessionRaw = posterSessionResult.rows[0] || {};
+  const posterSession = posterSessionRaw.date ? {
+    ...posterSessionRaw,
+    date: formatDateForInput(posterSessionRaw.date)
+  } : posterSessionRaw;
+
+  const posterSubsResult = await pool.query(
+    `SELECT * FROM submissions
+     WHERE conference_id = $1
+     AND submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation';`,
+    [conferenceId]
+  );
+  const posterSubmissions = posterSubsResult.rows;
+
+  // ---------- leaderboard submissions (ONLY presentation completed) ----------
+  const leaderboardSubsResult = await pool.query(
+    `SELECT * FROM submissions
+     WHERE conference_id = $1
+     AND submission_status = $2`,
+    [conferenceId, "Poster Scored"]
+  );
+  const leaderboardSubs = leaderboardSubsResult.rows;
+
+  // Build leaderboard with scores
+  const leaderboard = await Promise.all(
+    leaderboardSubs.map(async (sub) => {
+
+      // ==========================================
+      // EDITED: Fetch all reviewers and override with revised scores if present
+      // ==========================================
+      const reviewResult = await pool.query(
+        `SELECT
+           pr.reviewer,
+           COALESCE(rs.mean_score, pr.mean_score) AS final_score,
+           (rs.mean_score IS NOT NULL) AS is_revised
+         FROM peer_review pr
+         LEFT JOIN revised_submissions rs
+           ON pr.submission_id = rs.submission_id
+           AND pr.reviewer = rs.reviewer
+         WHERE pr.submission_id = $1`,
+        [sub.submission_id]
+      );
+
+      let reviewerScore = null;
+      let usedRevisedScore = false; // Track if any revised score was used
+
+      if (reviewResult.rows.length > 0) {
+        reviewerScore =
+          reviewResult.rows.reduce((sum, r) => {
+            if (r.is_revised) usedRevisedScore = true;
+            return sum + (r.final_score || 0);
+          }, 0) / reviewResult.rows.length;
+      }
+      // ==========================================
+
+      // panelist score
+      const panelistResult = await pool.query(
+        `SELECT panelist_score
+         FROM final_camera_ready_submissions
+         WHERE submission_id = $1
+         LIMIT 1`,
+        [sub.submission_id]
+      );
+
+      const panelistScore =
+        panelistResult.rows[0]?.panelist_score ?? null;
+
+      // combined avg
+      let averageScore = null;
+      if (reviewerScore !== null && panelistScore !== null)
+        averageScore = (reviewerScore + panelistScore) / 2;
+      else averageScore = reviewerScore ?? panelistScore;
+
+      // author names
+      const emails = [
+        sub.primary_author,
+        ...(sub.co_authors || []),
+      ];
+      const usersResult = await pool.query(
+        `SELECT email, name FROM users WHERE email = ANY($1)`,
+        [emails]
+      );
+
+      const userMap = Object.fromEntries(
+        usersResult.rows.map((u) => [u.email, u.name])
+      );
+      const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
+
+      return {
+        ...sub,
+        paperId: formatPaperId(sub.paper_number) || "—",
+        reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+        scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // <--- ADD THIS LINE
+        panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
+        averageScore:
+          averageScore !== null ? +averageScore.toFixed(2) : null,
+        primary_author_formatted: fmt(sub.primary_author),
+        co_authors_formatted: (sub.co_authors || [])
+          .map(fmt)
+          .join(", "),
+      };
+    })
+  );
+
+  const ranked = leaderboard
+    .filter((l) => l.averageScore !== null)
+    .sort((a, b) => b.averageScore - a.averageScore)
+    .map((l, i) => ({ ...l, rank: i + 1 }));
+
+  const unranked = leaderboard
+    .filter((l) => l.averageScore === null)
+    .map((l) => ({ ...l, rank: null }));
+
+  const finalLeaderboard = [...ranked, ...unranked];
+
+  const allEmails = new Set();
+  posterSubmissions.forEach(sub => {
+    allEmails.add(sub.primary_author);
+    (sub.co_authors || []).forEach(e => allEmails.add(e));
+  });
+
+  let usersMap = {};
+  if (allEmails.size > 0) {
+    const userResult = await pool.query(
+      `SELECT email, name FROM users WHERE email = ANY($1);`,
+      [Array.from(allEmails)]
+    );
+    usersMap = Object.fromEntries(userResult.rows.map(u => [u.email, u.name]));
+  }
+
+  const fmt = e => usersMap[e] ? `${usersMap[e]} (${e})` : e;
+
+  const posterSubmissionsFormatted = posterSubmissions.map(sub => ({
+    ...sub,
+    paperId: formatPaperId(sub.paper_number) || "—",
+    primary_author_formatted: fmt(sub.primary_author),
+    co_authors_formatted: (sub.co_authors || []).map(fmt).join(", ")
+  }));
+
+  return {
+    conference,
+    posterSession,
+    submissions: posterSubmissionsFormatted,
+    leaderboard: finalLeaderboard,
+  };
+}
 
 app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
   try {
-    // Helper function to format dates for display (dd-mm-yyyy)
-    const formatDate = (dateString) => {
-      if (!dateString) return dateString;
-      const date = new Date(dateString);
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const year = date.getUTCFullYear();
-      return `${day}-${month}-${year}`;
-    };
-
-    // Helper function to format dates for HTML date inputs (yyyy-mm-dd)
-    const formatDateForInput = (dateString) => {
-      if (!dateString) return '';
-      const date = new Date(dateString);
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    const confRaw = await pool.query(
-      `SELECT * FROM conferences WHERE conference_id = $1 LIMIT 1;`,
-      [req.params.id]
-    );
-
-    const conference = {
-      ...confRaw.rows[0],
-      conference_start_date: formatDate(confRaw.rows[0].conference_start_date),
-      conference_end_date: formatDate(confRaw.rows[0].conference_end_date),
-      full_paper_submission: formatDate(confRaw.rows[0].full_paper_submission),
-      acceptance_notification: formatDate(confRaw.rows[0].acceptance_notification),
-      camera_ready_paper_submission: formatDate(confRaw.rows[0].camera_ready_paper_submission)
-    };
-
-    const posterSessionResult = await pool.query(
-      `SELECT * FROM poster_session WHERE conference_id = $1 LIMIT 1;`,
-      [req.params.id]
-    );
-    const posterSessionRaw = posterSessionResult.rows[0] || {};
-    const posterSession = posterSessionRaw.date ? {
-      ...posterSessionRaw,
-      date: formatDateForInput(posterSessionRaw.date)
-    } : posterSessionRaw;
-
-    const posterSubsResult = await pool.query(
-      `SELECT * FROM submissions
-       WHERE conference_id = $1
-       AND submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation';`,
-      [req.params.id]
-    );
-    const posterSubmissions = posterSubsResult.rows;
-
-    // ---------- leaderboard submissions (ONLY presentation completed) ----------
-    const leaderboardSubsResult = await pool.query(
-      `SELECT * FROM submissions
-       WHERE conference_id = $1
-       AND submission_status = $2`,
-      [req.params.id, "Poster Scored"]
-    );
-    const leaderboardSubs = leaderboardSubsResult.rows;
-
-    // Build leaderboard with scores
-    const leaderboard = await Promise.all(
-      leaderboardSubs.map(async (sub) => {
-        
-        // ==========================================
-        // EDITED: Fetch all reviewers and override with revised scores if present
-        // ==========================================
-        const reviewResult = await pool.query(
-          `SELECT 
-             pr.reviewer, 
-             COALESCE(rs.mean_score, pr.mean_score) AS final_score,
-             (rs.mean_score IS NOT NULL) AS is_revised
-           FROM peer_review pr
-           LEFT JOIN revised_submissions rs 
-             ON pr.submission_id = rs.submission_id 
-             AND pr.reviewer = rs.reviewer
-           WHERE pr.submission_id = $1`,
-          [sub.submission_id]
-        );
-
-        let reviewerScore = null;
-        let usedRevisedScore = false; // Track if any revised score was used
-
-        if (reviewResult.rows.length > 0) {
-          reviewerScore =
-            reviewResult.rows.reduce((sum, r) => {
-              if (r.is_revised) usedRevisedScore = true;
-              return sum + (r.final_score || 0);
-            }, 0) / reviewResult.rows.length;
-        }
-        // ==========================================
-
-        // panelist score
-        const panelistResult = await pool.query(
-          `SELECT panelist_score
-           FROM final_camera_ready_submissions
-           WHERE submission_id = $1
-           LIMIT 1`,
-          [sub.submission_id]
-        );
-
-        const panelistScore =
-          panelistResult.rows[0]?.panelist_score ?? null;
-
-        // combined avg
-        let averageScore = null;
-        if (reviewerScore !== null && panelistScore !== null)
-          averageScore = (reviewerScore + panelistScore) / 2;
-        else averageScore = reviewerScore ?? panelistScore;
-
-        // author names
-        const emails = [
-          sub.primary_author,
-          ...(sub.co_authors || []),
-        ];
-        const usersResult = await pool.query(
-          `SELECT email, name FROM users WHERE email = ANY($1)`,
-          [emails]
-        );
-
-        const userMap = Object.fromEntries(
-          usersResult.rows.map((u) => [u.email, u.name])
-        );
-        const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
-
-        return {
-          ...sub,
-          reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-          scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // <--- ADD THIS LINE
-          panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
-          averageScore:
-            averageScore !== null ? +averageScore.toFixed(2) : null,
-          primary_author_formatted: fmt(sub.primary_author),
-          co_authors_formatted: (sub.co_authors || [])
-            .map(fmt)
-            .join(", "),
-        };
-      })
-    );
-
-    const ranked = leaderboard
-      .filter((l) => l.averageScore !== null)
-      .sort((a, b) => b.averageScore - a.averageScore)
-      .map((l, i) => ({ ...l, rank: i + 1 }));
-
-    const unranked = leaderboard
-      .filter((l) => l.averageScore === null)
-      .map((l) => ({ ...l, rank: null }));
-
-    const finalLeaderboard = [...ranked, ...unranked];
-
-    const allEmails = new Set();
-    posterSubmissions.forEach(sub => {
-      allEmails.add(sub.primary_author);
-      (sub.co_authors || []).forEach(e => allEmails.add(e));
-    });
-
-    let usersMap = {};
-    if (allEmails.size > 0) {
-      const userResult = await pool.query(
-        `SELECT email, name FROM users WHERE email = ANY($1);`,
-        [Array.from(allEmails)]
-      );
-      usersMap = Object.fromEntries(userResult.rows.map(u => [u.email, u.name]));
+    const data = await loadPosterSessionsDashboardData(req.params.id);
+    if (!data) {
+      return res.redirect("/chair/dashboard?message=Conference not found.");
     }
-
-    const fmt = e => usersMap[e] ? `${usersMap[e]} (${e})` : e;
-
-    const posterSubmissionsFormatted = posterSubmissions.map(sub => ({
-      ...sub,
-      primary_author_formatted: fmt(sub.primary_author),
-      co_authors_formatted: (sub.co_authors || []).map(fmt).join(", ")
-    }));
-
     res.render("chair/manage-poster-sessions.ejs", {
       user: req.user,
-      conference,
-      posterSession,
-      submissions: posterSubmissionsFormatted,
-      leaderboard: finalLeaderboard,
+      conference: data.conference,
+      posterSession: data.posterSession,
+      submissions: data.submissions,
+      leaderboard: data.leaderboard,
       message: req.query.message || null,
     });
 
   } catch (err) {
     console.error("manage-poster-sessions error:", err);
     res.status(500).send("Error fetching data.");
+  }
+});
+
+app.get("/chair/dashboard/manage-poster-sessions/:id/export", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+  try {
+    const data = await loadPosterSessionsDashboardData(req.params.id);
+    if (!data) {
+      return res.redirect("/chair/dashboard?message=Conference not found.");
+    }
+
+    const workbook = new ExcelJS.Workbook();
+
+    const leaderboardSheet = workbook.addWorksheet("Leaderboard");
+    leaderboardSheet.columns = [
+      { header: "Rank", key: "rank", width: 8 },
+      { header: "Paper ID", key: "paperId", width: 12 },
+      { header: "Paper Title", key: "title", width: 40 },
+      { header: "Primary Author", key: "primaryAuthor", width: 30 },
+      { header: "Co-Authors", key: "coAuthors", width: 30 },
+      { header: "Reviewer Score", key: "reviewerScore", width: 16 },
+      { header: "Panelist Score", key: "panelistScore", width: 16 },
+      { header: "Average Score", key: "averageScore", width: 16 },
+    ];
+    leaderboardSheet.getRow(1).font = { bold: true };
+    for (const sub of data.leaderboard) {
+      leaderboardSheet.addRow({
+        rank: sub.rank ?? "N/A",
+        paperId: sub.paperId,
+        title: sub.title,
+        primaryAuthor: sub.primary_author_formatted,
+        coAuthors: sub.co_authors_formatted,
+        reviewerScore: sub.reviewerScore ?? "",
+        panelistScore: sub.panelistScore ?? "",
+        averageScore: sub.averageScore ?? "",
+      });
+    }
+
+    const fcrpSheet = workbook.addWorksheet("Final Camera Ready Papers");
+    fcrpSheet.columns = [
+      { header: "Paper ID", key: "paperId", width: 12 },
+      { header: "Paper Title", key: "title", width: 40 },
+      { header: "Primary Author", key: "primaryAuthor", width: 30 },
+      { header: "Co-Authors", key: "coAuthors", width: 30 },
+    ];
+    fcrpSheet.getRow(1).font = { bold: true };
+    for (const sub of data.submissions) {
+      fcrpSheet.addRow({
+        paperId: sub.paperId,
+        title: sub.title,
+        primaryAuthor: sub.primary_author_formatted,
+        coAuthors: sub.co_authors_formatted,
+      });
+    }
+
+    const fileName = `poster-sessions-${req.params.id}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (err) {
+    console.error("Error exporting poster sessions:", err);
+    return res.redirect("/chair/dashboard?message=Error exporting poster sessions.");
   }
 });
 
