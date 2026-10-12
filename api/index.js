@@ -4883,13 +4883,22 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
         parseFloat(clarity_score) +
         parseFloat(impact_score)) / 5;
 
-    await pool.query(
+    // DB-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the SELECT
+    // check above is a check-then-act race - two concurrent submits (double
+    // click, duplicate tab, retried request) could both pass it and both
+    // insert, double-weighting this reviewer's score in every leaderboard
+    // average. uniq_peer_review_submission_reviewer (migration 014) makes a
+    // true duplicate impossible regardless of timing; ON CONFLICT DO
+    // NOTHING + a rowCount check turns the race into the same
+    // already-reviewed message the pre-check gives in the common case.
+    const insertResult = await pool.query(
       `INSERT INTO peer_review (
         conference_id, submission_id, review_status, remarks,
         originality_score, relevance_score, technical_quality_score,
         clarity_score, impact_score, mean_score, reviewer, acceptance_status
       )
-      VALUES ($1,$2,'Reviewed',$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+      VALUES ($1,$2,'Reviewed',$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      ON CONFLICT (submission_id, reviewer) DO NOTHING;`,
       [
         conference_id,
         submission_id,
@@ -4904,6 +4913,9 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
         status,
       ]
     );
+    if (insertResult.rowCount === 0) {
+      return res.redirect("/reviewer/dashboard?message=You have already reviewed this submission.");
+    }
 
     // NOTE: submission_status is intentionally left unchanged (still "DESK ACCEPT")
     // here. The Meta-Reviewer dashboard picks up DESK ACCEPT submissions that have
@@ -5762,11 +5774,20 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
     }
 
     // 6. Insert new co-author request (track primary author and set clear pending status)
-    await pool.query(
+    // DB-05 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the existence
+    // check above is a check-then-act race - two near-simultaneous requests
+    // could both pass it and both insert a duplicate pending request.
+    // uniq_co_author_requests_pending (migration 014) makes a true
+    // duplicate impossible regardless of timing.
+    const joinInsertResult = await pool.query(
       `INSERT INTO co_author_requests (conference_id, submission_id, primary_author, co_author, status)
-       VALUES ($1, $2, $3, $4, $5);`,
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (submission_id, co_author) WHERE status != 'Rejected' DO NOTHING;`,
       [id, submission.submission_id, submission.primary_author, req.user.email, "Pending"]
     );
+    if (joinInsertResult.rowCount === 0) {
+      return res.redirect("/dashboard?message=You have already sent a request to join this paper.");
+    }
 
     // 7. Send notification email to primary author
     try {
@@ -5833,27 +5854,48 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
       return res.redirect("/dashboard?message=You are not authorized to accept this request.");
     }
 
-    // 4. Ensure co_authors is an array and update
-    let coAuthors = submission.co_authors || [];
-    if (!Array.isArray(coAuthors)) coAuthors = [];
+    // 4-6. DB-05 (security-audit/COMPLETE_FINDINGS_REGISTER.md): this used
+    // to be a read-modify-write (read co_authors, push in JS, write the
+    // whole array back) - a classic lost-update race. If a primary author
+    // accepted two pending requests for the same submission at nearly the
+    // same time, both handlers could read the same starting array, each
+    // append a different email, and whichever UPDATE committed last would
+    // silently overwrite the other - one accepted co-author would vanish
+    // from the paper despite their request showing "Accepted". Replaced
+    // with a single atomic array_append, and the status flip is now
+    // conditioned on the request still being Pending (also race-safe) and
+    // wrapped in a transaction with the array update so a crash between the
+    // two can't leave one written without the other.
+    const acceptClient = await pool.connect();
+    let coAuthors;
+    try {
+      await acceptClient.query("BEGIN");
+      const updatedSubmission = await acceptClient.query(
+        `UPDATE submissions
+         SET co_authors = array_append(COALESCE(co_authors, ARRAY[]::text[]), $1)
+         WHERE submission_id = $2 AND NOT ($1 = ANY(COALESCE(co_authors, ARRAY[]::text[])))
+         RETURNING co_authors;`,
+        [coAuthorRequest.co_author, coAuthorRequest.submission_id]
+      );
+      coAuthors = updatedSubmission.rows[0]?.co_authors || submission.co_authors || [];
 
-    if (!coAuthors.includes(coAuthorRequest.co_author)) {
-      coAuthors.push(coAuthorRequest.co_author);
+      const statusUpdate = await acceptClient.query(
+        `UPDATE co_author_requests SET status = 'Accepted' WHERE request_id = $1 AND status = 'Pending';`,
+        [requestId]
+      );
+      if (statusUpdate.rowCount === 0) {
+        await acceptClient.query("ROLLBACK");
+        return res.redirect("/dashboard?message=This co-author request is no longer pending.");
+      }
+      await acceptClient.query("COMMIT");
+    } catch (txErr) {
+      await acceptClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      acceptClient.release();
     }
 
-    // 5. Update submissions table
-    await pool.query(
-      `UPDATE submissions SET co_authors = $1 WHERE submission_id = $2;`,
-      [coAuthors, coAuthorRequest.submission_id]
-    );
-
     await invalidateConferenceSubmissionCache([submission.primary_author, ...coAuthors], submission.conference_id);
-
-    // 6. Mark request as accepted
-    await pool.query(
-      `UPDATE co_author_requests SET status = 'Accepted' WHERE request_id = $1;`,
-      [requestId]
-    );
 
     // 7. Send email to co-author
    const coAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
