@@ -47,9 +47,16 @@ before(async () => {
   trackId = track.rows[0].track_id;
 
   for (let i = 0; i < SUBMISSION_COUNT; i++) {
+    // paper_code is globally unique across the whole submissions table, so
+    // every test file that seeds one needs a collision-proof value, not
+    // just one that looks distinct within this file - a short predictable
+    // scheme here previously collided with an unrelated test file's own
+    // literal code when both ran concurrently (node --test runs each file
+    // in its own process, but they share the same database).
+    const paperCode = "D8" + crypto.randomBytes(2).toString("hex").toUpperCase();
     const sub = await pool.query(
       "insert into submissions (conference_id, primary_author, title, paper_code, paper_number, submission_status, track_id) values ($1,$2,$3,$4,$5,'Presentation Completed',$6) returning submission_id",
-      [conferenceId, authorEmail, `DB08 Paper ${i}`, "DB" + i.toString().padStart(2, "0"), 600 + i, trackId]
+      [conferenceId, authorEmail, `DB08 Paper ${i}`, paperCode, 600 + i, trackId]
     );
     await pool.query("insert into peer_review (conference_id, submission_id, reviewer, mean_score, review_status, acceptance_status) values ($1,$2,$3,$4,'Reviewed','Accepted')", [
       conferenceId,

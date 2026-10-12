@@ -2197,28 +2197,50 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
   // untouched, until this point. Fetch it, copy it onto the submission, then
   // clear the row so a later publish doesn't reapply (and potentially
   // overwrite a chair decision made since) the same recommendation.
+  //
+  // DB-06 (security-audit/COMPLETE_FINDINGS_REGISTER.md): this used to be
+  // a loop of individual pool.query() UPDATEs followed by a separate bulk
+  // DELETE, with no transaction - a crash or error partway through left
+  // some submissions updated with their meta-reviewer decision applied
+  // while the corresponding meta_reviewer_decision rows were never
+  // deleted, so the same decision could be silently reapplied (or
+  // double-counted) on a later publish. Now all-or-nothing in one
+  // transaction, matching the pattern already used elsewhere in this file
+  // (desk review, poster-session save, conference delete).
   const submissionIds = authors.rows.map((a) => a.submission_id);
   if (submissionIds.length > 0) {
     const metaDecisions = await pool.query(
       "select submission_id, status, remarks from meta_reviewer_decision where submission_id = ANY($1)",
       [submissionIds]
     );
-    for (const decision of metaDecisions.rows) {
-      await pool.query(
-        "update submissions set submission_status = $1, remarks = $2 where submission_id = $3",
-        [decision.status, decision.remarks, decision.submission_id]
-      );
-      const author = authors.rows.find((a) => a.submission_id === decision.submission_id);
-      if (author) {
-        author.submission_status = decision.status;
-        author.remarks = decision.remarks;
-      }
-    }
     if (metaDecisions.rows.length > 0) {
-      await pool.query(
-        "delete from meta_reviewer_decision where submission_id = ANY($1)",
-        [metaDecisions.rows.map((d) => d.submission_id)]
-      );
+      const metaClient = await pool.connect();
+      try {
+        await metaClient.query("BEGIN");
+        for (const decision of metaDecisions.rows) {
+          await metaClient.query(
+            "update submissions set submission_status = $1, remarks = $2 where submission_id = $3",
+            [decision.status, decision.remarks, decision.submission_id]
+          );
+        }
+        await metaClient.query(
+          "delete from meta_reviewer_decision where submission_id = ANY($1)",
+          [metaDecisions.rows.map((d) => d.submission_id)]
+        );
+        await metaClient.query("COMMIT");
+      } catch (txErr) {
+        await metaClient.query("ROLLBACK");
+        throw txErr;
+      } finally {
+        metaClient.release();
+      }
+      for (const decision of metaDecisions.rows) {
+        const author = authors.rows.find((a) => a.submission_id === decision.submission_id);
+        if (author) {
+          author.submission_status = decision.status;
+          author.remarks = decision.remarks;
+        }
+      }
     }
   }
 
