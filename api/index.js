@@ -7922,8 +7922,66 @@ app.use((err, req, res, next) => {
 // itself and close that one in `after`. Unset in every other environment,
 // so normal/dev/production startup is unchanged.
 if (process.env.VERCEL !== "1" && process.env.SKIP_AUTOLISTEN !== "1") {
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+  });
+
+  // REL-02 (security-audit/COMPLETE_FINDINGS_REGISTER.md): previously
+  // there was no SIGTERM/SIGINT handling at all - a container redeploy or
+  // orchestrator-initiated restart terminated the process immediately,
+  // dropping any in-flight request mid-response instead of letting it
+  // finish, and never closing the Postgres pool / Redis client cleanly.
+  // Stop accepting new connections first, give in-flight requests a
+  // bounded window to finish, then close both clients and exit - repeated
+  // signals (e.g. an impatient double Ctrl-C) are handled safely by only
+  // acting on the first one and force-exiting if shutdown itself hangs.
+  const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
+  let shuttingDown = false;
+  async function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received: starting graceful shutdown.`);
+
+    const forceExitTimer = setTimeout(() => {
+      console.error("Graceful shutdown timed out - forcing exit.");
+      process.exit(1);
+    }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+    forceExitTimer.unref();
+
+    server.close(async (err) => {
+      if (err) console.error("Error while closing the HTTP server:", err.message);
+      try {
+        await pool.end();
+      } catch (poolErr) {
+        console.error("Error while closing the database pool:", poolErr.message);
+      }
+      if (redisClient) {
+        try {
+          await redisClient.quit();
+        } catch (redisErr) {
+          console.error("Error while closing the Redis client:", redisErr.message);
+        }
+      }
+      clearTimeout(forceExitTimer);
+      console.log("Graceful shutdown complete.");
+      process.exit(0);
+    });
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  // Last-resort safety net: a genuinely uncaught exception or unhandled
+  // rejection means the process may be in a corrupted/unknown state -
+  // logging and continuing would risk serving requests against that state,
+  // so this logs with full context and exits, relying on the container/
+  // process manager to restart cleanly, rather than limping on.
+  process.on("uncaughtException", (err) => {
+    console.error("Uncaught exception - exiting:", err);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled promise rejection - exiting:", reason);
+    process.exit(1);
   });
 }
 
