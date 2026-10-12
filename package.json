@@ -12,8 +12,8 @@
   "author": "Gurumauj Satsangi",
   "license": "ISC",
   "dependencies": {
-    "bcrypt": "^5.1.1",
-    "body-parser": "^2.2.0",
+    "bcrypt": "^6.0.0",
+    "body-parser": "^2.3.0",
     "cloudinary": "^2.6.1",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
@@ -36,5 +36,8 @@
   },
   "devDependencies": {
     "puppeteer": "^25.13.0"
+  },
+  "overrides": {
+    "proxy-addr": "^2.0.8"
   }
 }
