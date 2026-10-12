@@ -2336,151 +2336,143 @@ async function loadOralSessionsDashboardData(conferenceId) {
     count: trackCounts[t.track_id] || 0,
   }));
 
-  // ---------- build per-track data ----------
-  const tracksWithData = await Promise.all(
-    tracks.map(async (track) => {
-      const formatAuthor = (email, emailToNameMap = {}) =>
-        emailToNameMap[email] ? `${emailToNameMap[email]} (${email})` : email;
-
-      // ===== LEADERBOARD =====
-      const trackLeaderboardSubs = leaderboardSubs.filter(
-        (s) => s.track_id === track.track_id
-      );
-
-      const leaderboard = await Promise.all(
-        trackLeaderboardSubs.map(async (sub) => {
-
-          // ==========================================
-          // EDITED: Fetch revised scores if present
-          // ==========================================
-          const reviewResult = await pool.query(
-            `SELECT
-               pr.reviewer,
-               COALESCE(rs.mean_score, pr.mean_score) AS final_score,
-               (rs.mean_score IS NOT NULL) AS is_revised
-             FROM peer_review pr
-             LEFT JOIN revised_submissions rs
-               ON pr.submission_id = rs.submission_id
-               AND pr.reviewer = rs.reviewer
-             WHERE pr.submission_id = $1`,
-            [sub.submission_id]
-          );
-
-          let reviewerScore = null;
-          let usedRevisedScore = false;
-
-          if (reviewResult.rows.length > 0) {
-            reviewerScore =
-              reviewResult.rows.reduce((sum, r) => {
-                if (r.is_revised) usedRevisedScore = true;
-                return sum + (r.final_score || 0);
-              }, 0) / reviewResult.rows.length;
-          }
-          // ==========================================
-
-          // panelist score
-          const panelistResult = await pool.query(
-            `SELECT panelist_score
-             FROM final_camera_ready_submissions
-             WHERE submission_id = $1
-             LIMIT 1`,
-            [sub.submission_id]
-          );
-
-          const panelistScore =
-            panelistResult.rows[0]?.panelist_score ?? null;
-
-          // combined avg
-          let averageScore = null;
-          if (reviewerScore !== null && panelistScore !== null)
-            averageScore = (reviewerScore + panelistScore) / 2;
-          else averageScore = reviewerScore ?? panelistScore;
-
-          // author names
-          const emails = [
-            sub.primary_author,
-            ...(sub.co_authors || []),
-          ];
-          const usersResult = await pool.query(
-            `SELECT email, name FROM users WHERE email = ANY($1)`,
-            [emails]
-          );
-
-          const userMap = Object.fromEntries(
-            usersResult.rows.map((u) => [u.email, u.name])
-          );
-
-          return {
-            ...sub,
-            paperId: formatPaperId(sub.paper_number) || "—",
-            reviewerScore:
-              reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-            scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // Added this line for the EJS file
-            panelistScore:
-              panelistScore !== null ? +panelistScore.toFixed(2) : null,
-            averageScore:
-              averageScore !== null ? +averageScore.toFixed(2) : null,
-            primary_author_formatted: formatAuthor(sub.primary_author, userMap),
-            co_authors_formatted: (sub.co_authors || [])
-              .map((email) => formatAuthor(email, userMap))
-              .join(", "),
-          };
-        })
-      );
-
-      const ranked = leaderboard
-        .filter((l) => l.averageScore !== null)
-        .sort((a, b) => b.averageScore - a.averageScore)
-        .map((l, i) => ({ ...l, rank: i + 1 }));
-
-      const unranked = leaderboard
-        .filter((l) => l.averageScore === null)
-        .map((l) => ({ ...l, rank: null }));
-
-      // ===== FINAL CAMERA READY TABLE =====
-      const finalCameraReadyResult = await pool.query(
-        `SELECT *
-         FROM submissions
-         WHERE conference_id = $1
-         AND track_id = $2
-         AND submission_status = $3`,
-        [
-          conferenceId,
-          track.track_id,
-          "Submitted Final Camera Ready Paper for Oral Presentation",
-        ]
-      );
-
-      // Format author names for final camera ready papers. formatAuthor
-      // needs an email->name map to actually resolve a name (otherwise it
-      // just returns the raw email) - that map was never built here, so
-      // this table always showed emails instead of names.
-      const fcrpEmails = [...new Set(
-        finalCameraReadyResult.rows.flatMap((p) => [p.primary_author, ...(p.co_authors || [])]).filter(Boolean)
-      )];
-      const fcrpUsersResult = fcrpEmails.length
-        ? await pool.query(`SELECT email, name FROM users WHERE email = ANY($1)`, [fcrpEmails])
-        : { rows: [] };
-      const fcrpUserMap = Object.fromEntries(fcrpUsersResult.rows.map((u) => [u.email, u.name]));
-
-      const finalCameraReadyFormatted = finalCameraReadyResult.rows.map(paper => ({
-        ...paper,
-        paperId: formatPaperId(paper.paper_number) || "—",
-        primary_author_formatted: formatAuthor(paper.primary_author, fcrpUserMap),
-        co_authors_formatted: (paper.co_authors || [])
-          .map((email) => formatAuthor(email, fcrpUserMap))
-          .join(", ")
-      }));
-
-      return {
-        ...track,
-        leaderboard: [...ranked, ...unranked],
-        finalCameraReadyPapers: finalCameraReadyFormatted,
-      };
-    })
+  // ---------- FCRP submissions for every track in this conference, in one query ----------
+  const fcrpResult = await pool.query(
+    `SELECT * FROM submissions
+     WHERE conference_id = $1
+     AND submission_status = $2`,
+    [conferenceId, "Submitted Final Camera Ready Paper for Oral Presentation"]
   );
 
+  const data = await buildLeaderboardAndFcrpByTrack(tracks, leaderboardSubs, fcrpResult.rows);
+
+  const tracksWithData = tracks.map((track) => ({
+    ...track,
+    leaderboard: data.leaderboardByTrack[track.track_id] || [],
+    finalCameraReadyPapers: data.fcrpByTrack[track.track_id] || [],
+  }));
+
   return { conference, tracks: tracksWithData, count };
+}
+
+// DB-08 (security-audit/COMPLETE_FINDINGS_REGISTER.md): shared by the oral
+// and poster session dashboards. Previously each leaderboard submission ran
+// 3 separate queries (review scores, panelist score, author names) inside a
+// per-submission loop - for N submissions that's up to 3N+ queries per page
+// load, and since peer_review.submission_id had no index at the time this
+// was written, each one was a full table scan (fixed separately in
+// migration 013/DB-07). This version runs exactly 3 queries total
+// (review scores, panelist scores, author names), batched across every
+// leaderboard submission via = ANY($1), then groups the results in JS -
+// same displayed data, same sorting/ranking semantics, far fewer queries.
+async function buildLeaderboardAndFcrpByTrack(tracks, leaderboardSubs, fcrpSubs, groupKeyFn = (s) => s.track_id) {
+  const formatAuthor = (email, emailToNameMap = {}) =>
+    emailToNameMap[email] ? `${emailToNameMap[email]} (${email})` : email;
+
+  const leaderboardIds = leaderboardSubs.map((s) => s.submission_id);
+
+  const reviewRows = leaderboardIds.length
+    ? (await pool.query(
+        `SELECT
+           pr.submission_id,
+           pr.reviewer,
+           COALESCE(rs.mean_score, pr.mean_score) AS final_score,
+           (rs.mean_score IS NOT NULL) AS is_revised
+         FROM peer_review pr
+         LEFT JOIN revised_submissions rs
+           ON pr.submission_id = rs.submission_id
+           AND pr.reviewer = rs.reviewer
+         WHERE pr.submission_id = ANY($1)`,
+        [leaderboardIds]
+      )).rows
+    : [];
+  const reviewsBySubmission = {};
+  for (const r of reviewRows) {
+    (reviewsBySubmission[r.submission_id] ||= []).push(r);
+  }
+
+  const panelistRows = leaderboardIds.length
+    ? (await pool.query(
+        `SELECT submission_id, panelist_score
+         FROM final_camera_ready_submissions
+         WHERE submission_id = ANY($1)`,
+        [leaderboardIds]
+      )).rows
+    : [];
+  const panelistScoreBySubmission = Object.fromEntries(
+    panelistRows.map((p) => [p.submission_id, p.panelist_score])
+  );
+
+  const allEmails = [...new Set([
+    ...leaderboardSubs.flatMap((s) => [s.primary_author, ...(s.co_authors || [])]),
+    ...fcrpSubs.flatMap((s) => [s.primary_author, ...(s.co_authors || [])]),
+  ].filter(Boolean))];
+  const userRows = allEmails.length
+    ? (await pool.query(`SELECT email, name FROM users WHERE email = ANY($1)`, [allEmails])).rows
+    : [];
+  const userMap = Object.fromEntries(userRows.map((u) => [u.email, u.name]));
+
+  const leaderboardByTrack = {};
+  for (const sub of leaderboardSubs) {
+    const reviews = reviewsBySubmission[sub.submission_id] || [];
+    let reviewerScore = null;
+    let usedRevisedScore = false;
+    if (reviews.length > 0) {
+      reviewerScore =
+        reviews.reduce((sum, r) => {
+          if (r.is_revised) usedRevisedScore = true;
+          return sum + (r.final_score || 0);
+        }, 0) / reviews.length;
+    }
+
+    const panelistScore = panelistScoreBySubmission[sub.submission_id] ?? null;
+
+    let averageScore = null;
+    if (reviewerScore !== null && panelistScore !== null) averageScore = (reviewerScore + panelistScore) / 2;
+    else averageScore = reviewerScore ?? panelistScore;
+
+    const entry = {
+      ...sub,
+      paperId: formatPaperId(sub.paper_number) || "—",
+      reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
+      scoreLabel: usedRevisedScore ? "Revised" : "Original",
+      panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
+      averageScore: averageScore !== null ? +averageScore.toFixed(2) : null,
+      primary_author_formatted: formatAuthor(sub.primary_author, userMap),
+      co_authors_formatted: (sub.co_authors || []).map((email) => formatAuthor(email, userMap)).join(", "),
+    };
+    (leaderboardByTrack[groupKeyFn(sub)] ||= []).push(entry);
+  }
+  for (const trackId of Object.keys(leaderboardByTrack)) {
+    const entries = leaderboardByTrack[trackId];
+    const ranked = entries
+      .filter((l) => l.averageScore !== null)
+      .sort((a, b) => b.averageScore - a.averageScore)
+      .map((l, i) => ({ ...l, rank: i + 1 }));
+    const unranked = entries.filter((l) => l.averageScore === null).map((l) => ({ ...l, rank: null }));
+    leaderboardByTrack[trackId] = [...ranked, ...unranked];
+  }
+  // Groups with no leaderboard rows at all still need an entry so callers
+  // can safely index by the group key without an extra existence check.
+  for (const track of tracks) {
+    if (!leaderboardByTrack[groupKeyFn(track)]) leaderboardByTrack[groupKeyFn(track)] = [];
+  }
+
+  const fcrpByTrack = {};
+  for (const paper of fcrpSubs) {
+    const entry = {
+      ...paper,
+      paperId: formatPaperId(paper.paper_number) || "—",
+      primary_author_formatted: formatAuthor(paper.primary_author, userMap),
+      co_authors_formatted: (paper.co_authors || []).map((email) => formatAuthor(email, userMap)).join(", "),
+    };
+    (fcrpByTrack[groupKeyFn(paper)] ||= []).push(entry);
+  }
+  for (const track of tracks) {
+    if (!fcrpByTrack[groupKeyFn(track)]) fcrpByTrack[groupKeyFn(track)] = [];
+  }
+
+  return { leaderboardByTrack, fcrpByTrack };
 }
 
 app.get(
@@ -2658,121 +2650,24 @@ async function loadPosterSessionsDashboardData(conferenceId) {
   );
   const leaderboardSubs = leaderboardSubsResult.rows;
 
-  // Build leaderboard with scores
-  const leaderboard = await Promise.all(
-    leaderboardSubs.map(async (sub) => {
-
-      // ==========================================
-      // EDITED: Fetch all reviewers and override with revised scores if present
-      // ==========================================
-      const reviewResult = await pool.query(
-        `SELECT
-           pr.reviewer,
-           COALESCE(rs.mean_score, pr.mean_score) AS final_score,
-           (rs.mean_score IS NOT NULL) AS is_revised
-         FROM peer_review pr
-         LEFT JOIN revised_submissions rs
-           ON pr.submission_id = rs.submission_id
-           AND pr.reviewer = rs.reviewer
-         WHERE pr.submission_id = $1`,
-        [sub.submission_id]
-      );
-
-      let reviewerScore = null;
-      let usedRevisedScore = false; // Track if any revised score was used
-
-      if (reviewResult.rows.length > 0) {
-        reviewerScore =
-          reviewResult.rows.reduce((sum, r) => {
-            if (r.is_revised) usedRevisedScore = true;
-            return sum + (r.final_score || 0);
-          }, 0) / reviewResult.rows.length;
-      }
-      // ==========================================
-
-      // panelist score
-      const panelistResult = await pool.query(
-        `SELECT panelist_score
-         FROM final_camera_ready_submissions
-         WHERE submission_id = $1
-         LIMIT 1`,
-        [sub.submission_id]
-      );
-
-      const panelistScore =
-        panelistResult.rows[0]?.panelist_score ?? null;
-
-      // combined avg
-      let averageScore = null;
-      if (reviewerScore !== null && panelistScore !== null)
-        averageScore = (reviewerScore + panelistScore) / 2;
-      else averageScore = reviewerScore ?? panelistScore;
-
-      // author names
-      const emails = [
-        sub.primary_author,
-        ...(sub.co_authors || []),
-      ];
-      const usersResult = await pool.query(
-        `SELECT email, name FROM users WHERE email = ANY($1)`,
-        [emails]
-      );
-
-      const userMap = Object.fromEntries(
-        usersResult.rows.map((u) => [u.email, u.name])
-      );
-      const fmt = (e) => (userMap[e] ? `${userMap[e]} (${e})` : e);
-
-      return {
-        ...sub,
-        paperId: formatPaperId(sub.paper_number) || "—",
-        reviewerScore: reviewerScore !== null ? +reviewerScore.toFixed(2) : null,
-        scoreLabel: usedRevisedScore ? 'Revised' : 'Original', // <--- ADD THIS LINE
-        panelistScore: panelistScore !== null ? +panelistScore.toFixed(2) : null,
-        averageScore:
-          averageScore !== null ? +averageScore.toFixed(2) : null,
-        primary_author_formatted: fmt(sub.primary_author),
-        co_authors_formatted: (sub.co_authors || [])
-          .map(fmt)
-          .join(", "),
-      };
-    })
+  // DB-08 (security-audit/COMPLETE_FINDINGS_REGISTER.md): batched the same
+  // way as loadOralSessionsDashboardData - 3 queries total across every
+  // leaderboard submission instead of 3 per submission. See
+  // buildLeaderboardAndFcrpByTrack's comment for the full rationale; this
+  // poster dashboard isn't per-track, so it groups everything into one
+  // synthetic bucket (a constant groupKeyFn) rather than a real track
+  // grouping - the real track_id column on each submission/entry is left
+  // completely untouched, since downstream code may still read it.
+  const allBucketKey = () => "__all__";
+  const batched = await buildLeaderboardAndFcrpByTrack(
+    [{ bucket: "__all__" }],
+    leaderboardSubs,
+    posterSubmissions,
+    allBucketKey
   );
 
-  const ranked = leaderboard
-    .filter((l) => l.averageScore !== null)
-    .sort((a, b) => b.averageScore - a.averageScore)
-    .map((l, i) => ({ ...l, rank: i + 1 }));
-
-  const unranked = leaderboard
-    .filter((l) => l.averageScore === null)
-    .map((l) => ({ ...l, rank: null }));
-
-  const finalLeaderboard = [...ranked, ...unranked];
-
-  const allEmails = new Set();
-  posterSubmissions.forEach(sub => {
-    allEmails.add(sub.primary_author);
-    (sub.co_authors || []).forEach(e => allEmails.add(e));
-  });
-
-  let usersMap = {};
-  if (allEmails.size > 0) {
-    const userResult = await pool.query(
-      `SELECT email, name FROM users WHERE email = ANY($1);`,
-      [Array.from(allEmails)]
-    );
-    usersMap = Object.fromEntries(userResult.rows.map(u => [u.email, u.name]));
-  }
-
-  const fmt = e => usersMap[e] ? `${usersMap[e]} (${e})` : e;
-
-  const posterSubmissionsFormatted = posterSubmissions.map(sub => ({
-    ...sub,
-    paperId: formatPaperId(sub.paper_number) || "—",
-    primary_author_formatted: fmt(sub.primary_author),
-    co_authors_formatted: (sub.co_authors || []).map(fmt).join(", ")
-  }));
+  const finalLeaderboard = batched.leaderboardByTrack["__all__"] || [];
+  const posterSubmissionsFormatted = batched.fcrpByTrack["__all__"] || [];
 
   return {
     conference,
