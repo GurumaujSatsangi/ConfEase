@@ -83,9 +83,32 @@ validateRequiredEnv();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
+// FILE-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): previously any
+// mimetype/extension was buffered into memory up to the 4MB cap before the
+// app's own magic-byte check (isAllowedDocument) ran. This extension-level
+// fileFilter rejects obviously-wrong uploads before they're buffered at
+// all, as defense-in-depth alongside that existing content check (which
+// still runs afterward and remains the authoritative check). Raised as a
+// genuine multer.MulterError (with its message overridden) rather than a
+// plain Error so it flows through the existing `err instanceof
+// multer.MulterError` handling already present at every upload.single("file")
+// call site, instead of silently leaving req.file undefined - which at
+// least one call site (edit-submission) would otherwise misinterpret as
+// "no new file was attached" rather than "a disallowed file was rejected".
+function rejectDisallowedFileExtension(req, file, cb) {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  if (![".pdf", ".docx", ".doc"].includes(ext)) {
+    const err = new multer.MulterError("LIMIT_UNEXPECTED_FILE", "file");
+    err.message = "Only PDF, DOC, and DOCX files are allowed.";
+    return cb(err);
+  }
+  return cb(null, true);
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
+  fileFilter: rejectDisallowedFileExtension,
 });
 
 function uploadBufferToCloudinary(buffer, options) {
@@ -1595,7 +1618,16 @@ function isAllowedDocument(file) {
   const ext = path.extname(file.originalname || "").toLowerCase();
   const head = file.buffer.subarray(0, 8);
   if (ext === ".pdf") return head.subarray(0, 4).toString("latin1") === "%PDF";
-  if (ext === ".docx") return head.subarray(0, 2).toString("latin1") === "PK";
+  if (ext === ".docx") {
+    // FILE-02: the generic ZIP signature alone is true of any ZIP archive,
+    // not specifically a DOCX. Every real OOXML document (docx/xlsx/pptx)
+    // stores its manifest entry name "[Content_Types].xml" as a literal,
+    // uncompressed string in its ZIP local file headers, so a direct byte
+    // search for it - without adding a ZIP-parsing dependency - confirms
+    // this is actually an Office document and not just any same-signature
+    // ZIP file (e.g. a renamed .zip).
+    return head.subarray(0, 2).toString("latin1") === "PK" && file.buffer.includes("[Content_Types].xml");
+  }
   if (ext === ".doc") return head.equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
   return false;
 }
