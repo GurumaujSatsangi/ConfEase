@@ -99,17 +99,18 @@ test("a non-owning chair is redirected away from another conference's registrati
   assert.match(decodeURIComponent(res.headers.get("location") || ""), /not authorized/);
 });
 
-test("the dashboard lists only the two Final Camera Ready Paper statuses, and reports correct counters", async () => {
+test("the dashboard lists the full final-camera-ready lineage, and reports correct counters", async () => {
   const res = await get(`/chair/dashboard/registrations/${conferenceId}`, chairToken);
   assert.equal(res.status, 200);
   const html = await res.text();
 
-  // Row scoping: the two FCRP submissions appear, the "Accepted" and
-  // "Poster Scored" ones do not.
+  // Row scoping: both FCRP submissions appear, and so does the one that's
+  // since been scored (still registered, just further along) - only the
+  // one that was merely accepted and never reached FCRP is excluded.
   assert.match(html, /Registered Oral Paper/);
   assert.match(html, /Unregistered Poster Paper/);
+  assert.match(html, /Already Scored/);
   assert.doesNotMatch(html, /Accepted Not Yet FCRP/);
-  assert.doesNotMatch(html, /Already Scored/);
 
   // Counters: accepted = 4 (both FCRP + the Accepted-only one + the
   // Poster Scored one), fcrpSubmitted = 3 (both FCRP + Poster Scored),
@@ -122,7 +123,7 @@ test("the dashboard lists only the two Final Camera Ready Paper statuses, and re
   assert.match(html, /Not Registered</);
 });
 
-test("the Excel export returns an .xlsx file with one row per Final Camera Ready Paper submission", async () => {
+test("the Excel export returns an .xlsx file with one row per final-camera-ready-lineage submission", async () => {
   const res = await get(`/chair/dashboard/registrations/${conferenceId}/export`, chairToken);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -139,11 +140,16 @@ test("the Excel export returns an .xlsx file with one row per Final Camera Ready
     rows.push(row.values);
   });
 
-  assert.equal(rows.length, 2);
+  // The two FCRP submissions plus the already-scored one (still in the
+  // lineage); the merely-accepted one is excluded.
+  assert.equal(rows.length, 3);
   const registeredRow = rows.find((r) => r[1] === "0101");
   const unregisteredRow = rows.find((r) => r[1] === "0102");
+  const scoredRow = rows.find((r) => r[1] === "0104");
   assert.ok(registeredRow, "registered submission's row must be present");
   assert.ok(unregisteredRow, "unregistered submission's row must be present");
+  assert.ok(scoredRow, "already-scored submission's row must still be present");
   assert.equal(registeredRow[6], "Registered");
   assert.equal(unregisteredRow[6], "Not Registered");
+  assert.equal(scoredRow[6], "Not Registered");
 });

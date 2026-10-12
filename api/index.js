@@ -6888,6 +6888,11 @@ async function loadRegistrationsDashboardData(conferenceId) {
     [conferenceId]
   );
 
+  // Scoped to the FCRP lineage (not just the two literal
+  // REGISTRATION_STATUSES), same as the counters above: once a registered
+  // submission is scored or marked presented its status moves on to
+  // "Poster Scored"/"Presentation Completed", and it should stay on this
+  // list (still registered, just further along) rather than disappear.
   const submissionsResult = await pool.query(
     `select s.submission_id, s.title, s.primary_author, s.co_authors, s.paper_number, s.submission_status,
             r.mode_of_presentation, r.link_to_video, r.attending_offline
@@ -6895,7 +6900,7 @@ async function loadRegistrationsDashboardData(conferenceId) {
      left join registration r on r.submission_id = s.submission_id::text
      where s.conference_id = $1 and s.submission_status = ANY($2)
      order by s.paper_number`,
-    [conferenceId, REGISTRATION_STATUSES]
+    [conferenceId, FCRP_LINEAGE_STATUSES]
   );
 
   const authorEmails = [...new Set(
