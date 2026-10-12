@@ -5428,11 +5428,58 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
   const conferenceClient = await pool.connect();
   try {
     await conferenceClient.query("BEGIN");
+
+    // DB-02 (security-audit/COMPLETE_FINDINGS_REGISTER.md): previously only
+    // conference_tracks was cleaned up before deleting the conference row,
+    // leaving every other child table permanently orphaned (no FK exists to
+    // even throw an error). Fetch the authors/co-authors first (for cache
+    // invalidation below) and the submission ids (for the two child tables
+    // that aren't keyed by conference_id directly), then delete everything
+    // in dependency order within this one transaction.
+    const affectedSubmissions = await conferenceClient.query(
+      "SELECT submission_id, primary_author, co_authors FROM submissions WHERE conference_id = $1",
+      [req.params.id]
+    );
+    const submissionIds = affectedSubmissions.rows.map((s) => s.submission_id);
+
+    if (submissionIds.length > 0) {
+      await conferenceClient.query(`DELETE FROM revised_submissions WHERE submission_id = ANY($1);`, [submissionIds]);
+      await conferenceClient.query(`DELETE FROM meta_reviewer_decision WHERE submission_id = ANY($1);`, [submissionIds]);
+      await conferenceClient.query(`DELETE FROM desk_review WHERE paper_id = ANY($1);`, [submissionIds]);
+    }
+    await conferenceClient.query(`DELETE FROM co_author_requests WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM peer_review WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM final_camera_ready_submissions WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM registration WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM certificates WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM poster_presentation_scores WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM submissions WHERE conference_id = $1;`, [req.params.id]);
+
+    await conferenceClient.query(`DELETE FROM invitees WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM invited_talk_submissions WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM conference_roles WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM role_certificates WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM poster_session WHERE conference_id = $1;`, [req.params.id]);
+    await conferenceClient.query(`DELETE FROM conference_paper_counters WHERE conference_id = $1;`, [req.params.id]);
+
     await conferenceClient.query(`DELETE FROM conference_tracks WHERE conference_id = $1;`, [req.params.id]);
+    // conference_groups.conference_id -> conferences is ON DELETE RESTRICT,
+    // so deleting a conference that has track groups previously failed
+    // outright (caught, rolled back, 500) while a conference with no
+    // groups deleted fine - inconsistent behavior depending on data that
+    // has nothing to do with the user's intent. conference_tracks.group_id
+    // -> conference_groups is also RESTRICT, which is why conference_tracks
+    // must be (and already was) cleared first.
+    await conferenceClient.query(`DELETE FROM conference_groups WHERE conference_id = $1;`, [req.params.id]);
+
     await conferenceClient.query(`DELETE FROM conferences WHERE conference_id = $1;`, [req.params.id]);
     await conferenceClient.query("COMMIT");
 
-    if (redisClient) await redisClient.del("conferences");
+    if (redisClient) {
+      await redisClient.del("conferences");
+      const emails = affectedSubmissions.rows.flatMap((s) => [s.primary_author, ...(s.co_authors || [])]);
+      await invalidateConferenceSubmissionCache(emails, req.params.id);
+    }
     res.redirect("/chair/dashboard?message=Conference Deleted Succesfully.");
   } catch (err) {
     await conferenceClient.query("ROLLBACK");
@@ -7416,6 +7463,31 @@ app.get("/chair/dashboard/registrations/:id/export", checkChairAuth, conferenceO
   }
 });
 
+// DB-03 (security-audit/COMPLETE_FINDINGS_REGISTER.md): shared by both
+// submission-delete routes below so neither one can drift out of sync with
+// the other on which child tables it cleans up. Must run inside a caller-
+// owned transaction (BEGIN already issued on `client`) and does not delete
+// the submission's own row - the caller does that last, after this returns,
+// so it can still read submission fields (primary_author, co_authors, etc.)
+// beforehand for cache invalidation without a second round-trip.
+//
+// role_certificates is deliberately NOT included here: its context_id is
+// never a submission_id for any role (reviewer/session_chair use a
+// track_id, invited_speaker uses invited_talk_submissions.paper_id, which
+// is a separate table/id space from submissions.submission_id) - see
+// generateAndEmailRoleCertificate's callers.
+async function deleteSubmissionCascade(client, submissionId) {
+  await client.query("DELETE FROM co_author_requests WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM revised_submissions WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM peer_review WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM final_camera_ready_submissions WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM registration WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM certificates WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM meta_reviewer_decision WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM poster_presentation_scores WHERE submission_id = $1", [submissionId]);
+  await client.query("DELETE FROM desk_review WHERE paper_id = $1", [submissionId]);
+}
+
 app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
   
   const submissionId = req.params.id;
@@ -7445,31 +7517,7 @@ app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, r
   const deleteClient = await pool.connect();
   try {
     await deleteClient.query("BEGIN");
-    // 1. Delete co-author requests
-    await deleteClient.query(
-      `DELETE FROM co_author_requests WHERE submission_id = $1;`,
-      [submissionId]
-    );
-
-    // 2. Delete revised submissions
-    await deleteClient.query(
-      `DELETE FROM revised_submissions WHERE submission_id = $1;`,
-      [submissionId]
-    );
-
-    // 3. Delete related peer reviews
-    await deleteClient.query(
-      `DELETE FROM peer_review WHERE submission_id = $1;`,
-      [submissionId]
-    );
-
-    // 4. Delete any final camera-ready submission entry
-    await deleteClient.query(
-      `DELETE FROM final_camera_ready_submissions WHERE submission_id = $1;`,
-      [submissionId]
-    );
-
-    // 5. Delete submission itself
+    await deleteSubmissionCascade(deleteClient, submissionId);
     await deleteClient.query(
       `DELETE FROM submissions WHERE submission_id = $1;`,
       [submissionId]
@@ -7721,12 +7769,25 @@ app.post("/submission/delete/primary-author/:id", checkAuth, async (req, res) =>
       return res.redirect("/dashboard?message=This submission cannot be deleted at its current status.");
     }
 
-    const conference = await pool.query(
-      `DELETE FROM submissions WHERE submission_id = $1 AND primary_author = $2 returning conference_id;`,
-      [req.params.id, req.user.email]
-    );
+    const selfDeleteClient = await pool.connect();
+    let conferenceId;
+    try {
+      await selfDeleteClient.query("BEGIN");
+      await deleteSubmissionCascade(selfDeleteClient, req.params.id);
+      const conference = await selfDeleteClient.query(
+        `DELETE FROM submissions WHERE submission_id = $1 AND primary_author = $2 returning conference_id;`,
+        [req.params.id, req.user.email]
+      );
+      await selfDeleteClient.query("COMMIT");
+      conferenceId = conference.rows[0]?.conference_id;
+    } catch (err) {
+      await selfDeleteClient.query("ROLLBACK");
+      throw err;
+    } finally {
+      selfDeleteClient.release();
+    }
 
-    if (redisClient && conference.rows[0]) await redisClient.del(submissionsCacheKey(req.user.email, conference.rows[0].conference_id));
+    if (redisClient && conferenceId) await redisClient.del(submissionsCacheKey(req.user.email, conferenceId));
 
     return res.redirect("/dashboard?message=Submission deleted Successfully!");
   } catch (err) {
