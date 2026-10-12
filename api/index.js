@@ -52,6 +52,34 @@ app.locals.sanitizeDescription = sanitizeDescription;
 
 
 dotenv.config();
+
+// REL-07 (security-audit/COMPLETE_FINDINGS_REGISTER.md): previously nothing
+// validated that required configuration was actually present at startup -
+// a misconfigured deployment (e.g. both JWT_ACCESS_TOKEN_SECRET and
+// JWT_SECRET unset) would start successfully and only fail later, per
+// request, with a confusing runtime error the first time a token was
+// signed/verified, rather than failing fast and clearly at boot.
+// Skipped entirely under the test harness (SKIP_AUTOLISTEN=1), since test
+// files deliberately set only the specific env vars each one needs, not
+// the full production set, and skipped (logged, not fatal) outside
+// NODE_ENV=production so local/dev setups with a partial .env still start
+// - only a production boot is actually blocked, and never by printing the
+// missing values themselves, only their names.
+function validateRequiredEnv() {
+  if (process.env.SKIP_AUTOLISTEN === "1") return;
+  const required = ["DB_USER", "DB_HOST", "DB_NAME", "DB_PASSWORD", "DB_PORT"];
+  const missing = required.filter((name) => !process.env[name]);
+  if (!process.env.JWT_ACCESS_TOKEN_SECRET && !process.env.JWT_SECRET) missing.push("JWT_ACCESS_TOKEN_SECRET (or JWT_SECRET)");
+  if (!process.env.JWT_REFRESH_TOKEN_SECRET && !process.env.JWT_SECRET) missing.push("JWT_REFRESH_TOKEN_SECRET (or JWT_SECRET)");
+  if (missing.length === 0) return;
+
+  console.error(`FATAL: missing required environment variable(s): ${missing.join(", ")}. See .env.example for the full list.`);
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+}
+validateRequiredEnv();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
