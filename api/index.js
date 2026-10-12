@@ -5394,14 +5394,33 @@ async function generateCertificateAndUpload(templateId, fields, publicId) {
 // a dashboard - the email IS the delivery mechanism, so this both
 // generates and sends in one step. Returns "generated", "skipped" (no
 // email on file, or already has one), or "failed".
+// BL-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): 5 minutes is long
+// enough for a real Canva+Cloudinary+email round trip to finish under
+// normal conditions, short enough that a genuinely crashed/failed attempt
+// doesn't block a retry for long. Shared by both the role-certificate and
+// author-certificate reservation queries below.
+const CERTIFICATE_RESERVATION_STALE_AFTER = "5 minutes";
+
 async function generateAndEmailRoleCertificate({ conferenceId, role, email, contextId, templateId, conferenceTitle, roleLabel, paperTitle }) {
   if (!email) return "skipped";
   try {
-    const existing = await pool.query(
-      "select 1 from role_certificates where conference_id = $1 and role = $2 and lower(email) = lower($3) and context_id = $4 and status = 'GENERATED' and file_url is not null",
+    // Atomic reservation: this INSERT only succeeds (returns a row) if no
+    // row exists yet, or the existing one isn't GENERATED and its
+    // reservation (if any) is stale. A concurrent second call for the same
+    // (conference, role, email, context) loses this race and gets zero
+    // rows back - it skips instead of re-running the Canva/Cloudinary/email
+    // pipeline a second time for the same recipient.
+    const reservation = await pool.query(
+      `insert into role_certificates (conference_id, role, email, context_id, status, reserved_at)
+       values ($1,$2,$3,$4,'GENERATING',now())
+       on conflict (conference_id, role, email, context_id) do update
+         set status = 'GENERATING', reserved_at = now()
+         where role_certificates.status is distinct from 'GENERATED'
+           and (role_certificates.reserved_at is null or role_certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
+       returning *`,
       [conferenceId, role, email, contextId]
     );
-    if (existing.rows.length > 0) return "skipped";
+    if (reservation.rows.length === 0) return "skipped";
 
     // Invited Speakers' names live in `invitees` (invited_talk_submissions
     // itself only has their email and talk title, not a name column);
@@ -5438,6 +5457,16 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
     return "generated";
   } catch (err) {
     console.error(`Error generating ${role} certificate for ${email} (conference ${conferenceId}, context ${contextId}):`, err);
+    // Clean up the reservation on a graceful failure (e.g. Canva/Cloudinary
+    // error) so no stuck 'GENERATING' row is left behind - preserves the
+    // existing "no partial writes on failure" guarantee. A row only
+    // survives past this point if the process crashes before reaching this
+    // catch block at all, in which case the reservation's staleness check
+    // (CERTIFICATE_RESERVATION_STALE_AFTER) lets a later retry reclaim it.
+    await pool.query(
+      `delete from role_certificates where conference_id = $1 and role = $2 and lower(email) = lower($3) and context_id = $4 and status = 'GENERATING'`,
+      [conferenceId, role, email, contextId]
+    ).catch((cleanupErr) => console.error("Failed to clean up certificate reservation:", cleanupErr.message));
     return "failed";
   }
 }
@@ -5479,6 +5508,26 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req,
         continue;
       }
       try {
+        // BL-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): atomic
+        // reservation, same pattern as generateAndEmailRoleCertificate -
+        // this INSERT only returns a row if no certificate exists yet for
+        // this submission, or the existing one isn't GENERATED and its
+        // reservation (if any) is stale. A concurrent second trigger of
+        // this whole batch route (double-click, retried request) loses
+        // this race per-submission and skips instead of re-running Canva/
+        // Cloudinary/email for the same recipients a second time.
+        const reservation = await pool.query(
+          `insert into certificates (conference_id, submission_id, status, reserved_at)
+           values ($1, $2, 'GENERATING', now())
+           on conflict (submission_id) do update
+             set status = 'GENERATING', reserved_at = now()
+             where certificates.status is distinct from 'GENERATED'
+               and (certificates.reserved_at is null or certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
+           returning *`,
+          [conferenceId, submission.submission_id]
+        );
+        if (reservation.rows.length === 0) continue;
+
         const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
         const usersResult = authorEmails.length
           ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
@@ -5530,6 +5579,13 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req,
       } catch (certErr) {
         console.error(`Error generating certificate for submission ${submission.submission_id}:`, certErr);
         failures.push(`submission ${submission.submission_id}`);
+        // Clean up the reservation on a graceful failure so no stuck
+        // 'GENERATING' row is left behind - see the matching comment in
+        // generateAndEmailRoleCertificate for the full reasoning (BL-01).
+        await pool.query(
+          `delete from certificates where conference_id = $1 and submission_id = $2 and status = 'GENERATING'`,
+          [conferenceId, submission.submission_id]
+        ).catch((cleanupErr) => console.error("Failed to clean up certificate reservation:", cleanupErr.message));
         // Keep going - one submission's Canva/Cloudinary failure shouldn't
         // block the rest of the batch.
       }
