@@ -29,7 +29,7 @@
       Swal.fire({
         icon: 'info',
         title: 'Notification',
-        text: '<%= message %>',
+        text: <%- JSON.stringify(String(message)).replace(/</g, '\\u003c') %>,
         confirmButtonText: 'OK'
       });
     } catch (e) {
