@@ -46,10 +46,22 @@
         </div>
       </div>
 
-      <div class="mb-3">
-        <a href="/chair/dashboard/registrations/<%= conference.conference_id %>/export" class="btn btn-outline-success">
-          <i class="bi bi-file-earmark-excel"></i> Export as Excel
-        </a>
+      <div class="row mb-3 align-items-end">
+        <div class="col-md-4">
+          <a href="/chair/dashboard/registrations/<%= conference.conference_id %>/export" class="btn btn-outline-success">
+            <i class="bi bi-file-earmark-excel"></i> Export as Excel
+          </a>
+        </div>
+        <div class="col-md-4 offset-md-4">
+          <div class="form-group">
+            <label for="registrationStatusFilter">Filter by Registration Status</label>
+            <select id="registrationStatusFilter" class="form-control">
+              <option value="">All</option>
+              <option value="registered">Registered</option>
+              <option value="not-registered">Not Registered</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <hr>
@@ -73,7 +85,7 @@
             </thead>
             <tbody>
               <% rows.forEach(function(row) { %>
-                <tr>
+                <tr class="registration-row" data-registered="<%= row.registered ? 'registered' : 'not-registered' %>">
                   <td><%= row.paperId %></td>
                   <td><%= row.title %></td>
                   <td><%= row.primaryAuthor %></td>
@@ -113,6 +125,9 @@
             </tbody>
           </table>
         </div>
+        <div id="noResultsMessage" class="text-center my-5" style="display: none;">
+          <h5 class="text-muted"><i class="bi bi-search"></i> No rows match the selected filter.</h5>
+        </div>
       <% } else { %>
         <div class="text-center my-5">
           <h5 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Final Camera Ready Paper submissions found.</h5>
@@ -122,5 +137,29 @@
 
     <script src="/script.js"></script>
     <%- include('../partials/footer') %>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const registrationStatusFilter = document.getElementById('registrationStatusFilter');
+        const rows = document.querySelectorAll('.registration-row');
+        const noResultsMessage = document.getElementById('noResultsMessage');
+        if (!registrationStatusFilter) return;
+
+        function applyFilter() {
+          const selected = registrationStatusFilter.value;
+          let visibleCount = 0;
+          rows.forEach(function(row) {
+            const isVisible = !selected || row.getAttribute('data-registered') === selected;
+            row.style.display = isVisible ? '' : 'none';
+            if (isVisible) visibleCount++;
+          });
+          if (noResultsMessage) {
+            noResultsMessage.style.display = (visibleCount === 0 && rows.length > 0) ? 'block' : 'none';
+          }
+        }
+
+        registrationStatusFilter.addEventListener('change', applyFilter);
+      });
+    </script>
   </body>
 </html>
