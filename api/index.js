@@ -936,6 +936,55 @@ async function authRateLimitMemory(req, res, next) {
   return next();
 }
 
+// BL-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the bulk
+// certificate-generation route, the three Excel-export routes, and the
+// bulk email-alert route had no rate limiting beyond the blunt global
+// per-IP limiter (which does nothing to stop one authenticated chair from
+// repeatedly triggering an expensive operation on their own conference).
+// This is deliberately per (operation, conference, account) rather than
+// per-IP - the global limiter already covers the IP dimension, and keying
+// on the account too means rotating source IPs doesn't help bypass it.
+// Same bounded in-memory/Redis-fallback architecture as
+// authRateLimitMemory above, reused rather than introducing a new
+// mechanism.
+const conferenceOpAttempts = new Map();
+const CONFERENCE_OP_MAX_KEYS = 10000;
+function conferenceOperationCooldown(operationName, cooldownSeconds) {
+  return async function (req, res, next) {
+    if (process.env.SKIP_AUTOLISTEN === "1") return next();
+
+    const conferenceId = req.params.id || "unknown";
+    const account = (req.user && req.user.email) || req.ip;
+    const key = `conferenceop:${operationName}:${conferenceId}:${account}`;
+
+    if (redisClient) {
+      try {
+        const setResult = await redisClient.set(key, "1", { NX: true, EX: cooldownSeconds });
+        if (setResult === null) {
+          return res.status(429).send("This operation was just run for this conference - please wait a few seconds and try again.");
+        }
+        return next();
+      } catch (err) {
+        console.warn("Conference operation cooldown: Redis unavailable, using in-memory fallback.", err.message);
+      }
+    }
+
+    const now = Date.now();
+    if (conferenceOpAttempts.size >= CONFERENCE_OP_MAX_KEYS) {
+      for (const [k, resetAt] of conferenceOpAttempts) {
+        if (resetAt <= now) conferenceOpAttempts.delete(k);
+      }
+      if (conferenceOpAttempts.size >= CONFERENCE_OP_MAX_KEYS) conferenceOpAttempts.clear();
+    }
+    const resetAt = conferenceOpAttempts.get(key);
+    if (resetAt && resetAt > now) {
+      return res.status(429).send("This operation was just run for this conference - please wait a few seconds and try again.");
+    }
+    conferenceOpAttempts.set(key, now + cooldownSeconds * 1000);
+    return next();
+  };
+}
+
 // Account lockout: 3 failed login attempts locks that account (not just that
 // IP) out of logging in for 5 minutes. Separate from authRateLimitMemory
 // above, which throttles total login *requests* per IP+route; this tracks
@@ -1632,7 +1681,7 @@ res.render("score-posters.ejs",{
 
 })
 
-app.get("/score-posters/:id/export", checkAuth, async (req, res) => {
+app.get("/score-posters/:id/export", checkAuth, conferenceOperationCooldown("score-posters-export", 10), async (req, res) => {
   if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
     return res.redirect("/dashboard?message=You are not authorized to view this page.");
   }
@@ -2596,6 +2645,7 @@ app.get(
 app.get(
   "/chair/dashboard/manage-sessions/:id/export",
   checkChairAuth,
+  conferenceOperationCooldown("oral-sessions-export", 10),
   async (req, res) => {
     if (!(await chairOwnsConference(req.user.email, req.params.id))) {
       return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
@@ -2793,7 +2843,7 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (re
   }
 });
 
-app.get("/chair/dashboard/manage-poster-sessions/:id/export", checkChairAuth, async (req, res) => {
+app.get("/chair/dashboard/manage-poster-sessions/:id/export", checkChairAuth, conferenceOperationCooldown("poster-sessions-export", 10), async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
@@ -5477,7 +5527,7 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
 // CANVA_TEMPLATE_IDS). Every category is independently idempotent
 // (certificates / role_certificates), so re-clicking this for a conference
 // only ever fills in whatever is still missing across all four.
-app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, async (req, res) => {
+app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceOperationCooldown("enable-pdf-download", 30), async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
@@ -7294,7 +7344,7 @@ app.get("/chair/dashboard/registrations/:id", checkChairAuth, async (req, res) =
   }
 });
 
-app.get("/chair/dashboard/registrations/:id/export", checkChairAuth, async (req, res) => {
+app.get("/chair/dashboard/registrations/:id/export", checkChairAuth, conferenceOperationCooldown("registrations-export", 10), async (req, res) => {
   if (!(await chairOwnsConference(req.user.email, req.params.id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
