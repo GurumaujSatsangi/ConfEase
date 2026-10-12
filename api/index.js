@@ -2275,11 +2275,25 @@ app.post("/upvote-poster/:id",async(req,res)=>{
     return res.redirect("/?message=Submission not found.");
   }
 
-  // One counted vote per voter per submission (atomic set membership in Redis)
-  if (redisClient) {
-    const firstVote = await redisClient.sAdd("votes_" + submission_id, String(req.ip));
-    if (firstVote === 1) {
+  // CACHE-03 (security-audit/COMPLETE_FINDINGS_REGISTER.md): Postgres is
+  // now the durable source of truth for one-vote-per-IP - the
+  // (submission_id, voter_ip) primary key makes this atomic and
+  // database-enforced (INSERT ... ON CONFLICT DO NOTHING), so a vote can
+  // never be lost to a Redis restart/eviction. Redis is only touched
+  // afterward, as a non-authoritative fast-path cache, and a Redis failure
+  // here must never fail the request or lose the already-committed vote -
+  // every call is guarded, unlike the previous unguarded version.
+  const voteInsert = await pool.query(
+    "insert into poster_votes (submission_id, voter_ip) values ($1, $2) on conflict do nothing returning submission_id",
+    [submission_id, String(req.ip)]
+  );
+  const isFirstVoteFromThisIp = voteInsert.rowCount > 0;
+
+  if (redisClient && isFirstVoteFromThisIp) {
+    try {
       await redisClient.incr(submission_id);
+    } catch (redisErr) {
+      console.warn("Poster upvote: Redis counter update failed (vote is still recorded in the database):", redisErr.message);
     }
   }
 
