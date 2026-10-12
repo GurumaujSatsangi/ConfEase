@@ -1448,6 +1448,17 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// FILE-03 (security-audit/COMPLETE_FINDINGS_REGISTER.md): Cloudinary
+// treats "/" as a folder separator in public_id, so building one from
+// unsanitized user-controlled text (e.g. a free-text display name entered
+// at registration) could land an upload in an unintended folder within the
+// account's asset tree. Strips anything that isn't alphanumeric/_/- before
+// it's used in a public_id - the folder itself is still set separately via
+// the `folder` option, this only sanitizes the filename-like segment.
+function sanitizeCloudinaryIdSegment(value) {
+  return String(value ?? "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100) || "user";
+}
+
 // Every token is minted with an explicit "typ". Untyped (legacy) tokens are rejected.
 function assertTokenType(decoded, expectedType) {
   if (!decoded || decoded.typ !== expectedType) {
@@ -6636,7 +6647,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
-        public_id: `${req.user.user_id}-${Date.now()}-Final`,
+        public_id: `${sanitizeCloudinaryIdSegment(req.user.user_id)}-${Date.now()}-Final`,
       });
 
       // 3. Insert into final_camera_ready_submissions
@@ -7331,7 +7342,7 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "revised_submissions",
-          public_id: `${req.user.name}-${submission_id}-${Date.now()}`,
+          public_id: `${sanitizeCloudinaryIdSegment(req.user.name)}-${submission_id}-${Date.now()}`,
         });
 
         // //
@@ -7435,7 +7446,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
           folder: "submissions",
-          public_id: `${req.user.user_id}-${Date.now()}`,
+          public_id: `${sanitizeCloudinaryIdSegment(req.user.user_id)}-${Date.now()}`,
         });
 
         updateFields.push(`file_url = $${index++}`);
@@ -7577,7 +7588,7 @@ app.post("/submit", checkAuth, async (req, res) => {
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
-        public_id: `${(req.user && (req.user.user_id || req.user.email)) || "user"}-${Date.now()}`,
+        public_id: `${sanitizeCloudinaryIdSegment((req.user && (req.user.user_id || req.user.email)) || "user")}-${Date.now()}`,
       });
 
       // --- FIXED: Thread-safe Unique Paper Code Generation via Redis Sets ---
@@ -7720,7 +7731,7 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
         folder: "submissions",
-        public_id: `${req.user.email}-${Date.now()}`,
+        public_id: `${sanitizeCloudinaryIdSegment(req.user.email)}-${Date.now()}`,
       });
 
       const paper_id = crypto.randomUUID();
