@@ -1135,6 +1135,45 @@ app.get("/", async (req, res) => {
 
 
 
+// REL-06 (security-audit/COMPLETE_FINDINGS_REGISTER.md): "/" is a
+// deliberate liveness-only check (it catches its own DB errors and still
+// returns 200 with an empty conference list, so the process stays "alive"
+// even when the database is unreachable - that's its intended, unchanged
+// behavior as documented in the Dockerfile). This is a separate readiness
+// check: a lightweight `SELECT 1` that returns 503 if Postgres isn't
+// reachable, so an orchestrator can tell "process is up" apart from
+// "process can actually serve real requests" instead of routing traffic to
+// a container that's alive but failing nearly everything. Redis is
+// reported but never fails readiness - the app is designed to run without
+// it (degraded, not down). No schema/query details are ever included in
+// the response, only up/down booleans.
+app.get("/healthz/ready", async (req, res) => {
+  let dbReady = false;
+  try {
+    await pool.query("SELECT 1");
+    dbReady = true;
+  } catch (err) {
+    console.error("Readiness check: database unreachable:", err.message);
+  }
+
+  let redisReady = false;
+  if (redisClient) {
+    try {
+      await redisClient.ping();
+      redisReady = true;
+    } catch (err) {
+      console.error("Readiness check: Redis unreachable:", err.message);
+    }
+  }
+
+  const status = dbReady ? 200 : 503;
+  return res.status(status).json({
+    status: dbReady ? "ready" : "not ready",
+    database: dbReady,
+    redis: redisClient ? redisReady : "not configured",
+  });
+});
+
 app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
   if (!hasAnyConferenceRole(req.user, "reviewer")) {
     return res.redirect("/dashboard?message=Reviewer role not found in your current session. If a chair has just assigned you as a reviewer, please log out and log back in. If you think this is an error, please reach out to the conference chair.");

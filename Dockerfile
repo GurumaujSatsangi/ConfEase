@@ -25,10 +25,15 @@ USER app
 
 EXPOSE 3000
 
-# "/" renders even when the database is unreachable (it catches the error
-# and still returns 200 with an empty conference list), so it's a safe,
-# dependency-light liveness/readiness check.
+# GET /healthz/ready checks that the database (and, if configured, Redis)
+# is actually reachable, not just that the Node process is alive - "/"
+# itself deliberately stays a liveness-only route (it catches its own DB
+# errors and still returns 200 with an empty conference list), so using it
+# here would report "healthy" even during a full database outage, letting
+# an orchestrator keep routing real traffic to a container failing nearly
+# every request. --retries=3 means a single transient blip doesn't flip
+# the container to unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/healthz/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "api/index.js"]
