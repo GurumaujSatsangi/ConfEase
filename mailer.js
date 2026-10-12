@@ -80,5 +80,16 @@ export async function sendMail(to, subject, text, html, cc = null) {
     mailOptions.cc = cc;
   }
 
+  // Dozens of routes call sendMail() without mocking it, and the test suite
+  // exercises most of those routes directly against a real running server.
+  // Without this, every full test run sends real email through the live
+  // Gmail account configured in EMAIL_USER/EMAIL_PASSWORD, which has a daily
+  // sending quota Gmail enforces account-wide - repeated runs during
+  // development exhausted it and caused unrelated-looking test failures
+  // (SMTP 550 5.4.5) across any test that happens to hit a mail-sending route.
+  if (process.env.SKIP_AUTOLISTEN === "1") {
+    return { messageId: "skipped-in-test@localhost", accepted: [to], rejected: [] };
+  }
+
   return transporter.sendMail(mailOptions);
 }
