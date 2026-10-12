@@ -21,6 +21,7 @@ import crypto from "crypto";
 import sanitizeHtml from "sanitize-html";
 import { sendMail } from "../mailer.js"
 import * as canva from "../canva.js"
+import ExcelJS from "exceljs";
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
 const DESCRIPTION_OPTIONS = {
@@ -6835,6 +6836,173 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
   }
 });
 
+
+// Every status a submission passes through from the moment it's accepted
+// onward - used to count "accepted" papers even after they've since moved
+// past the two "Accepted for ..." statuses (which only last until FCRP is
+// submitted, at which point the status becomes one of REGISTRATION_STATUSES
+// or later). Without this lineage, a submission that has already progressed
+// to Poster Scored/Presentation Completed would stop counting as "accepted".
+const ACCEPTED_LINEAGE_STATUSES = [
+  "Accepted for Oral Presentation",
+  "Accepted for Poster Presentation",
+  "Submitted Final Camera Ready Paper for Oral Presentation",
+  "Submitted Final Camera Ready Paper for Poster Presentation",
+  "Submitted Final Camera Ready Paper",
+  "Poster Scored",
+  "Presentation Completed",
+];
+
+// Same idea, scoped to "has at least submitted the final camera ready
+// paper" - a superset of REGISTRATION_STATUSES that also counts papers
+// that have since been scored/presented.
+const FCRP_LINEAGE_STATUSES = [
+  "Submitted Final Camera Ready Paper for Oral Presentation",
+  "Submitted Final Camera Ready Paper for Poster Presentation",
+  "Submitted Final Camera Ready Paper",
+  "Poster Scored",
+  "Presentation Completed",
+];
+
+async function loadRegistrationsDashboardData(conferenceId) {
+  const conferenceResult = await pool.query("select conference_id, title from conferences where conference_id = $1", [conferenceId]);
+  const conference = conferenceResult.rows[0];
+  if (!conference) return null;
+
+  const statusCounts = await pool.query(
+    `select
+       count(*) filter (where submission_status = ANY($2)) as accepted_count,
+       count(*) filter (where submission_status = ANY($3)) as fcrp_count
+     from submissions
+     where conference_id = $1`,
+    [conferenceId, ACCEPTED_LINEAGE_STATUSES, FCRP_LINEAGE_STATUSES]
+  );
+
+  const registrationCounts = await pool.query(
+    `select
+       count(*) as registered_count,
+       count(*) filter (where mode_of_presentation = 'Online') as online_count,
+       count(*) filter (where mode_of_presentation = 'Offline') as offline_count
+     from registration
+     where conference_id = $1`,
+    [conferenceId]
+  );
+
+  const submissionsResult = await pool.query(
+    `select s.submission_id, s.title, s.primary_author, s.co_authors, s.paper_number, s.submission_status,
+            r.mode_of_presentation, r.link_to_video, r.attending_offline
+     from submissions s
+     left join registration r on r.submission_id = s.submission_id::text
+     where s.conference_id = $1 and s.submission_status = ANY($2)
+     order by s.paper_number`,
+    [conferenceId, REGISTRATION_STATUSES]
+  );
+
+  const authorEmails = [...new Set(
+    submissionsResult.rows.flatMap((s) => [s.primary_author, ...(s.co_authors || [])]).filter(Boolean)
+  )];
+  const usersResult = authorEmails.length
+    ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
+    : { rows: [] };
+  const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
+  const formatNameEmail = (email) => (nameByEmail[email] ? `${nameByEmail[email]} (${email})` : email);
+
+  const rows = submissionsResult.rows.map((s) => ({
+    submissionId: s.submission_id,
+    paperId: formatPaperId(s.paper_number) || "—",
+    title: s.title,
+    primaryAuthor: formatNameEmail(s.primary_author),
+    coAuthors: Array.isArray(s.co_authors) && s.co_authors.length ? s.co_authors.map(formatNameEmail).join(", ") : "None",
+    submissionStatus: s.submission_status,
+    registered: s.mode_of_presentation != null,
+    modeOfPresentation: s.mode_of_presentation,
+    linkToVideo: s.link_to_video,
+    attendingOffline: s.attending_offline,
+  }));
+
+  return {
+    conference,
+    rows,
+    counts: {
+      accepted: Number(statusCounts.rows[0].accepted_count),
+      fcrpSubmitted: Number(statusCounts.rows[0].fcrp_count),
+      registered: Number(registrationCounts.rows[0].registered_count),
+      online: Number(registrationCounts.rows[0].online_count),
+      offline: Number(registrationCounts.rows[0].offline_count),
+    },
+  };
+}
+
+app.get("/chair/dashboard/registrations/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+  try {
+    const data = await loadRegistrationsDashboardData(req.params.id);
+    if (!data) {
+      return res.redirect("/chair/dashboard?message=Conference not found.");
+    }
+    return res.render("chair/registrations.ejs", {
+      conference: data.conference,
+      rows: data.rows,
+      counts: data.counts,
+      message: req.query.message || null,
+    });
+  } catch (err) {
+    console.error("Error loading registrations dashboard:", err);
+    return res.redirect("/chair/dashboard?message=Error loading registrations.");
+  }
+});
+
+app.get("/chair/dashboard/registrations/:id/export", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+  try {
+    const data = await loadRegistrationsDashboardData(req.params.id);
+    if (!data) {
+      return res.redirect("/chair/dashboard?message=Conference not found.");
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Registrations");
+    sheet.columns = [
+      { header: "Paper ID", key: "paperId", width: 12 },
+      { header: "Title", key: "title", width: 40 },
+      { header: "Primary Author", key: "primaryAuthor", width: 30 },
+      { header: "Co-Authors", key: "coAuthors", width: 40 },
+      { header: "Submission Status", key: "submissionStatus", width: 30 },
+      { header: "Registration Status", key: "registrationStatus", width: 20 },
+      { header: "Mode of Presentation", key: "modeOfPresentation", width: 20 },
+      { header: "Attending Offline", key: "attendingOffline", width: 16 },
+      { header: "Link to Video", key: "linkToVideo", width: 40 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+
+    for (const row of data.rows) {
+      sheet.addRow({
+        paperId: row.paperId,
+        title: row.title,
+        primaryAuthor: row.primaryAuthor,
+        coAuthors: row.coAuthors,
+        submissionStatus: row.submissionStatus,
+        registrationStatus: row.registered ? "Registered" : "Not Registered",
+        modeOfPresentation: row.modeOfPresentation || "",
+        attendingOffline: row.attendingOffline ?? "",
+        linkToVideo: row.linkToVideo || "",
+      });
+    }
+
+    const fileName = `registrations-${data.conference.conference_id}.xlsx`;
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (err) {
+    console.error("Error exporting registrations:", err);
+    return res.redirect("/chair/dashboard?message=Error exporting registrations.");
+  }
+});
 
 app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
   
