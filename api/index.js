@@ -1771,6 +1771,14 @@ app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
     return res.redirect("/chair/dashboard?message=Invalid desk decision.");
   }
 
+  const ownerCheck = await pool.query("select conference_id from submissions where submission_id = $1", [submission_id]);
+  if (!ownerCheck.rows[0]) {
+    return res.redirect("/chair/dashboard?message=Submission not found.");
+  }
+  if (!(await chairOwnsConference(req.user.email, ownerCheck.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+
   const deskClient = await pool.connect();
   let data;
   try {
@@ -1829,6 +1837,12 @@ app.post("/submit-desk-rejection-remarks/:id",checkChairAuth,async(req,res)=>{
   const {remarks} = req.body;
 
   const conference = await pool.query("select conference_id from submissions where submission_id = $1",[submission_id]);
+  if (!conference.rows[0]) {
+    return res.redirect("/chair/dashboard?message=Submission not found.");
+  }
+  if (!(await chairOwnsConference(req.user.email, conference.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
 
   const data = await pool.query("select title, primary_author, co_authors, paper_number, conference_id from submissions where submission_id=$1",[submission_id]);
 
@@ -3526,6 +3540,9 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
 
 app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res) => {
   const conferenceId = req.params.id;
+  if (!(await chairOwnsConference(req.user.email, conferenceId))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
 
   try {
     // 1. Fetch all tracks for this conference
@@ -3985,7 +4002,7 @@ app.post("/auth/refresh", handleRefresh);
 
 
 
-app.get("/admin",  async(req,res)=>{
+app.get("/admin", checkAuth, requireAdmin, async(req,res)=>{
 
 
 const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
@@ -4123,7 +4140,7 @@ async function issueAccountSetupLink(email) {
   return `${getAppUrl()}/chair-password-setup?token=${token}`;
 }
 
-app.post("/create-chair-credentials",  async(req,res)=>{
+app.post("/create-chair-credentials", checkAuth, requireAdmin, async(req,res)=>{
 
   const {name,email,contact_number, faculty, department} = req.body;
 
@@ -4215,15 +4232,6 @@ app.post("/grant-access/:id", checkAuth, requireAdmin, async(req,res)=>{
     return res.redirect("/admin?message=" + encodeURIComponent("Chair Portal Access Re-Granted to " + email + "!"));
   }
   return res.redirect("/admin?message=Chair not found.");
-
-})
-
-app.post("/select-room/:id", checkChairAuth, async(req,res)=>{
-
-  const uid = req.params.id;
-
-  if (redisClient) await redisClient.set("S-101",uid);
-  return res.sendStatus(204);
 
 })
 
@@ -4678,6 +4686,9 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
   const { email, conference_id,name } = req.body;
   if (!email || !conference_id) {
     return res.status(400).send("Email and conference ID are required.");
+  }
+  if (!(await chairOwnsConference(req.user.email, conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
 
   try {
@@ -5699,7 +5710,7 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 });
 
 
-app.post("/join", checkAuth, async (req, res) => {
+app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
  
 
   const { paper_code, id } = req.body;
