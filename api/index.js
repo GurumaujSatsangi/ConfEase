@@ -5578,6 +5578,102 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
   }
 }
 
+// Generates (or re-generates) exactly one submission's author certificate.
+// Shared by the bulk "Enable PDF Download" loop below and the single-
+// submission "Regenerate" action on the Manage Certificates page. Unlike
+// role certificates (generateAndEmailRoleCertificate), a failure here is
+// left in place as a visible status = 'FAILED' row with a human-readable
+// reason, instead of being deleted - specifically so a chair can see why
+// a certificate didn't generate and retry it from the Manage Certificates
+// page, rather than needing to read the server log.
+async function generateAndEmailAuthorCertificate(conferenceId, conferenceTitle, submission) {
+  const templateId = submission.submission_status === "Poster Scored" ? CANVA_TEMPLATE_IDS.poster : CANVA_TEMPLATE_IDS.paper;
+  if (!templateId) {
+    const message = `No certificate template is configured for "${submission.submission_status}" submissions yet. Ask an Admin to set it up on the Admin page.`;
+    await pool.query(
+      `insert into certificates (conference_id, submission_id, status, error_message)
+       values ($1, $2, 'FAILED', $3)
+       on conflict (submission_id) do update
+         set status = 'FAILED', error_message = excluded.error_message
+         where certificates.status is distinct from 'GENERATED'`,
+      [conferenceId, submission.submission_id, message]
+    );
+    return "failed";
+  }
+
+  try {
+    // BL-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): atomic
+    // reservation, same pattern as generateAndEmailRoleCertificate - this
+    // INSERT only returns a row if no certificate exists yet for this
+    // submission, or the existing one isn't GENERATED and (a) its
+    // reservation is stale, or (b) it's a FAILED row. A FAILED status is
+    // itself evidence nothing is actually in flight, so a deliberate
+    // manual "Regenerate" click can reclaim it immediately rather than
+    // waiting out the interval that protects a genuinely in-flight
+    // (GENERATING) attempt from being double-processed.
+    const reservation = await pool.query(
+      `insert into certificates (conference_id, submission_id, status, reserved_at, error_message)
+       values ($1, $2, 'GENERATING', now(), null)
+       on conflict (submission_id) do update
+         set status = 'GENERATING', reserved_at = now(), error_message = null
+         where certificates.status is distinct from 'GENERATED'
+           and (certificates.status = 'FAILED' or certificates.reserved_at is null or certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
+       returning *`,
+      [conferenceId, submission.submission_id]
+    );
+    if (reservation.rows.length === 0) return "skipped";
+
+    const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
+    const usersResult = authorEmails.length
+      ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
+      : { rows: [] };
+    const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
+    const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
+
+    // The export URL Canva returns is only valid for 24 hours, so it's
+    // downloaded and re-uploaded to Cloudinary right away - that
+    // permanent URL is what actually gets stored and served.
+    const fileUrl = await generateCertificateAndUpload(
+      templateId,
+      {
+        [CANVA_CERTIFICATE_FIELDS.name]: combinedName,
+        [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
+        [CANVA_CERTIFICATE_FIELDS.paperTitle]: submission.title,
+      },
+      `${submission.submission_id}-certificate`
+    );
+
+    await pool.query(
+      `insert into certificates (conference_id, submission_id, status, file_url, error_message)
+       values ($1, $2, 'GENERATED', $3, null)
+       on conflict (submission_id) do update set status = excluded.status, file_url = excluded.file_url, error_message = null`,
+      [conferenceId, submission.submission_id, fileUrl]
+    );
+
+    // Notify the author only after the certificate is actually stored and
+    // downloadable, so the email never promises something that isn't
+    // there yet.
+    const authorName = await getUserDisplayName(submission.primary_author);
+    const paperId = formatPaperId(submission.paper_number);
+    const certificateType = submission.submission_status === "Poster Scored" ? "Poster Presentation Certificate" : "Paper Presentation Certificate";
+    await sendSubmissionLifecycleEmail(
+      submission.primary_author,
+      "certificate_available",
+      { authorName, conferenceName: conferenceTitle, title: submission.title, paperId, certificateType },
+      submission.co_authors
+    );
+    return "generated";
+  } catch (certErr) {
+    console.error(`Error generating certificate for submission ${submission.submission_id}:`, certErr);
+    const message = String(certErr?.message || certErr).slice(0, 500);
+    await pool.query(
+      `update certificates set status = 'FAILED', error_message = $1 where conference_id = $2 and submission_id = $3 and status = 'GENERATING'`,
+      [message, conferenceId, submission.submission_id]
+    ).catch((cleanupErr) => console.error("Failed to record certificate failure:", cleanupErr.message));
+    return "failed";
+  }
+}
+
 // One button drives four certificate categories, all gated on the matching
 // CANVA_TEMPLATE_IDS entry being configured (several start out empty until
 // their Brand Template exists in Canva - see the comment on
@@ -5609,93 +5705,12 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     );
 
     for (const submission of eligibleSubmissions.rows) {
-      const templateId = submission.submission_status === "Poster Scored" ? CANVA_TEMPLATE_IDS.poster : CANVA_TEMPLATE_IDS.paper;
-      if (!templateId) {
-        failures.push(`submission ${submission.submission_id} (no Brand Template configured for "${submission.submission_status}")`);
-        continue;
-      }
-      try {
-        // BL-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): atomic
-        // reservation, same pattern as generateAndEmailRoleCertificate -
-        // this INSERT only returns a row if no certificate exists yet for
-        // this submission, or the existing one isn't GENERATED and its
-        // reservation (if any) is stale. A concurrent second trigger of
-        // this whole batch route (double-click, retried request) loses
-        // this race per-submission and skips instead of re-running Canva/
-        // Cloudinary/email for the same recipients a second time.
-        const reservation = await pool.query(
-          `insert into certificates (conference_id, submission_id, status, reserved_at)
-           values ($1, $2, 'GENERATING', now())
-           on conflict (submission_id) do update
-             set status = 'GENERATING', reserved_at = now()
-             where certificates.status is distinct from 'GENERATED'
-               and (certificates.reserved_at is null or certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
-           returning *`,
-          [conferenceId, submission.submission_id]
-        );
-        if (reservation.rows.length === 0) continue;
-
-        const authorEmails = [submission.primary_author, ...(submission.co_authors || [])].filter(Boolean);
-        const usersResult = authorEmails.length
-          ? await pool.query("select email, name from users where email = ANY($1)", [authorEmails])
-          : { rows: [] };
-        const nameByEmail = Object.fromEntries(usersResult.rows.map((u) => [u.email, u.name]));
-        const combinedName = authorEmails.map((e) => nameByEmail[e] || e).join(", ");
-
-        // The export URL Canva returns is only valid for 24 hours, so it's
-        // downloaded and re-uploaded to Cloudinary right away - that
-        // permanent URL is what actually gets stored and served.
-        const fileUrl = await generateCertificateAndUpload(
-          templateId,
-          {
-            [CANVA_CERTIFICATE_FIELDS.name]: combinedName,
-            [CANVA_CERTIFICATE_FIELDS.conferenceTitle]: conferenceTitle,
-            [CANVA_CERTIFICATE_FIELDS.paperTitle]: submission.title,
-          },
-          `${submission.submission_id}-certificate`
-        );
-
-        // Upsert so a retry of a submission whose earlier attempt failed
-        // partway doesn't collide with migration 009's unique constraint.
-        await pool.query(
-          `insert into certificates (conference_id, submission_id, status, file_url)
-           values ($1, $2, 'GENERATED', $3)
-           on conflict (submission_id) do update set status = excluded.status, file_url = excluded.file_url`,
-          [conferenceId, submission.submission_id, fileUrl]
-        );
-        counts.authors++;
-
-        // Notify the author only after the certificate is actually stored
-        // and downloadable, so the email never promises something that
-        // isn't there yet.
-        const authorName = await getUserDisplayName(submission.primary_author);
-        const paperId = formatPaperId(submission.paper_number);
-        const certificateType = submission.submission_status === "Poster Scored" ? "Poster Presentation Certificate" : "Paper Presentation Certificate";
-        await sendSubmissionLifecycleEmail(
-          submission.primary_author,
-          "certificate_available",
-          {
-            authorName,
-            conferenceName: conferenceTitle,
-            title: submission.title,
-            paperId,
-            certificateType,
-          },
-          submission.co_authors
-        );
-      } catch (certErr) {
-        console.error(`Error generating certificate for submission ${submission.submission_id}:`, certErr);
-        failures.push(`submission ${submission.submission_id}`);
-        // Clean up the reservation on a graceful failure so no stuck
-        // 'GENERATING' row is left behind - see the matching comment in
-        // generateAndEmailRoleCertificate for the full reasoning (BL-01).
-        await pool.query(
-          `delete from certificates where conference_id = $1 and submission_id = $2 and status = 'GENERATING'`,
-          [conferenceId, submission.submission_id]
-        ).catch((cleanupErr) => console.error("Failed to clean up certificate reservation:", cleanupErr.message));
-        // Keep going - one submission's Canva/Cloudinary failure shouldn't
-        // block the rest of the batch.
-      }
+      const outcome = await generateAndEmailAuthorCertificate(conferenceId, conferenceTitle, submission);
+      if (outcome === "generated") counts.authors++;
+      if (outcome === "failed") failures.push(`submission ${submission.submission_id}`);
+      // Keep going - one submission's Canva/Cloudinary failure shouldn't
+      // block the rest of the batch (now visible on the Manage
+      // Certificates page instead of only in the server log).
     }
 
     // --- Reviewers and Session Chairs: one certificate per (Subject Area, person) ---
@@ -5764,11 +5779,101 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     if (counts.sessionChairs) parts.push(`${counts.sessionChairs} session chair(s)`);
     if (counts.invitedSpeakers) parts.push(`${counts.invitedSpeakers} invited speaker(s)`);
     const summary = parts.length ? parts.join(", ") : "0 recipients";
-    const failureNote = failures.length ? ` (${failures.length} failed - check the server log)` : "";
-    res.redirect(`/chair/dashboard?message=${encodeURIComponent(`Certificates generated for ${summary}${failureNote}.`)}`);
+    const failureNote = failures.length ? ` (${failures.length} failed - see the status column below for details)` : "";
+    res.redirect(`/chair/dashboard/manage-certificates/${conferenceId}?message=${encodeURIComponent(`Certificates generated for ${summary}${failureNote}.`)}`);
   } catch (err) {
     console.error("Error enabling PDF download:", err);
-    res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred: " + err.message));
+    res.redirect(`/chair/dashboard/manage-certificates/${conferenceId}?message=` + encodeURIComponent("An unexpected error occurred: " + err.message));
+  }
+});
+
+// Shows every eligible submission's author-certificate status (including
+// a human-readable failure reason, now that generateAndEmailAuthorCertificate
+// leaves a FAILED row behind instead of deleting it) alongside the bulk
+// "Enable PDF Download" trigger. Replaces that button's old home directly
+// on the chair dashboard.
+app.get("/chair/dashboard/manage-certificates/:id", checkChairAuth, async (req, res) => {
+  if (!(await chairOwnsConference(req.user.email, req.params.id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+
+  const conferenceId = req.params.id;
+  const conferenceResult = await pool.query("select * from conferences where conference_id = $1", [conferenceId]);
+  const conference = conferenceResult.rows[0];
+  if (!conference) {
+    return res.redirect("/chair/dashboard?message=Conference not found.");
+  }
+
+  const rowsResult = await pool.query(
+    `select s.submission_id, s.paper_number, s.title, s.submission_status, c.status as certificate_status, c.error_message
+     from submissions s
+     left join certificates c on c.submission_id = s.submission_id
+     where s.conference_id = $1 and s.submission_status in ('Poster Scored', 'Presentation Completed')
+     order by s.paper_number`,
+    [conferenceId]
+  );
+
+  const certificates = rowsResult.rows.map((r) => {
+    const statusLabel =
+      r.certificate_status === "GENERATED" ? "Generated" :
+      r.certificate_status === "GENERATING" ? "Generating…" :
+      r.certificate_status === "FAILED" ? `Failed: ${r.error_message || "Unknown error"}` :
+      "Not Yet Generated";
+    return {
+      submissionId: r.submission_id,
+      paperId: formatPaperId(r.paper_number) || "—",
+      title: r.title,
+      statusLabel,
+      canRegenerate: r.certificate_status === "FAILED",
+    };
+  });
+
+  res.render("chair/manage-certificates.ejs", {
+    user: req.user,
+    conference,
+    certificates,
+    message: req.query.message || null,
+  });
+});
+
+// Re-runs certificate generation (Canva + Cloudinary + the author email)
+// for exactly one submission - the "Regenerate" action next to a FAILED
+// row on the Manage Certificates page. Shares generateAndEmailAuthorCertificate
+// with the bulk route above, so a regenerated certificate is held to the
+// exact same reservation/idempotency guarantees.
+app.post("/chair/dashboard/regenerate-certificate/:id", checkChairAuth, conferenceOperationCooldown("regenerate-certificate", 10), async (req, res) => {
+  // Note: conferenceOperationCooldown keys its cooldown on req.params.id,
+  // which here is the submission_id (not a conference_id) - that's fine,
+  // it still rate-limits repeated regenerate clicks per chair account,
+  // just scoped per-submission rather than per-conference.
+  const submissionResult = await pool.query(
+    "select submission_id, conference_id, title, primary_author, co_authors, submission_status from submissions where submission_id = $1",
+    [req.params.id]
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission) {
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Submission not found."));
+  }
+  if (!(await chairOwnsConference(req.user.email, submission.conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+  if (!["Poster Scored", "Presentation Completed"].includes(submission.submission_status)) {
+    return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=` + encodeURIComponent("This submission is not yet eligible for a certificate."));
+  }
+
+  try {
+    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [submission.conference_id]);
+    const conferenceTitle = conferenceResult.rows[0]?.title || "";
+
+    const outcome = await generateAndEmailAuthorCertificate(submission.conference_id, conferenceTitle, submission);
+    const message =
+      outcome === "generated" ? "Certificate regenerated and emailed successfully." :
+      outcome === "skipped" ? "The certificate is already generated, or another attempt is already in progress." :
+      "Certificate generation failed again - see the status below for details.";
+    return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=${encodeURIComponent(message)}`);
+  } catch (err) {
+    console.error("Error regenerating certificate:", err);
+    return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=` + encodeURIComponent("An unexpected error occurred: " + err.message));
   }
 });
 

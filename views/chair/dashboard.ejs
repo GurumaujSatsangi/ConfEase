@@ -111,13 +111,11 @@
                 >Edit Conference </a>
 
               <br />
-              <form
-                method="POST"
-                action="/chair/dashboard/enable-pdf-download/<%= conference.conference_id %>"
-                class="d-inline"
-                >
-                <button type="submit" class="btn btn-secondary btn-uniform">Enable PDF Download</button>
-              </form>
+              <a
+                href="/chair/dashboard/manage-certificates/<%= conference.conference_id %>"
+                class="btn btn-secondary btn-uniform"
+                >Manage Certificates</a
+              >
 
               <br />
               <form

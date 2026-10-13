@@ -443,7 +443,7 @@ async function cleanupConference(conferenceId, trackId) {
   await pool.query("delete from conferences where conference_id = $1", [conferenceId]);
 }
 
-test("enable-pdf-download: with Canva not connected, every category (authors, reviewers, session chairs, invited speakers) fails gracefully with no partial writes", async () => {
+test("enable-pdf-download: with Canva not connected, every category (reviewers, session chairs, invited speakers) fails gracefully with no partial writes, and author certificates are left FAILED with a readable reason", async () => {
   const { conferenceId, trackId } = await seedFullConference();
   try {
     const res = await fetch(base + `/chair/dashboard/enable-pdf-download/${conferenceId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${certChairToken}` } });
@@ -452,11 +452,56 @@ test("enable-pdf-download: with Canva not connected, every category (authors, re
     assert.match(message, /0 recipients/);
     assert.match(message, /failed/);
 
-    const certRows = await pool.query("select count(*)::int as n from certificates where conference_id = $1", [conferenceId]);
-    assert.equal(certRows.rows[0].n, 0, "no author certificate rows should exist after an all-failed attempt");
+    // Manage Certificates (the new page this failure is now visible on,
+    // not just the server log) needs author certificate rows to persist
+    // and explain what went wrong - the old behavior silently deleted a
+    // failed reservation, leaving no trace at all.
+    const certRows = await pool.query("select status, error_message from certificates where conference_id = $1 order by submission_id", [conferenceId]);
+    assert.equal(certRows.rows.length, 2, "both eligible submissions must have a FAILED row left behind, not be silently deleted");
+    for (const row of certRows.rows) {
+      assert.equal(row.status, "FAILED");
+      assert.match(row.error_message, /Canva is not connected/, "the recorded reason must be the actual, readable error - not a generic failure string");
+    }
 
     const roleCertRows = await pool.query("select role, email from role_certificates where conference_id = $1 order by role, email", [conferenceId]);
     assert.deepEqual(roleCertRows.rows, [], "no role_certificates rows (reviewer/session_chair/invited_speaker) should exist after an all-failed attempt");
+  } finally {
+    await cleanupConference(conferenceId, trackId);
+  }
+});
+
+test("Manage Certificates page shows FAILED rows with their reason and a Regenerate button, and regenerating re-attempts (still failing while Canva is disconnected, but recording why)", async () => {
+  const { conferenceId, trackId, paperSubmissionId } = await seedFullConference();
+  try {
+    await fetch(base + `/chair/dashboard/enable-pdf-download/${conferenceId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${certChairToken}` } });
+
+    const pageHtml = await (await fetch(base + `/chair/dashboard/manage-certificates/${conferenceId}`, { headers: { Authorization: `Bearer ${certChairToken}` } })).text();
+    assert.match(pageHtml, /Failed: .*Canva is not connected/, "the page must show the actual failure reason, not just \"Failed\"");
+    assert.match(pageHtml, /Regenerate Certificate/, "a FAILED row must offer a way to retry it");
+
+    const regenRes = await fetch(base + `/chair/dashboard/regenerate-certificate/${paperSubmissionId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${certChairToken}` } });
+    assert.equal(regenRes.status, 302);
+    assert.match(decodeURIComponent(regenRes.headers.get("location")), /failed again/);
+
+    const row = await pool.query("select status, error_message from certificates where submission_id = $1", [paperSubmissionId]);
+    assert.equal(row.rows[0].status, "FAILED", "a FAILED row must be immediately reclaimable by Regenerate, not stuck waiting out the staleness window");
+    assert.match(row.rows[0].error_message, /Canva is not connected/);
+  } finally {
+    await cleanupConference(conferenceId, trackId);
+  }
+});
+
+test("a chair who does not own the conference cannot view its Manage Certificates page or regenerate its certificates", async () => {
+  const { conferenceId, trackId, paperSubmissionId } = await seedFullConference();
+  const outsiderToken = jwt.sign({ typ: "chair", email: "cert-outsider-chair@example.com", name: "Outsider", user_id: 9, role: "chair" }, secret, { expiresIn: "5m" });
+  try {
+    const pageRes = await fetch(base + `/chair/dashboard/manage-certificates/${conferenceId}`, { redirect: "manual", headers: { Authorization: `Bearer ${outsiderToken}` } });
+    assert.equal(pageRes.status, 302);
+    assert.match(decodeURIComponent(pageRes.headers.get("location")), /not authorized/);
+
+    const regenRes = await fetch(base + `/chair/dashboard/regenerate-certificate/${paperSubmissionId}`, { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${outsiderToken}` } });
+    assert.equal(regenRes.status, 302);
+    assert.match(decodeURIComponent(regenRes.headers.get("location")), /not authorized/);
   } finally {
     await cleanupConference(conferenceId, trackId);
   }

@@ -1,0 +1,12 @@
+-- Supports the new "Manage Certificates" page: a submission whose Canva
+-- generation or Cloudinary upload fails previously left no trace at all
+-- (the reservation row was deleted on failure - see BL-01 in
+-- COMPLETE_FINDINGS_REGISTER.md - so a retry could reclaim it, but a
+-- chair had no way to see that it had failed, or why, without reading the
+-- server log). The certificate row is now left in place with
+-- status = 'FAILED' and a human-readable reason here, and the atomic
+-- reservation's own staleness check (in api/index.js) is widened to treat
+-- any FAILED row as immediately reclaimable - a deliberate manual
+-- "Regenerate" click, unlike the stale-GENERATING case, doesn't need to
+-- wait out the interval meant to protect a genuinely in-flight attempt.
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS error_message text;
