@@ -126,6 +126,43 @@ function uploadBufferToCloudinary(buffer, options) {
   });
 }
 
+// FILE-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the paper itself
+// (submissions.file_url / final_camera_ready_submissions.file_url) is
+// uploaded with `type: "private"` (see the upload call sites below).
+// A plain, un-signed URL to a private asset is correctly rejected - but
+// verified directly against Cloudinary that the upload response's own
+// `secure_url` is NOT such a plain URL: Cloudinary embeds a (non-expiring)
+// signature in it automatically, so that stored value is itself a
+// permanently-working link and must NEVER be sent to a browser or API
+// response. The only value safe to expose is this function's own output:
+// a signed, time-limited download link via Cloudinary's download API
+// action (verified: a tampered or expired one is rejected with 401) -
+// signed locally with the account's api_secret, no network call and no
+// special account feature required - which the caller must only ever
+// call AFTER its own role/ownership check has already authorized this
+// specific viewer, the same as every other gated resource in this file.
+// Returns null (not the row's stored, never-to-be-rendered file_url) when
+// there's nothing to sign, so templates' existing `if (x.file_url)`
+// guards keep working unchanged.
+function getSignedPaperUrl(row, { expiresInSeconds = 600 } = {}) {
+  if (!row || !row.file_public_id) return null;
+  return cloudinary.utils.private_download_url(row.file_public_id, row.file_format || undefined, {
+    resource_type: row.file_resource_type || "image",
+    type: "private",
+    attachment: false,
+    expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+  });
+}
+
+// Applied to every submissions/final_camera_ready_submissions row handed
+// to a view, right before rendering - overwrites file_url with a fresh
+// signed link (or null) rather than the permanent one still stored on the
+// row itself.
+function withSignedPaperUrl(row) {
+  if (!row) return row;
+  return { ...row, file_url: getSignedPaperUrl(row) };
+}
+
 // Certificates use a different Canva Brand Template per submission status /
 // role (see /chair/dashboard/enable-pdf-download/:id and GET
 // /admin/canva/dataset). Some of these are deliberately empty until their
@@ -1914,7 +1951,7 @@ app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id=$1",[conference_id]);
   const submissions = await pool.query("select * from submissions where conference_id=$1 and submission_status=$2",[conference_id,"Submitted for Review"]);
 
-  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows});
+  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows.map(withSignedPaperUrl)});
 
 })
 
@@ -2178,7 +2215,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       scheduleText = buildScheduleText("Oral", t?.presentation_date, t?.presentation_start_time, t?.presentation_end_time);
     }
     return {
-      ...s,
+      ...withSignedPaperUrl(s),
       scheduleText,
       registration: registrationBySubmission[s.submission_id] || null,
       certificateGenerated: generatedCertificateSubmissionIds.has(s.submission_id),
@@ -2558,7 +2595,7 @@ async function buildLeaderboardAndFcrpByTrack(tracks, leaderboardSubs, fcrpSubs,
   const fcrpByTrack = {};
   for (const paper of fcrpSubs) {
     const entry = {
-      ...paper,
+      ...withSignedPaperUrl(paper),
       paperId: formatPaperId(paper.paper_number) || "—",
       primary_author_formatted: formatAuthor(paper.primary_author, userMap),
       co_authors_formatted: (paper.co_authors || []).map((email) => formatAuthor(email, userMap)).join(", "),
@@ -3089,6 +3126,9 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
       paper.co_authors_formatted = (paper.co_authors || [])
         .map(formatNameEmail)
         .join(", ");
+
+      // FILE-04: overwrite with a freshly-signed link - see getSignedPaperUrl.
+      paper.file_url = getSignedPaperUrl(paper);
     }
 
     // 5. Render
@@ -3325,7 +3365,7 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
     //
     res.render("reviewer/review", {
       user: req.user,
-      userSubmissions: submissionData,
+      userSubmissions: withSignedPaperUrl(submissionData),
       conferencedata: conferencedata || null,
       trackdata: trackdata || null,
       message: req.query.message || null,
@@ -3429,7 +3469,7 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
     //
     return res.render("reviewer/re-review", {
       user: req.user,
-      userSubmissions: submissionData,
+      userSubmissions: withSignedPaperUrl(submissionData),
       conferencedata,
       trackdata,
       message: req.query.message || null,
@@ -5152,12 +5192,12 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
     return res.redirect("/dashboard?message=Not every reviewer has submitted their review for this submission yet.");
   }
 
-  const submissionResult = await pool.query("select title, paper_number, file_url from submissions where submission_id = $1", [submission_id]);
+  const submissionResult = await pool.query("select title, paper_number, file_url, file_public_id, file_resource_type, file_format from submissions where submission_id = $1", [submission_id]);
   const peer_review = isRevised
     ? await pool.query("select * from revised_submissions where submission_id = $1", [submission_id])
     : await pool.query("select * from peer_review where submission_id = $1", [submission_id]);
 
-  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised, submission: submissionResult.rows[0]});
+  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised, submission: withSignedPaperUrl(submissionResult.rows[0])});
 
 })
 
@@ -6350,9 +6390,9 @@ app.get("/submission/edit/primary-author/:id", checkAuth, async (req, res) => {
     })));
 
     // 5. Render page
-    res.render("submission3.ejs", { 
-      user: req.user, 
-      submission,
+    res.render("submission3.ejs", {
+      user: req.user,
+      submission: withSignedPaperUrl(submission),
       tracks,
       message: req.query.message || null,
     });
@@ -6834,8 +6874,12 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       if (!isAllowedDocument(req.file)) {
         return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
       }
+      // FILE-04: type:"private" - this is the camera-ready paper/poster,
+      // same sensitivity as the original manuscript, visible only through
+      // a signed URL generated on demand (getSignedPaperUrl).
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
+        type: "private",
         folder: "submissions",
         public_id: `${sanitizeCloudinaryIdSegment(req.user.user_id)}-${Date.now()}-Final`,
       });
@@ -6843,8 +6887,8 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       // 3. Insert into final_camera_ready_submissions
       await pool.query(
         `INSERT INTO final_camera_ready_submissions
-         (conference_id, submission_id, primary_author, title, abstract, track_id, co_authors, file_url)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8);`,
+         (conference_id, submission_id, primary_author, title, abstract, track_id, co_authors, file_url, file_public_id, file_resource_type, file_format)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
         [
           confid,
           id,
@@ -6853,7 +6897,10 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
           abstract,
           areas,
           co_authors,
-          uploadResult.secure_url
+          uploadResult.secure_url,
+          uploadResult.public_id,
+          uploadResult.resource_type,
+          uploadResult.format
         ]
       );
 
@@ -6876,9 +6923,9 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       // 5. Update submission record
       await pool.query(
         `UPDATE submissions
-         SET submission_status = $1, file_url = $2
-         WHERE submission_id = $3;`,
-        [newStatus, uploadResult.secure_url, id]
+         SET submission_status = $1, file_url = $2, file_public_id = $3, file_resource_type = $4, file_format = $5
+         WHERE submission_id = $6;`,
+        [newStatus, uploadResult.secure_url, uploadResult.public_id, uploadResult.resource_type, uploadResult.format, id]
       );
 
       await invalidateConferenceSubmissionCache(
@@ -7211,7 +7258,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
 
     res.render("chair/view-submissions.ejs", {
       user: req.user,
-      submissions: submissionsWithTracks,
+      submissions: submissionsWithTracks.map(withSignedPaperUrl),
       tracks,
       uniqueStatuses,
       conferencedata: req.params.id,
@@ -7530,26 +7577,20 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         if (!isAllowedDocument(req.file)) {
           return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
         }
+        // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
+          type: "private",
           folder: "revised_submissions",
           public_id: `${sanitizeCloudinaryIdSegment(req.user.name)}-${submission_id}-${Date.now()}`,
         });
-
-        // //
-        // // 4. Update revised_submissions file_url
-        // //
-        // await pool.query(
-        //   `UPDATE revised_submissions SET file_url = $1 WHERE submission_id = $2`,
-        //   [uploadResult.secure_url, submission_id]
-        // );
 
         //
         // 5. Update submissions status + file_url
         //
         await pool.query(
-          `UPDATE submissions SET submission_status = 'Submitted Revised Paper', file_url = $1 WHERE submission_id = $2`,
-          [uploadResult.secure_url, submission_id]
+          `UPDATE submissions SET submission_status = 'Submitted Revised Paper', file_url = $1, file_public_id = $2, file_resource_type = $3, file_format = $4 WHERE submission_id = $5`,
+          [uploadResult.secure_url, uploadResult.public_id, uploadResult.resource_type, uploadResult.format, submission_id]
         );
 
         await invalidateConferenceSubmissionCache(
@@ -7634,14 +7675,22 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         if (!isAllowedDocument(req.file)) {
           return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
         }
+        // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
           resource_type: "auto",
+          type: "private",
           folder: "submissions",
           public_id: `${sanitizeCloudinaryIdSegment(req.user.user_id)}-${Date.now()}`,
         });
 
         updateFields.push(`file_url = $${index++}`);
         updateValues.push(uploadResult.secure_url);
+        updateFields.push(`file_public_id = $${index++}`);
+        updateValues.push(uploadResult.public_id);
+        updateFields.push(`file_resource_type = $${index++}`);
+        updateValues.push(uploadResult.resource_type);
+        updateFields.push(`file_format = $${index++}`);
+        updateValues.push(uploadResult.format);
       }
 
       // Add WHERE clause argument
@@ -7789,8 +7838,10 @@ app.post("/submit", checkAuth, async (req, res) => {
       if (!isAllowedDocument(req.file)) {
         return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
       }
+      // FILE-04: type:"private" - see getSignedPaperUrl.
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
+        type: "private",
         folder: "submissions",
         public_id: `${sanitizeCloudinaryIdSegment((req.user && (req.user.user_id || req.user.email)) || "user")}-${Date.now()}`,
       });
@@ -7823,8 +7874,8 @@ app.post("/submit", checkAuth, async (req, res) => {
       try {
       submission_result = await pool.query(
         `INSERT INTO submissions
-         (conference_id, primary_author, title, abstract, track_id, file_url, paper_code, paper_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;`,
+         (conference_id, primary_author, title, abstract, track_id, file_url, file_public_id, file_resource_type, file_format, paper_code, paper_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
         [
           id,
           req.user.email,
@@ -7832,6 +7883,9 @@ app.post("/submit", checkAuth, async (req, res) => {
           abstract,
           areas,
           uploadResult.secure_url,
+          uploadResult.public_id,
+          uploadResult.resource_type,
+          uploadResult.format,
           paperCode,
           paperNumber
         ]

@@ -64,9 +64,15 @@ async function makeTrack(conferenceId, overrides = {}) {
 }
 
 async function makeSubmission(conferenceId, trackId, status) {
+  // FILE-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the paper's
+  // file link shown in any view is now a freshly-signed Cloudinary
+  // download URL (getSignedPaperUrl, api/index.js), generated from
+  // file_public_id/file_resource_type/file_format - not the stored
+  // file_url itself, which is never rendered directly. A row needs a
+  // file_public_id for a link to appear at all.
   const sub = await pool.query(
-    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, track_id, file_url) values ($1,$2,$3,$4,$5,$6,$7) returning submission_id",
-    [conferenceId, "rw-test-author@example.com", "RW Test Submission", "RW" + crypto.randomBytes(3).toString("hex"), status, trackId, "https://example.com/rw-test-paper.pdf"]
+    "insert into submissions (conference_id, primary_author, title, paper_code, submission_status, track_id, file_url, file_public_id, file_resource_type, file_format) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning submission_id",
+    [conferenceId, "rw-test-author@example.com", "RW Test Submission", "RW" + crypto.randomBytes(3).toString("hex"), status, trackId, "https://example.com/rw-test-paper.pdf", "rw-test-papers/rw-test-" + crypto.randomBytes(3).toString("hex"), "image", "pdf"]
   );
   submissionIds.push(sub.rows[0].submission_id);
   return sub.rows[0].submission_id;
@@ -285,10 +291,16 @@ test("Meta-Reviewer dashboard/form/decision are all gated on EVERY assigned revi
 
   const formHtml2 = await (await get(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`, metaToken)).text();
   assert.ok(formHtml2.includes(reviewerEmail) && formHtml2.includes(secondReviewerEmail), "both reviewers must be shown");
-  // Paper ID and a link to the paper must be shown on the form.
-  const paperRow = await pool.query("select paper_number, file_url from submissions where submission_id = $1", [submissionId]);
+  // Paper ID and a link to the paper must be shown on the form. The link
+  // is a freshly-signed Cloudinary download URL, not the stored file_url
+  // itself (FILE-04) - assert on the signed download API's own URL shape
+  // and the asset's public_id, which it must always contain.
+  const paperRow = await pool.query("select paper_number, file_public_id from submissions where submission_id = $1", [submissionId]);
   assert.ok(formHtml2.includes(String(paperRow.rows[0].paper_number)), "the Paper ID must be shown on the recommendation form");
-  assert.ok(formHtml2.includes(paperRow.rows[0].file_url), "a link to the paper file must be shown on the recommendation form");
+  assert.ok(
+    formHtml2.includes("/image/download") && formHtml2.includes(encodeURIComponent(paperRow.rows[0].file_public_id)),
+    "a signed download link for the paper file must be shown on the recommendation form"
+  );
 });
 
 test("a chair who is neither the creator nor (the now-removed) a co-chair cannot manage someone else's conference", async () => {
