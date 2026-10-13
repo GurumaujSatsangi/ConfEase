@@ -18,7 +18,14 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appEntry = path.join(__dirname, "..", "api", "index.js");
 
-function runWithEnv(envOverrides, timeoutMs = 5000) {
+// A cold standalone spawn of api/index.js exits in ~1.2s. The default here
+// is far more generous than that because this file runs concurrently with
+// every other test file's own child process/DB connections during a full
+// `npm test` run, and under that load a fresh process can take noticeably
+// longer just to reach the validateRequiredEnv() check - this must stay
+// well above worst-case contention, not just the typical case, since a
+// false failure here looks identical to a real regression.
+function runWithEnv(envOverrides, timeoutMs = 15000) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [appEntry], {
       env: { ...process.env, ...envOverrides },
