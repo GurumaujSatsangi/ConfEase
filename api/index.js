@@ -1674,7 +1674,7 @@ async function allReviewersSubmitted(submissionId, { revised }) {
   const result = await pool.query(
     `select not exists (
        select 1 from unnest(t.track_reviewers) as required(email)
-       where not exists (select 1 from ${table} r where r.submission_id = s.submission_id::text and lower(r.reviewer) = lower(required.email))
+       where not exists (select 1 from ${table} r where r.submission_id = s.submission_id and lower(r.reviewer) = lower(required.email))
      ) as complete
      from submissions s
      join conference_tracks t on t.track_id = s.track_id
@@ -5192,12 +5192,12 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
            select s.submission_id, s.title, s.paper_number, count(pr.id)::int as review_count, 'First Review' as round
            from submissions s
            join conference_tracks t on t.track_id = s.track_id
-           join peer_review pr on pr.submission_id = s.submission_id::text
+           join peer_review pr on pr.submission_id = s.submission_id
            where s.track_id = ANY($1::uuid[]) and s.submission_status = 'DESK ACCEPT'
              and not exists (select 1 from meta_reviewer_decision d where d.submission_id = pr.submission_id)
              and not exists (
                select 1 from unnest(t.track_reviewers) as required(email)
-               where not exists (select 1 from peer_review pr2 where pr2.submission_id = s.submission_id::text and lower(pr2.reviewer) = lower(required.email))
+               where not exists (select 1 from peer_review pr2 where pr2.submission_id = s.submission_id and lower(pr2.reviewer) = lower(required.email))
              )
            group by s.submission_id, s.title, s.paper_number
 
@@ -5206,12 +5206,12 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
            select s.submission_id, s.title, s.paper_number, count(*)::int as review_count, 'Re-Review' as round
            from submissions s
            join conference_tracks t on t.track_id = s.track_id
-           join revised_submissions rs on rs.submission_id = s.submission_id::text
+           join revised_submissions rs on rs.submission_id = s.submission_id
            where s.track_id = ANY($1::uuid[]) and s.submission_status = 'Submitted Revised Paper'
              and not exists (select 1 from meta_reviewer_decision d where d.submission_id = rs.submission_id)
              and not exists (
                select 1 from unnest(t.track_reviewers) as required(email)
-               where not exists (select 1 from revised_submissions rs2 where rs2.submission_id = s.submission_id::text and lower(rs2.reviewer) = lower(required.email))
+               where not exists (select 1 from revised_submissions rs2 where rs2.submission_id = s.submission_id and lower(rs2.reviewer) = lower(required.email))
              )
            group by s.submission_id, s.title, s.paper_number
          ) combined
@@ -5645,7 +5645,7 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     const eligibleSubmissions = await pool.query(
       `select s.submission_id, s.title, s.paper_number, s.primary_author, s.co_authors, s.submission_status
        from submissions s
-       left join certificates c on c.submission_id = s.submission_id::text
+       left join certificates c on c.submission_id = s.submission_id
        where s.conference_id = $1
          and s.submission_status in ('Poster Scored', 'Presentation Completed')
          and (c.submission_id is null or c.status is distinct from 'GENERATED' or c.file_url is null)`,
@@ -7383,7 +7383,7 @@ async function loadRegistrationsDashboardData(conferenceId) {
     `select s.submission_id, s.title, s.primary_author, s.co_authors, s.paper_number, s.submission_status,
             r.mode_of_presentation, r.link_to_video, r.attending_offline
      from submissions s
-     left join registration r on r.submission_id = s.submission_id::text
+     left join registration r on r.submission_id = s.submission_id
      where s.conference_id = $1 and s.submission_status = ANY($2)
      order by s.paper_number`,
     [conferenceId, FCRP_LINEAGE_STATUSES]

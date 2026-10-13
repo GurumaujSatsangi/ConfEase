@@ -16,7 +16,7 @@
 // with genuinely concurrent requests (Promise.all) is a direct, reliable
 // verification of the fix with no external-service mocking needed.
 
-import { test, after } from "node:test";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
@@ -51,17 +51,30 @@ const reserveAuthorCertificate = (conferenceId, submissionId) =>
 let conferenceId;
 let submissionId;
 
+// DB-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md) gave
+// role_certificates.conference_id and certificates.conference_id/
+// submission_id real foreign keys, so these can no longer be arbitrary
+// placeholder strings - they must reference rows that actually exist.
+before(async () => {
+  const conf = await pool.query(
+    "insert into conferences (title, created_by) values ($1,$2) returning conference_id",
+    ["BL01_TEST_" + crypto.randomBytes(3).toString("hex"), "bl01-test-chair@example.com"]
+  );
+  conferenceId = conf.rows[0].conference_id;
+});
+
 after(async () => {
   if (conferenceId) {
     await pool.query("delete from role_certificates where conference_id = $1", [conferenceId]);
     await pool.query("delete from certificates where conference_id = $1", [conferenceId]);
+    await pool.query("delete from submissions where conference_id = $1", [conferenceId]);
+    await pool.query("delete from conferences where conference_id = $1", [conferenceId]);
   }
   await pool.end();
   setImmediate(() => process.exit(0));
 });
 
 test("two concurrent reservation attempts for the same role certificate: only one wins", async () => {
-  conferenceId = "BL01_TEST_" + crypto.randomBytes(3).toString("hex");
   const email = "bl01-reviewer@example.com";
   const contextId = crypto.randomUUID();
 
@@ -124,7 +137,11 @@ test("a stale (crashed) reservation can be reclaimed, but a fresh one cannot", a
 });
 
 test("author-certificate reservation (certificates table) follows the same race-safe pattern", async () => {
-  submissionId = crypto.randomUUID();
+  const sub = await pool.query(
+    "insert into submissions (conference_id, primary_author, title, paper_code, paper_number, submission_status) values ($1,$2,'BL01 Test Paper','BL01A',701,'Poster Scored') returning submission_id",
+    [conferenceId, "bl01-test-author@example.com"]
+  );
+  submissionId = sub.rows[0].submission_id;
 
   const [a, b] = await Promise.all([
     reserveAuthorCertificate(conferenceId, submissionId),

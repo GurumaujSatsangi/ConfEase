@@ -72,7 +72,7 @@ before(async () => {
 
 after(async () => {
   if (ownerConferenceId) {
-    await pool.query("delete from desk_review where paper_id in (select submission_id::text from submissions where conference_id = $1)", [ownerConferenceId]);
+    await pool.query("delete from desk_review where paper_id in (select submission_id from submissions where conference_id = $1)", [ownerConferenceId]);
     await pool.query("delete from submissions where conference_id = $1", [ownerConferenceId]);
     await pool.query("delete from conference_tracks where conference_id = $1", [ownerConferenceId]);
     await pool.query("delete from conferences where conference_id = $1", [ownerConferenceId]);
