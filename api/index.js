@@ -2223,7 +2223,21 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   });
 
   const invited_talk_submissions = await pool.query("select * from invited_talk_submissions where invitee_email=$1 and conference_id = $2",[req.user.email,req.params.id]);
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user})
+
+  // The "Submit Invited Talk Paper" section used to be shown based only on
+  // the "invitee" role baked into the user's JWT at login/token-refresh
+  // time - a stale credential, not a live check: if that role no longer
+  // matches a real row in invitees (the role claim predates the invitee
+  // being removed, or the two ever fell out of sync), the button kept
+  // showing with nothing real behind it. invitees is the authoritative
+  // source for this conference, so check it directly instead of trusting
+  // the token's cached role.
+  const isInvitee = (await pool.query(
+    "select 1 from invitees where conference_id = $1 and lower(email) = lower($2) limit 1",
+    [req.params.id, req.user.email]
+  )).rows.length > 0;
+
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user, isInvitee})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
