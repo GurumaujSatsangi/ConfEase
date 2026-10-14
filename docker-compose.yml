@@ -1,0 +1,78 @@
+# Runs the whole ConfEase stack - app, database, and cache - with one
+# command: `docker compose up -d`. This is the standard way to hand
+# someone a complete, runnable bundle: three independent containers,
+# each with its own image and lifecycle, wired together here - not one
+# merged image. See db/Dockerfile for why the database specifically must
+# never be baked into the app's own image.
+#
+# Setup:
+#   1. cp .env.example .env
+#   2. Fill in .env (DB_USER/DB_PASSWORD/DB_NAME are read by BOTH the app
+#      and the db service below, via the ${...} substitutions - set them
+#      once, used in both places).
+#   3. docker compose up -d
+#   4. docker compose logs -f app   # watch it come up
+#
+# The app image is pulled from Docker Hub by default. To build it from
+# this source tree instead, replace `image:` with `build: .` under app.
+
+services:
+  db:
+    build: ./db
+    # To use the pre-built image instead of building locally, replace the
+    # line above with: image: gurumaujsatsangi/confease-db:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      # Named volume, independent of both the db image and the app
+      # container - this is what actually survives an app redeploy, a
+      # database image upgrade, or a full `docker compose down` (everything
+      # short of `down -v`, which deliberately asks to discard it too).
+      - confease_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No volume: Redis here is a cache and session store, not a database -
+    # the app already runs correctly without it (see api/index.js's own
+    # `if (redisClient)` guards throughout) and degrades gracefully if it's
+    # ever unavailable, so losing its contents on a restart is an accepted,
+    # deliberate tradeoff, not an oversight.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: gurumaujsatsangi/confease:latest
+    # build: .   # uncomment to build from this source tree instead
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override just the connection host/port: inside this compose
+      # network the database and cache are reached by service name, not
+      # by whatever host/port .env has for a non-Docker setup.
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  confease_pgdata:
