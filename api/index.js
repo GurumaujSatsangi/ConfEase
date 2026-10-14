@@ -569,6 +569,17 @@ if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PO
     socket: {
       host: process.env.REDIS_HOST,
       port: process.env.REDIS_PORT,
+      // REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): bounded,
+      // explicit reconnection instead of relying on the client library's
+      // own default - capped exponential backoff (max 3s between
+      // attempts), and gives up for good after 10 attempts rather than
+      // retrying forever. Every call site already guards with
+      // `if (redisClient)` and its own try/catch (rate limiting, caching,
+      // cooldowns all fall back to safe defaults), so once reconnection is
+      // exhausted the app keeps running in that already-established
+      // degraded mode rather than hammering a Redis that may be gone for
+      // good.
+      reconnectStrategy: (retries) => (retries > 10 ? false : Math.min(retries * 300, 3000)),
     },
   });
 

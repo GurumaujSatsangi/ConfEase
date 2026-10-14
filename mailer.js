@@ -1,16 +1,45 @@
 // mailer.js
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { retryWithBackoff } from "./retry.js";
 
 dotenv.config();
 
+// REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): previously a
+// brand-new SMTP connection was opened for every single email, with no
+// cap on how many could be opened at once and no self-imposed send rate -
+// a burst of emails (e.g. a chair's bulk "Enable PDF Download" emailing
+// every author at once) could open many simultaneous connections to
+// Gmail, and Gmail can throttle or temporarily flag an account for that
+// pattern independently of its daily sending cap. `pool: true` reuses a
+// small set of connections instead of one per message; `rateLimit` caps
+// how fast this app will ever send, client-side, so it can't flood Gmail
+// in the first place.
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 100,
+  rateDelta: 1000,
+  rateLimit: 5, // at most 5 messages per rateDelta (1s) window
 });
+
+// Transient SMTP/network failures (a dropped connection, a temporary "try
+// again" response) are safe to retry - the message was never accepted by
+// the server. A permanent rejection (bad recipient, auth failure, content
+// rejected) is not: retrying it wastes time and repeats the same failure.
+// nodemailer surfaces the SMTP reply code as responseCode when the server
+// sent one; a 4xx is temporary, a 5xx is permanent (RFC 5321).
+function isRetryableSmtpError(err) {
+  const retryableCodes = new Set(["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "ESOCKET", "EDNS", "EAI_AGAIN", "ECONNECTION"]);
+  if (retryableCodes.has(err?.code)) return true;
+  if (typeof err?.responseCode === "number") return err.responseCode >= 400 && err.responseCode < 500;
+  return false;
+}
 
 // Standard footer shared by every email
 const FOOTER_HTML =
@@ -91,5 +120,12 @@ export async function sendMail(to, subject, text, html, cc = null) {
     return { messageId: "skipped-in-test@localhost", accepted: [to], rejected: [] };
   }
 
-  return transporter.sendMail(mailOptions);
+  return retryWithBackoff(() => transporter.sendMail(mailOptions), {
+    retries: 2,
+    baseDelayMs: 500,
+    isRetryable: isRetryableSmtpError,
+    onRetry: (err, attempt) => console.warn(`sendMail retry ${attempt}/2 to ${to} after transient error: ${err.message}`),
+  });
 }
+
+export { isRetryableSmtpError };
