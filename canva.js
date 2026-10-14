@@ -15,6 +15,7 @@
 
 import crypto from "crypto";
 import pool from "./config/db.js";
+import { retryWithBackoff } from "./retry.js";
 
 const CANVA_API_BASE = "https://api.canva.com/rest/v1";
 const CANVA_AUTHORIZE_URL = "https://www.canva.com/api/oauth/authorize";
@@ -125,21 +126,58 @@ export async function getValidAccessToken() {
   return refreshed.access_token;
 }
 
+// A 429's Retry-After header is either a whole number of seconds, or an
+// HTTP-date - RFC 9110 allows both. Returns null when absent or unparsable,
+// so the caller falls back to its own exponential schedule.
+function parseRetryAfterMs(headerValue) {
+  if (!headerValue) return null;
+  const asSeconds = Number(headerValue);
+  if (Number.isFinite(asSeconds)) return Math.max(0, asSeconds * 1000);
+  const asDate = Date.parse(headerValue);
+  if (!Number.isNaN(asDate)) return Math.max(0, asDate - Date.now());
+  return null;
+}
+
+// Canva's own usage policy (canva.dev) requires integrators to implement
+// exponential backoff on 429s rather than treating them as a hard failure -
+// bulk certificate generation can easily make enough autofill/export calls
+// in a short window to hit a per-minute limit. Retried up to 6 times,
+// honoring Retry-After when Canva sends one, otherwise backing off
+// exponentially capped at 60s (generous on purpose: a per-minute rate
+// limit can require waiting out most of a minute before it clears, and the
+// goal here is "every certificate eventually generates successfully," not
+// "fail fast"). A genuine 4xx that isn't 429 (bad request, template not
+// found, etc.) is never retried - retrying it would just fail identically
+// every time.
 async function canvaApiRequest(path, { method = "GET", body } = {}) {
-  const token = await getValidAccessToken();
-  const res = await fetch(`${CANVA_API_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
+  return retryWithBackoff(
+    async () => {
+      const token = await getValidAccessToken();
+      const res = await fetch(`${CANVA_API_BASE}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(`Canva API ${method} ${path} failed (${res.status}): ${JSON.stringify(data)}`);
+        err.status = res.status;
+        err.retryAfterMs = res.status === 429 ? parseRetryAfterMs(res.headers?.get?.("retry-after")) : null;
+        throw err;
+      }
+      return data;
     },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Canva API ${method} ${path} failed (${res.status}): ${JSON.stringify(data)}`);
-  }
-  return data;
+    {
+      retries: 6,
+      baseDelayMs: 1000,
+      isRetryable: (err) => err.status === 429 || (err.status >= 500 && err.status < 600),
+      getDelayMs: (err, attempt, baseDelayMs) => err.retryAfterMs ?? Math.min(baseDelayMs * 2 ** (attempt - 1), 60_000),
+      onRetry: (err, attempt) => console.warn(`Canva API retry ${attempt}/6 for ${method} ${path} after HTTP ${err.status}`),
+    }
+  );
 }
 
 // For diagnostics (see GET /admin/canva/dataset) - lists a brand template's

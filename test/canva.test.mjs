@@ -83,7 +83,12 @@ async function withStubbedFetch(responses, fn) {
     calls.push({ url: String(url), opts });
     const next = queue.shift();
     if (!next) throw new Error("No stubbed response queued for call to " + url);
-    return { ok: next.ok !== false, status: next.status || (next.ok === false ? 400 : 200), json: async () => next.body };
+    return {
+      ok: next.ok !== false,
+      status: next.status || (next.ok === false ? 400 : 200),
+      json: async () => next.body,
+      headers: { get: (name) => next.headers?.[name.toLowerCase()] ?? null },
+    };
   };
   try {
     return { result: await fn(), calls };
@@ -222,6 +227,41 @@ test("generateCertificatePdfUrl: a failed autofill job throws with Canva's error
       ).then((r) => r.result),
     /autofill_error/
   );
+});
+
+test("canvaApiRequest: retries a 429 (honoring Retry-After) and succeeds once Canva recovers", async () => {
+  await canva.saveConnection({ access_token: "AT1", refresh_token: "RT1", expires_in: 14400 }, adminEmail);
+
+  const { result, calls } = await withStubbedFetch(
+    [
+      { ok: false, status: 429, headers: { "retry-after": "0" }, body: { code: "too_many_requests" } },
+      { body: { dataset: { Name: { type: "text" } } } },
+    ],
+    () => canva.getBrandTemplateDataset("SOME_TEMPLATE_ID")
+  );
+
+  assert.deepEqual(result, { Name: { type: "text" } });
+  assert.equal(calls.length, 2, "must have retried exactly once after the 429 before succeeding");
+});
+
+test("canvaApiRequest: gives up after exhausting its retry budget against a persistent 429", async () => {
+  await canva.saveConnection({ access_token: "AT1", refresh_token: "RT1", expires_in: 14400 }, adminEmail);
+  const responses = Array.from({ length: 7 }, () => ({ ok: false, status: 429, headers: { "retry-after": "0" }, body: { code: "too_many_requests" } }));
+
+  await assert.rejects(
+    () => withStubbedFetch(responses, () => canva.getBrandTemplateDataset("SOME_TEMPLATE_ID")).then((r) => r.result),
+    /failed \(429\)/
+  );
+});
+
+test("canvaApiRequest: does not retry a non-429/5xx error (e.g. a genuine 400) - it would just fail identically again", async () => {
+  await canva.saveConnection({ access_token: "AT1", refresh_token: "RT1", expires_in: 14400 }, adminEmail);
+  const { result: thrown, calls } = await withStubbedFetch(
+    [{ ok: false, status: 400, body: { code: "bad_request", message: "invalid template id" } }],
+    () => canva.getBrandTemplateDataset("BAD_TEMPLATE_ID").catch((err) => err)
+  );
+  assert.match(thrown.message, /failed \(400\)/);
+  assert.equal(calls.length, 1, "a genuine 4xx (not 429) must fail on the first attempt, not be retried");
 });
 
 // --- /admin/canva/* routes (real app, real DB, real session, no Canva network) ---

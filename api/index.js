@@ -6,6 +6,7 @@ import passport from "passport";
 import { RedisStore } from "connect-redis";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
+import { sleep } from "../retry.js";
 import passwordValidator from 'password-validator';
 import generator from 'generate-password';
 import jwt from "jsonwebtoken";
@@ -110,6 +111,15 @@ const upload = multer({
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB limit to match UI hint and handling
   fileFilter: rejectDisallowedFileExtension,
 });
+
+// Small deliberate pause between one bulk certificate generation and the
+// next (see the enable-pdf-download route below) - each one is ~4+ Canva
+// API calls, and Canva's published usage policy enforces a per-minute rate
+// limit per user. This spreads a large batch's call volume out over time
+// so it's less likely to approach that limit at all; canvaApiRequest's own
+// retry-with-backoff (canva.js) is what actually guarantees recovery on
+// the rare occasion it's hit anyway.
+const CERTIFICATE_BATCH_PACING_MS = 400;
 
 function uploadBufferToCloudinary(buffer, options) {
   return new Promise((resolve, reject) => {
@@ -5722,6 +5732,7 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
       // Keep going - one submission's Canva/Cloudinary failure shouldn't
       // block the rest of the batch (now visible on the Manage
       // Certificates page instead of only in the server log).
+      if (outcome !== "skipped") await sleep(CERTIFICATE_BATCH_PACING_MS);
     }
 
     // --- Reviewers and Session Chairs: one certificate per (Subject Area, person) ---
@@ -5742,6 +5753,7 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
             });
             if (outcome === "generated") counts.reviewers++;
             if (outcome === "failed") failures.push(`reviewer ${email}`);
+            if (outcome !== "skipped") await sleep(CERTIFICATE_BATCH_PACING_MS);
           }
         }
         if (CANVA_TEMPLATE_IDS.session_chair) {
@@ -5757,6 +5769,7 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
             });
             if (outcome === "generated") counts.sessionChairs++;
             if (outcome === "failed") failures.push(`session chair ${email}`);
+            if (outcome !== "skipped") await sleep(CERTIFICATE_BATCH_PACING_MS);
           }
         }
       }
@@ -5781,6 +5794,7 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
         });
         if (outcome === "generated") counts.invitedSpeakers++;
         if (outcome === "failed") failures.push(`invited speaker ${talk.invitee_email}`);
+        if (outcome !== "skipped") await sleep(CERTIFICATE_BATCH_PACING_MS);
       }
     }
 
