@@ -1,16 +1,20 @@
 // Regression tests for REL-04 (security-audit/PRODUCTION_RELIABILITY.md,
-// "R4" - DB/Redis/SMTP transient-failure handling): a shared bounded
+// "R4" - DB/Redis/email transient-failure handling): a shared bounded
 // retry-with-backoff helper (retry.js), applied to read-only DB queries
-// (config/db.js) and SMTP sends (mailer.js). None of these touch a real
-// network - retry.js is pure, the DB test uses a disposable fake pool
+// (config/db.js) and Resend email sends (mailer.js). None of these touch a
+// real network - retry.js is pure, the DB test uses a disposable fake pool
 // object (not the real exported singleton), and the mailer classifier is
-// tested as a plain function against fabricated error shapes.
+// tested as a plain function against fabricated error shapes. Importing
+// mailer.js here (even indirectly, via this test) never constructs a real
+// Resend client or needs RESEND_API_KEY set - mailer.js builds that client
+// lazily, only inside sendMail(), specifically so importing the module
+// can't crash a test file that never calls sendMail() at all.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { retryWithBackoff } from "../retry.js";
 import { isRetryableConnectionError, isSelectOnly, wrapPoolQueryWithRetry } from "../config/db.js";
-import { isRetryableSmtpError } from "../mailer.js";
+import { isRetryableResendError } from "../mailer.js";
 
 test("retryWithBackoff: succeeds without retrying when the first attempt works", async () => {
   let calls = 0;
@@ -134,14 +138,15 @@ test("wrapPoolQueryWithRetry: never retries a SELECT that fails with a real (non
   assert.equal(calls, 1, "a genuine query error must surface immediately, not be mistaken for a transient connection failure");
 });
 
-// --- mailer.js: SMTP failure classification -----------------------------
+// --- mailer.js: Resend failure classification ---------------------------
 
-test("isRetryableSmtpError: network-level errors and 4xx SMTP replies are retryable; 5xx and unknown errors are not", () => {
-  assert.equal(isRetryableSmtpError({ code: "ETIMEDOUT" }), true);
-  assert.equal(isRetryableSmtpError({ code: "ECONNRESET" }), true);
-  assert.equal(isRetryableSmtpError({ responseCode: 421 }), true, "421 'service not available, try again later'");
-  assert.equal(isRetryableSmtpError({ responseCode: 452 }), true, "452 'insufficient storage, try again'");
-  assert.equal(isRetryableSmtpError({ responseCode: 550 }), false, "550 'mailbox unavailable' is permanent");
-  assert.equal(isRetryableSmtpError({ responseCode: 535 }), false, "535 auth failure is permanent");
-  assert.equal(isRetryableSmtpError({ message: "some unrelated error" }), false);
+test("isRetryableResendError: rate limits, 5xx, and network-level errors are retryable; everything else is not", () => {
+  assert.equal(isRetryableResendError({ name: "rate_limit_exceeded" }), true);
+  assert.equal(isRetryableResendError({ name: "internal_server_error", statusCode: 500 }), true);
+  assert.equal(isRetryableResendError({ code: "ETIMEDOUT" }), true);
+  assert.equal(isRetryableResendError({ code: "ECONNRESET" }), true);
+  assert.equal(isRetryableResendError({ name: "invalid_api_key", statusCode: 401 }), false, "a config problem must never be retried - it will fail identically every time");
+  assert.equal(isRetryableResendError({ name: "invalid_from_address", statusCode: 422 }), false);
+  assert.equal(isRetryableResendError({ name: "daily_quota_exceeded", statusCode: 429 }), false, "a quota (not a rate limit) exhaustion won't clear by retrying moments later");
+  assert.equal(isRetryableResendError({ message: "some unrelated error" }), false);
 });

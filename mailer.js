@@ -1,44 +1,51 @@
 // mailer.js
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import dotenv from "dotenv";
 import { retryWithBackoff } from "./retry.js";
 
 dotenv.config();
 
-// REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): previously a
-// brand-new SMTP connection was opened for every single email, with no
-// cap on how many could be opened at once and no self-imposed send rate -
-// a burst of emails (e.g. a chair's bulk "Enable PDF Download" emailing
-// every author at once) could open many simultaneous connections to
-// Gmail, and Gmail can throttle or temporarily flag an account for that
-// pattern independently of its daily sending cap. `pool: true` reuses a
-// small set of connections instead of one per message; `rateLimit` caps
-// how fast this app will ever send, client-side, so it can't flood Gmail
-// in the first place.
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-  pool: true,
-  maxConnections: 3,
-  maxMessages: 100,
-  rateDelta: 1000,
-  rateLimit: 5, // at most 5 messages per rateDelta (1s) window
-});
+// Resend's own client throws immediately if constructed with no API key
+// (confirmed directly against the installed package, not assumed) - so it
+// must be built lazily, on first real send, not at module load time. Every
+// test file imports api/index.js (which imports this module) under
+// SKIP_AUTOLISTEN, and none of them set RESEND_API_KEY; constructing this
+// eagerly at the top of the file would crash every single test file on
+// import, not just the ones that happen to send an email.
+let resendClient = null;
+function getResendClient() {
+  if (!resendClient) resendClient = new Resend(process.env.RESEND_API_KEY);
+  return resendClient;
+}
 
-// Transient SMTP/network failures (a dropped connection, a temporary "try
-// again" response) are safe to retry - the message was never accepted by
-// the server. A permanent rejection (bad recipient, auth failure, content
-// rejected) is not: retrying it wastes time and repeats the same failure.
-// nodemailer surfaces the SMTP reply code as responseCode when the server
-// sent one; a 4xx is temporary, a 5xx is permanent (RFC 5321).
-function isRetryableSmtpError(err) {
-  const retryableCodes = new Set(["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "ESOCKET", "EDNS", "EAI_AGAIN", "ECONNECTION"]);
-  if (retryableCodes.has(err?.code)) return true;
-  if (typeof err?.responseCode === "number") return err.responseCode >= 400 && err.responseCode < 500;
-  return false;
+// Resend's own type definitions (node_modules/resend/dist/index.d.mts,
+// checked directly rather than assumed) list `rate_limit_exceeded` as one
+// of a fixed set of error codes the API returns - confirmed real, not
+// guessed. Resend also doesn't throw on an API-level failure the way
+// nodemailer did; emails.send() returns { data, error, headers } instead,
+// so a rate-limit or server error has to be turned into a thrown Error
+// here to keep working with the existing retry/failure-handling pattern
+// (and so callers that already do `await sendMail(...).catch(...)` or wrap
+// it in their own try/catch keep behaving exactly as before). A genuine
+// network-level failure (DNS, connection refused) still throws from the
+// SDK call itself, which the same retry path below also catches.
+function isRetryableResendError(err) {
+  if (err?.name === "rate_limit_exceeded") return true;
+  if (typeof err?.statusCode === "number") return err.statusCode >= 500;
+  const retryableCodes = new Set(["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+  return retryableCodes.has(err?.code);
+}
+
+// A 429's Retry-After header is either a whole number of seconds, or an
+// HTTP-date - RFC 9110 allows both. Returns null when absent/unparsable,
+// so the caller falls back to its own exponential schedule.
+function parseRetryAfterMs(headerValue) {
+  if (!headerValue) return null;
+  const asSeconds = Number(headerValue);
+  if (Number.isFinite(asSeconds)) return Math.max(0, asSeconds * 1000);
+  const asDate = Date.parse(headerValue);
+  if (!Number.isNaN(asDate)) return Math.max(0, asDate - Date.now());
+  return null;
 }
 
 // Standard footer shared by every email
@@ -97,8 +104,16 @@ export async function sendMail(to, subject, text, html, cc = null) {
     ? stripLegacyFooter(html)
     : `<p>${escapeHtml(text || "")}</p>`;
 
-  const mailOptions = {
-    from: `"DEI Conference Management Toolkit" <${process.env.EMAIL_FROM || "gurumaujsatsangi@gmail.com"}>`,
+  // EMAIL_FROM must be an address on a domain verified in Resend
+  // (resend.com/domains) - unlike the old Gmail/SMTP setup, Resend will
+  // reject a send from an address it hasn't verified ownership of, so
+  // there's no sensible hardcoded fallback here the way there was for
+  // Gmail. onboarding@resend.dev is Resend's own sandbox sender, usable
+  // with no domain setup but typically restricted to the account owner's
+  // own verified address as a recipient - fine as a fallback for noticing
+  // misconfiguration, not a real production default.
+  const payload = {
+    from: process.env.EMAIL_FROM || "DEI Conference Management Toolkit <onboarding@resend.dev>",
     to,
     subject,
     text: `${htmlToText(bodyHtml)}\n\n${FOOTER_TEXT}`,
@@ -106,26 +121,41 @@ export async function sendMail(to, subject, text, html, cc = null) {
   };
 
   if (cc) {
-    mailOptions.cc = cc;
+    payload.cc = cc;
   }
 
   // Dozens of routes call sendMail() without mocking it, and the test suite
   // exercises most of those routes directly against a real running server.
-  // Without this, every full test run sends real email through the live
-  // Gmail account configured in EMAIL_USER/EMAIL_PASSWORD, which has a daily
-  // sending quota Gmail enforces account-wide - repeated runs during
-  // development exhausted it and caused unrelated-looking test failures
-  // (SMTP 550 5.4.5) across any test that happens to hit a mail-sending route.
+  // Without this, every full test run would send real email through
+  // whatever Resend account is configured - see the mailer_test file's own
+  // history for what happened when this wasn't guarded against for the
+  // previous (SMTP) transport.
   if (process.env.SKIP_AUTOLISTEN === "1") {
     return { messageId: "skipped-in-test@localhost", accepted: [to], rejected: [] };
   }
 
-  return retryWithBackoff(() => transporter.sendMail(mailOptions), {
-    retries: 2,
-    baseDelayMs: 500,
-    isRetryable: isRetryableSmtpError,
-    onRetry: (err, attempt) => console.warn(`sendMail retry ${attempt}/2 to ${to} after transient error: ${err.message}`),
-  });
+  const result = await retryWithBackoff(
+    async () => {
+      const { data, error, headers } = await getResendClient().emails.send(payload);
+      if (error) {
+        const err = new Error(`Resend send to ${to} failed (${error.name}): ${error.message}`);
+        err.name = error.name;
+        err.statusCode = error.statusCode;
+        err.retryAfterMs = error.name === "rate_limit_exceeded" ? parseRetryAfterMs(headers?.["retry-after"]) : null;
+        throw err;
+      }
+      return data;
+    },
+    {
+      retries: 4,
+      baseDelayMs: 500,
+      isRetryable: isRetryableResendError,
+      getDelayMs: (err, attempt, baseDelayMs) => err.retryAfterMs ?? Math.min(baseDelayMs * 2 ** (attempt - 1), 10_000),
+      onRetry: (err, attempt) => console.warn(`sendMail retry ${attempt}/4 to ${to} after ${err.name || err.code}`),
+    }
+  );
+
+  return { messageId: result.id, accepted: [to], rejected: [] };
 }
 
-export { isRetryableSmtpError };
+export { isRetryableResendError };

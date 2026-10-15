@@ -327,19 +327,21 @@ test("publish/review-results: a submission with no decision yet stays pending, s
 // all-decided branch without it; this route has no test-mode flag for mail).
 // The conference used here is otherwise empty (withTestConference gives
 // every test its own), so this is the only email this test can trigger.
-// It sends exactly one real email, via the project's own configured
-// EMAIL_USER account, addressed to that same account
-// (process.env.EMAIL_USER) so it is visible only to the project owner and
-// never reaches a third party. Opt-in only - see CACHE_TEST_ALLOW_EMAIL.
-const emailTestAddress = process.env.EMAIL_USER;
+// It sends exactly one real email (via Resend), addressed to
+// CACHE_TEST_EMAIL_RECIPIENT - a dedicated env var for this one opt-in
+// test, deliberately separate from EMAIL_FROM (the sending identity):
+// Resend's sandbox sender only delivers to the account owner's own
+// verified address anyway, so set this to that address. Opt-in only -
+// see CACHE_TEST_ALLOW_EMAIL.
+const emailTestAddress = process.env.CACHE_TEST_EMAIL_RECIPIENT;
 const allowEmailTest = process.env.CACHE_TEST_ALLOW_EMAIL === "1";
 test(
   "publish/review-results: applying a meta-reviewer decision with nothing left pending still invalidates the cache (regression test)",
   {
     skip:
       (!redisAvailable && "Redis not reachable from this environment") ||
-      (!emailTestAddress && "EMAIL_USER not configured; cannot exercise the all-decided email branch") ||
-      (!allowEmailTest && "requires explicit opt-in: set CACHE_TEST_ALLOW_EMAIL=1 (sends one real email to EMAIL_USER)"),
+      (!emailTestAddress && "CACHE_TEST_EMAIL_RECIPIENT not configured; cannot exercise the all-decided email branch") ||
+      (!allowEmailTest && "requires explicit opt-in: set CACHE_TEST_ALLOW_EMAIL=1 (sends one real email to CACHE_TEST_EMAIL_RECIPIENT)"),
   },
   () =>
     withTestConference(async ({ conferenceId, insertSubmission }) => {
