@@ -22,6 +22,8 @@ import crypto from "crypto";
 import sanitizeHtml from "sanitize-html";
 import { sendMail } from "../mailer.js"
 import * as canva from "../canva.js"
+import { attachCsrfToken, injectCsrfIntoForms, verifyCsrfToken, csrfRejectUnlessSkipped } from "../csrf.js"
+import helmet from "helmet"
 import ExcelJS from "exceljs";
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
@@ -553,12 +555,59 @@ const port = process.env.PORT || 3000;
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  next();
-});
+
+// SEC-006 (security-audit/*): replaces the 3 manually-set headers below
+// with Helmet, keeping the same values (X-Content-Type-Options,
+// Referrer-Policy, X-Frame-Options) plus adding a real CSP and HSTS, which
+// didn't exist before at all.
+//
+// The CSP's script-src/style-src allow 'unsafe-inline': this app's views
+// use inline <script> blocks, inline style="" attributes, and inline
+// onclick handlers extensively (dozens of files), and the FontAwesome kit
+// script (kit.fontawesome.com) injects its own <style> tag at runtime with
+// no nonce support - retrofitting nonces/hashes across all of that in one
+// pass would be the "blindly enable a restrictive policy that breaks the
+// application" outcome this fix is specifically meant to avoid. This is a
+// deliberate, documented trade-off, not an oversight: even with
+// 'unsafe-inline' for script/style, the CSP still meaningfully restricts
+// which *external* origins can be loaded as scripts, styles, fonts, or
+// images (blocking an XSS payload from pulling in a malicious third-party
+// script), and object-src/frame-ancestors/base-uri are fully enforced
+// regardless. Every origin below was found by scanning the actual <script
+// src>/<link href> tags in views/ and public/ - nothing was added
+// speculatively.
+const CSP_DIRECTIVES = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.startbootstrap.com", "https://kit.fontawesome.com"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://kit.fontawesome.com"],
+  fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com", "https://kit.fontawesome.com", "data:"],
+  imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
+  connectSrc: ["'self'", "https://kit.fontawesome.com"],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  frameAncestors: ["'self'"],
+};
+
+app.use(helmet({
+  contentSecurityPolicy: { directives: CSP_DIRECTIVES },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  frameguard: { action: "sameorigin" },
+  // Only ever sent over an actual HTTPS connection in production - an HTTP
+  // deployment (e.g. plain local dev) must never tell browsers to force
+  // HTTPS it doesn't have. No includeSubDomains/preload: those commit every
+  // subdomain to HTTPS forever, which hasn't been verified here.
+  hsts: process.env.NODE_ENV === "production" ? { maxAge: 15552000 } : false,
+  // crossOriginEmbedderPolicy (COEP) defaults to requiring every
+  // cross-origin resource to opt in via CORS/CORP - aimed at
+  // cross-origin-isolated apps (SharedArrayBuffer etc.) this one has no use
+  // for, and risks silently blocking one of the CDN script/style loads
+  // above if that CDN response doesn't send the exact header COEP expects.
+  // Left off rather than risk that for a protection this app doesn't need.
+  // crossOriginResourcePolicy (governs who can embed *this app's own*
+  // responses) is left at Helmet's default - it doesn't affect this app's
+  // own outbound CDN requests either way.
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(express.static(path.join(rootDir, "public")));
 app.set("view engine", "ejs");
 app.use("/static", express.static(path.join(rootDir, "public")));
@@ -622,6 +671,18 @@ if (redisClient) {
 
 app.use(session(sessionOptions));
 
+// SEC-005 (security-audit/*): CSRF defense-in-depth on top of the existing
+// SameSite=Strict cookies. attachCsrfToken/injectCsrfIntoForms run on every
+// request (cheap, and needed so every rendered page's forms carry a token);
+// verifyCsrfToken only rejects state-changing requests, and only once the
+// test harness's non-browser callers have had a chance to opt out (see its
+// own SKIP_AUTOLISTEN guard below).
+app.use(attachCsrfToken);
+app.use(injectCsrfIntoForms);
+if (process.env.SKIP_AUTOLISTEN !== "1") {
+  app.use(verifyCsrfToken);
+}
+
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -634,10 +695,20 @@ function getAccessTokenFromRequest(req) {
   return req.cookies.access_token || req.cookies.token || null;
 }
 
+// Additional hardening alongside SEC-001/002/003: every jwt.verify() call
+// below now explicitly restricts to HS256 (the only algorithm this app
+// ever signs with - a plain string secret, never an RSA key pair). The
+// jsonwebtoken library already refuses an unsigned ("none") token and
+// wouldn't accidentally treat this app's HMAC secret as an RSA public key
+// on its own, so this wasn't an active bypass - it's defense-in-depth
+// against the library's own defaults ever changing.
+const JWT_ALGORITHMS = ["HS256"];
+
 function verifyAccessToken(token) {
   return assertTokenType(jwt.verify(
     token,
-    process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
+    process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
+    { algorithms: JWT_ALGORITHMS }
   ), "access");
 }
 
@@ -665,7 +736,7 @@ function getChairAccessTokenFromRequest(req) {
 function verifyChairAccessToken(token) {
   // Prefer the dedicated access token secret, fall back to legacy JWT_SECRET for compatibility
   const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET;
-  return assertTokenType(jwt.verify(token, secret), "chair");
+  return assertTokenType(jwt.verify(token, secret, { algorithms: JWT_ALGORITHMS }), "chair");
 }
 
 function setChairTokenCookies(res, accessToken, refreshToken) {
@@ -697,7 +768,8 @@ async function refreshUserSessionFromCookie(req, res) {
   try {
     jwt.verify(
       refreshToken,
-      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET,
+      { algorithms: JWT_ALGORITHMS }
     );
     assertTokenType(jwt.decode(refreshToken), "refresh");
 
@@ -776,7 +848,8 @@ async function refreshChairSessionFromCookie(req, res) {
   try {
     jwt.verify(
       refreshToken,
-      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
+      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET,
+      { algorithms: JWT_ALGORITHMS }
     );
     assertTokenType(jwt.decode(refreshToken), "refresh");
 
@@ -1015,6 +1088,77 @@ async function authRateLimitMemory(req, res, next) {
     return res.status(429).send("Too Many Requests!");
   }
   return next();
+}
+
+// SEC-003 (security-audit/*): authRateLimitMemory above is keyed only by
+// source IP - an attacker spreading requests across many IP addresses (a
+// botnet, a rotating-proxy service) is not slowed down at all, since no
+// single IP ever crosses that limit. This adds a second, account-keyed
+// limiter alongside it (not instead of it - the IP-keyed one still stops a
+// single source from targeting many accounts) for routes where the
+// request itself names a target account: normalizes the email the same
+// way login/cache lookups already do (trim + lowercase, so "Foo@x.com" and
+// "foo@x.com " can't be used to dodge the count), uses Redis's INCR (atomic
+// - two concurrent requests can never both observe the same post-increment
+// count) plus EXPIRE ... NX (only sets the window's expiry the first time,
+// so a retried/crashed request can't keep extending it), and is bounded -
+// it auto-clears after the window, never a standing lockout an attacker
+// could use to deny a real user access to their own account. `identity` is
+// looked up fresh per request (not just req.body.email) so it still works
+// for routes like /update-password where the account is only known after
+// resolving a token.
+const ACCOUNT_RATE_WINDOW_SECONDS = 15 * 60;
+const ACCOUNT_RATE_MAX_ATTEMPTS = 5;
+const accountRateAttemptsMemory = new Map();
+const ACCOUNT_RATE_MAX_KEYS = 10000;
+function normalizeAccountIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+function accountRateLimit(getIdentity) {
+  return async function (req, res, next) {
+    if (process.env.SKIP_AUTOLISTEN === "1") return next();
+
+    const identity = normalizeAccountIdentity(await getIdentity(req));
+    if (!identity) return next(); // nothing to key on - the IP-keyed limiter still applies
+
+    const key = `acctrl:${req.path}:${identity}`;
+
+    if (redisClient) {
+      try {
+        const attempts = await redisClient.incr(key);
+        if (attempts === 1) {
+          await redisClient.expire(key, ACCOUNT_RATE_WINDOW_SECONDS, "NX");
+        }
+        if (attempts > ACCOUNT_RATE_MAX_ATTEMPTS) {
+          // Same generic message as the IP-keyed limiter - this must never
+          // reveal whether the identity (e.g. an email address) is a real,
+          // registered account.
+          return res.status(429).send("Too Many Requests!");
+        }
+        return next();
+      } catch (err) {
+        console.warn("Account rate limit: Redis unavailable, using in-memory fallback.", err.message);
+      }
+    }
+
+    const now = Date.now();
+    if (accountRateAttemptsMemory.size >= ACCOUNT_RATE_MAX_KEYS) {
+      for (const [k, entry] of accountRateAttemptsMemory) {
+        if (entry.resetAt <= now) accountRateAttemptsMemory.delete(k);
+      }
+      if (accountRateAttemptsMemory.size >= ACCOUNT_RATE_MAX_KEYS) accountRateAttemptsMemory.clear();
+    }
+    let entry = accountRateAttemptsMemory.get(key);
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + ACCOUNT_RATE_WINDOW_SECONDS * 1000 };
+      accountRateAttemptsMemory.set(key, entry);
+    }
+    entry.count += 1;
+    if (entry.count > ACCOUNT_RATE_MAX_ATTEMPTS) {
+      return res.status(429).send("Too Many Requests!");
+    }
+    return next();
+  };
 }
 
 // BL-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the bulk
@@ -3260,7 +3404,7 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/send-password-reset-link", authRateLimitMemory, async(req,res)=>{
+app.post("/send-password-reset-link", authRateLimitMemory, accountRateLimit((req) => req.body.email), async(req,res)=>{
 
   const {email} = req.body;
 
@@ -3794,7 +3938,7 @@ if(result==true){
     );
 
     const activation_code = crypto.randomUUID();
-    await pool.query("insert into activation_requests(email, activation_code) values($1, $2)",[email,activation_code]);
+    await pool.query("insert into activation_requests(email, activation_code, expires_at) values($1, $2, NOW() + INTERVAL '24 hours')",[email,activation_code]);
      await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Greetings!<br><br>We are pleased to inform you that your account has been successfully created on the DEI CMT portal.<br><br>Visit https://cmt.dei.ac.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code).catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
@@ -3829,13 +3973,14 @@ app.get("/account-activation", async (req, res) => {
   res.render("login/activation.ejs", {message:req.query.message || null});
 });
 
-app.post("/activate-account", async (req, res) => {
+app.post("/activate-account", authRateLimitMemory, async (req, res) => {
   try {
     const { activation_code } = req.body;
 
-    // Check if activation code exists
+    // SEC-008: expiry now enforced server-side, consistent with every
+    // other one-time link in this app (password resets, account setup).
     const data = await pool.query(
-      "SELECT * FROM activation_requests WHERE activation_code = $1",
+      "SELECT * FROM activation_requests WHERE activation_code = $1 AND expires_at > NOW()",
       [activation_code]
     );
 
@@ -4037,114 +4182,38 @@ app.post("/user-login", async (req, res) => {
 });
 
 
+// SEC-004 (security-audit/*): every branch below ends in the exact same
+// enumeration-safe redirect regardless of whether the email exists, is
+// already activated, or has no activation_requests row - so this was
+// always going to send one fixed response, it just didn't on every path.
+// Wrapped in try/catch too, so a database error can't leave the request
+// hanging either.
 app.post("/activation-check",async(req,res)=>{
-  const {email} = req.body;
-  const data = await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
-  
-  if(data.rows[0]){
-
-      const data2 = await pool.query("select * from activation_requests where email=$1",[email]);
-    if(data2.rows[0]){
-      return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
-    }
-  } else{
-    return res.redirect("/account-activation?message=Account Activation Code has been sent to the requested Email ID");
+  const message = "Account Activation Code has been sent to the requested Email ID";
+  try {
+    const {email} = req.body;
+    await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
+    await pool.query("select * from activation_requests where email=$1",[email]);
+  } catch (err) {
+    console.error("Error in /activation-check:", err);
   }
+  return res.redirect(`/account-activation?message=${encodeURIComponent(message)}`);
 })
 
 
 
-async function handleRefresh(req, res) {
-
-  try {
-
-    const refresh_token = req.cookies.refresh_token;
-    if (!refresh_token) {
-      return res.status(401).json({
-        message: "No refresh token"
-      });
-    }
-
-    // VERIFY REFRESH TOKEN
-    const decoded = jwt.verify(
-      refresh_token,
-      process.env.JWT_REFRESH_TOKEN_SECRET || process.env.JWT_SECRET
-    );
-    assertTokenType(decoded, "refresh");
-
-    // HASH TOKEN
-    const refreshTokenHash = crypto
-      .createHash("sha256")
-      .update(refresh_token)
-      .digest("hex");
-
-    // CHECK SESSION
-    const sessionResult = await pool.query(
-      `
-      SELECT * FROM sessions
-      WHERE refresh_token_hash = $1
-      AND is_revoked = FALSE
-      AND expires_at > NOW()
-      `,
-      [refreshTokenHash]
-    );
-
-    const session = sessionResult.rows[0];
-
-    if (!session) {
-      return res.status(401).json({
-        message: "Invalid session"
-      });
-    }
-
-    const userResult = await pool.query(
-      `SELECT email, name, id, role FROM users WHERE id = $1 LIMIT 1`,
-      [session.user_id]
-    );
-    const user = userResult.rows[0];
-
-    if (!user) {
-      return res.status(401).json({
-        message: "User not found"
-      });
-    }
-
-    // CREATE NEW ACCESS TOKEN
-    const conferenceRolesDict = await loadConferenceRoles(user.email);
-    const accessToken = jwt.sign(
-      {
-        typ: "access", email: user.email,
-        name: user.name,
-        user_id: user.id,
-        role: user.role,
-        roles: conferenceRolesDict
-      },
-      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
-      {
-        expiresIn: "15m"
-      }
-    );
-
-    setAccessTokenCookies(res, accessToken);
-
-    // SEND NEW ACCESS TOKEN
-    res.json({
-      accessToken
-    });
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(401).json({
-      message: "Invalid refresh token"
-    });
-
-  }
-}
-
-app.post("/refresh", handleRefresh);
-app.post("/auth/refresh", handleRefresh);
+// SEC-001 (security-audit/*): POST /refresh and POST /auth/refresh used to
+// live here, minting a new access token from the refresh-token cookie and
+// returning it in a JSON response body. Confirmed unused: no fetch()/XHR
+// call anywhere in public/script.js or any view ever hit either path - the
+// app's real token-refresh path is entirely server-side, via checkAuth's
+// own silent fallback (refreshUserSessionFromCookie, below), which sets the
+// new access token as an httpOnly cookie and never hands it back as
+// readable text. Keeping an unused endpoint around that did that was a
+// needless way for an XSS bug elsewhere to defeat the httpOnly cookie's
+// protection (it could never read the cookie directly, but could still
+// fetch() this same-origin endpoint and read the token out of the reply) -
+// removed rather than patched, since nothing depends on it.
 
 
 
@@ -4339,12 +4408,33 @@ app.post("/chair-password-setup", authRateLimitMemory, async (req, res) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const updated = await pool.query("update chairs set password=$1 where email=$2 returning email", [hashedPassword, tokenRow.email]);
-  await pool.query("DELETE FROM password_resets WHERE email = $1", [tokenRow.email]);
 
-  if (!updated.rowCount) {
-    return res.redirect("/login/user?message=This setup link is invalid or has expired.");
+  // SEC-002: this same link/route is also what POST /reset-chair-password/:id
+  // sends (an admin-triggered chair password reset), so it needs the same
+  // session-revocation protection as the user-facing reset flow - a chair
+  // refresh token issued before the reset must not keep working after it.
+  const setupClient = await pool.connect();
+  let updated;
+  try {
+    await setupClient.query("BEGIN");
+    updated = await setupClient.query("update chairs set password=$1 where email=$2 returning user_id, email", [hashedPassword, tokenRow.email]);
+    if (!updated.rowCount) {
+      await setupClient.query("ROLLBACK");
+      return res.redirect("/login/user?message=This setup link is invalid or has expired.");
+    }
+    await setupClient.query("DELETE FROM password_resets WHERE email = $1", [tokenRow.email]);
+    await setupClient.query(
+      "UPDATE chair_sessions SET is_revoked = TRUE WHERE chair_id = $1 AND is_revoked = FALSE",
+      [updated.rows[0].user_id]
+    );
+    await setupClient.query("COMMIT");
+  } catch (txErr) {
+    await setupClient.query("ROLLBACK");
+    throw txErr;
+  } finally {
+    setupClient.release();
   }
+
   return res.redirect("/login/user?message=Password set. Please log in to the chair portal.");
 });
 
@@ -4516,67 +4606,10 @@ app.post("/chair-login", async (req, res) => {
   }
 });
 
-async function handleChairRefresh(req, res) {
-  try {
-    const refreshToken = req.cookies.chair_refresh_token;
-    if (!refreshToken) {
-      return res.status(401).json({ message: "No refresh token" });
-    }
-
-    // HASH THE PROVIDED REFRESH TOKEN
-    const refreshTokenHash = crypto
-      .createHash("sha256")
-      .update(refreshToken)
-      .digest("hex");
-
-    // CHECK SESSION FOR CHAIR
-    const sessionResult = await pool.query(
-      `
-      SELECT * FROM chair_sessions
-      WHERE refresh_token_hash = $1
-      AND is_revoked = FALSE
-      AND expires_at > NOW()
-    
-      `,
-      [refreshTokenHash]
-    );
-
-    const session = sessionResult.rows[0];
-
-    if (!session) {
-      return res.status(401).json({ message: "Invalid session" });
-    }
-
-    // Resolve the chair directly from chairs.user_id.
-    const chairResult = await pool.query(
-      `SELECT user_id, email, name FROM chairs WHERE user_id = $1 LIMIT 1`,
-      [session.chair_id]
-    );
-
-    const chair = chairResult.rows[0];
-
-    if (!chair) {
-      return res.status(401).json({ message: "Chair not found" });
-    }
-
-    // CREATE NEW ACCESS TOKEN
-    const accessToken = jwt.sign(
-      { typ: "chair", email: chair.email, name: chair.name, user_id: chair.user_id, role: "chair" },
-      process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET,
-      { expiresIn: "15m" }
-    );
-
-    setChairTokenCookies(res, accessToken, refreshToken);
-
-    return res.json({ accessToken });
-  } catch (err) {
-    console.error(err);
-    return res.status(401).json({ message: "Invalid refresh token" });
-  }
-}
-
-app.post("/chair/refresh", handleChairRefresh);
-app.post("/auth/chair/refresh", handleChairRefresh);
+// SEC-001 follow-up: POST /chair/refresh and POST /auth/chair/refresh were
+// the chair-equivalent of the same unused, token-in-response-body endpoint
+// removed above - same confirmed-unused status (no frontend call site),
+// same reasoning for removing rather than patching it.
 
 app.post("/update-password", authRateLimitMemory, async (req, res) => {
   try {
@@ -4616,17 +4649,46 @@ app.post("/update-password", authRateLimitMemory, async (req, res) => {
     // 3. Hash the new password
     const hashed_new_password = await bcrypt.hash(new_password, 10);
 
-    // 4. Update the user's password using the VERIFIED email
-    const updatedUser = await pool.query(
-      "UPDATE users SET password=$1 WHERE email=$2 RETURNING name",
-      [hashed_new_password, verifiedEmail]
-    );
+    // SEC-002 (security-audit/*): previously a password reset never touched
+    // the sessions table, so a refresh token stolen before the reset kept
+    // working for the rest of its 7-day life - exactly defeating the point
+    // of resetting a password because you suspect compromise. Steps 4-6 are
+    // now one transaction: a crash between them must never leave a changed
+    // password with the old sessions still valid (or the token still
+    // unconsumed), which `deleteSubmissionCascade`-style bare pool.query
+    // calls couldn't guarantee.
+    const resetClient = await pool.connect();
+    let updatedUser;
+    try {
+      await resetClient.query("BEGIN");
 
-    // 5. Delete the used token to prevent reuse
-    await pool.query(
-      "DELETE FROM password_resets WHERE token=$1", 
-      [hashToken(token)]
-    );
+      // 4. Update the user's password using the VERIFIED email
+      updatedUser = await resetClient.query(
+        "UPDATE users SET password=$1 WHERE email=$2 RETURNING id, name",
+        [hashed_new_password, verifiedEmail]
+      );
+
+      // 5. Delete the used token to prevent reuse
+      await resetClient.query(
+        "DELETE FROM password_resets WHERE token=$1",
+        [hashToken(token)]
+      );
+
+      // 5b. Revoke every existing session for this user, so a refresh
+      // token issued before this reset can never mint a new access token
+      // again - the same mechanism logout already uses, applied here too.
+      await resetClient.query(
+        "UPDATE sessions SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE",
+        [updatedUser.rows[0]?.id]
+      );
+
+      await resetClient.query("COMMIT");
+    } catch (txErr) {
+      await resetClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      resetClient.release();
+    }
 
     // 6. Send confirmation email (Removed the stray '+')
     await sendMail(
@@ -7171,6 +7233,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
 
+      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
 
       if (!req.file) {
         return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
@@ -7890,7 +7953,8 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
     }
 
     (async () => {
-    
+
+      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
 
       const { submission_id } = req.body;
 
@@ -7970,6 +8034,8 @@ app.post("/edit-submission", checkAuth, (req, res) => {
           : err.message;
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
+
+      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
 
       let { title, abstract, areas, id } = req.body;
 
@@ -8157,6 +8223,8 @@ app.post("/submit", checkAuth, async (req, res) => {
         return res.redirect(`/dashboard?message=Error: ${message}`);
       }
 
+      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
+
       if (!req.file) {
         return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
       }
@@ -8308,7 +8376,8 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
     }
 
     (async () => {
-    
+
+      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
 
       if (!req.file) {
         return res.redirect("/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));

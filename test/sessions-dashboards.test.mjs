@@ -34,8 +34,19 @@ function istWallClockFields(utcMs) {
     time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
   };
 }
-const posterWindowStart = istWallClockFields(Date.now() - 60 * 60 * 1000);
-const posterWindowEnd = istWallClockFields(Date.now() + 60 * 60 * 1000);
+// poster_session has a single `date` column (no separate start/end dates -
+// the real feature can't represent a session spanning midnight either), so
+// a naive "now ± 1h" window broke whenever the suite happened to run
+// within an hour of midnight IST (start and end landed on different
+// calendar days, silently producing an inverted, always-closed window).
+// Clamped to the current IST calendar day instead: still brackets "now"
+// the rest of the time, and near midnight just gives an asymmetric but
+// always-valid window.
+const nowIst = istWallClockFields(Date.now());
+const dayStartMs = Date.parse(`${nowIst.date}T00:00:00+05:30`);
+const dayEndMs = Date.parse(`${nowIst.date}T23:59:00+05:30`);
+const posterWindowStart = istWallClockFields(Math.max(Date.now() - 60 * 60 * 1000, dayStartMs));
+const posterWindowEnd = istWallClockFields(Math.min(Date.now() + 60 * 60 * 1000, dayEndMs));
 
 const secret = process.env.JWT_ACCESS_TOKEN_SECRET || process.env.JWT_SECRET;
 const chairEmail = "sessions-dash-test-chair@example.com";

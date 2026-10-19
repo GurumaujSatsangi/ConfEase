@@ -93,4 +93,24 @@ test("security headers are set", async () => {
   const res = await send("GET", "/error");
   assert.equal(res.headers.get("x-content-type-options"), "nosniff");
   assert.equal(res.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(res.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
+});
+
+// SEC-006: Helmet-driven CSP/HSTS, added on top of the 3 headers above
+// (which it preserves exactly, confirmed by the same assertions still
+// passing above).
+test("a Content-Security-Policy header is set and allows the CDNs this app actually loads from", async () => {
+  const res = await send("GET", "/error");
+  const csp = res.headers.get("content-security-policy");
+  assert.ok(csp, "a CSP header must be present");
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /script-src[^;]*cdn\.jsdelivr\.net/);
+  assert.match(csp, /style-src[^;]*fonts\.googleapis\.com/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /frame-ancestors 'self'/);
+});
+
+test("HSTS is not sent outside production (this test runs without NODE_ENV=production)", async () => {
+  const res = await send("GET", "/error");
+  assert.equal(res.headers.get("strict-transport-security"), null, "HSTS must never be sent without HTTPS actually configured");
 });

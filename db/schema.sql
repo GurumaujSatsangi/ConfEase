@@ -60,7 +60,8 @@ SET default_table_access_method = heap;
 CREATE TABLE public.activation_requests (
     id bigint NOT NULL,
     email character varying(50),
-    activation_code uuid
+    activation_code uuid,
+    expires_at timestamp with time zone DEFAULT (now() + '24:00:00'::interval)
 );
 
 

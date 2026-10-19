@@ -29,6 +29,12 @@ const pool = new Pool({
   // exist - sized for real concurrent request handling instead of staying
   // conservative to avoid multiplying across serverless instances.
   max: parseInt(process.env.DB_POOL_MAX) || 20,
+  // DB-AUD-004: `pg`'s own default here is 0 ("wait forever") - a request
+  // that can't get a connection because all `max` are busy would otherwise
+  // hang indefinitely instead of failing fast with a clear error. This
+  // only changes that one exhaustion edge case; normal requests are
+  // unaffected since a connection is almost always available immediately.
+  connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT_MS) || 5000,
 });
 
 // REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): a brief
