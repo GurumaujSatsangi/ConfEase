@@ -113,6 +113,49 @@ test("full registration flow: form renders, submits, saves, and then disables it
   assert.ok(confHtml.includes("https://drive.google.com/file/d/abc123"));
 });
 
+test("My Submissions shows the poster session's vc_link for an online poster registration, but not for an offline one or an oral submission", async () => {
+  const onlinePoster = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Poster Presentation");
+  await pool.query(
+    "insert into poster_session (conference_id, vc_link) values ($1,$2)",
+    [onlinePoster.conferenceId, "https://meet.example.com/online-poster-room"]
+  );
+  await post(`/submission/register/${onlinePoster.submissionId}`, {
+    mode_of_presentation: "Online",
+    attending_offline: "0",
+    link_to_video: "https://drive.google.com/file/d/online-poster",
+  });
+
+  const onlineHtml = await (await get(`/conference/${onlinePoster.conferenceId}`)).text();
+  assert.ok(onlineHtml.includes("Link for Online Attendees"));
+  assert.ok(onlineHtml.includes("https://meet.example.com/online-poster-room"));
+
+  const offlinePoster = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Poster Presentation");
+  await pool.query(
+    "insert into poster_session (conference_id, vc_link) values ($1,$2)",
+    [offlinePoster.conferenceId, "https://meet.example.com/offline-poster-room"]
+  );
+  await post(`/submission/register/${offlinePoster.submissionId}`, {
+    mode_of_presentation: "Offline",
+    attending_offline: "1",
+    link_to_video: "https://drive.google.com/file/d/offline-poster",
+  });
+  const offlineHtml = await (await get(`/conference/${offlinePoster.conferenceId}`)).text();
+  assert.ok(!offlineHtml.includes("Link for Online Attendees"), "an offline registration must not show the vc_link");
+
+  const onlineOral = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+  await pool.query(
+    "insert into poster_session (conference_id, vc_link) values ($1,$2)",
+    [onlineOral.conferenceId, "https://meet.example.com/should-not-appear"]
+  );
+  await post(`/submission/register/${onlineOral.submissionId}`, {
+    mode_of_presentation: "Online",
+    attending_offline: "0",
+    link_to_video: "https://drive.google.com/file/d/online-oral",
+  });
+  const oralHtml = await (await get(`/conference/${onlineOral.conferenceId}`)).text();
+  assert.ok(!oralHtml.includes("Link for Online Attendees"), "vc_link only applies to poster submissions, not oral ones");
+});
+
 test("POST rejects an invalid mode of presentation and a missing video link, without writing a row", async () => {
   const { submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Poster Presentation");
 

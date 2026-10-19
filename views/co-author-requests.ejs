@@ -15,7 +15,11 @@
     <h4>
         Co-Author Requests
     </h4>
-    <h6>Submission Title: <%= submission.title %></h6><hr>
+    <h6>Submission Title: <%= submission.title %></h6>
+    <% if (message) { %>
+      <div class="alert alert-info"><%= message %></div>
+    <% } %>
+    <hr>
 <% if(result && result.length > 0) { %>
     <table class="table">
     <tr>
@@ -30,46 +34,45 @@
 
 <tr>
 <td>
-    
-    <%=result.co_author %> 
+
+    <%=result.co_author %>
 </td>
 <td>
 
      <% if(result.status=="Accepted") { %>
-  <p class="small"> This request was ACCEPTED.</p> 
-   
-    <form method="POST" action="/remove-co-author/<%= result.co_author %>" style="display: inline;">
-                                <button type="submit" style="width:300px" class="btn btn-danger" title="Remove Co-Author">
+  <p class="small mb-1"> This request was ACCEPTED.</p>
+
+    <form method="POST" action="/remove-co-author/<%= submission.submission_id %>/<%= encodeURIComponent(result.co_author) %>" style="display: inline;">
+                                <button type="submit" class="btn btn-danger btn-sm" title="Remove Co-Author">
                                  Remove Co-Author <i class="bi bi-exclamation-triangle-fill"></i>
                                 </button>
-                                <br>
                               </form>
 
                               <%} else if (result.status=="Rejected")  { %>
-                            
-                            <p class="small">This Request was REJECTED. If you think this request was rejected by mistake, please ask <%= result.co_author %> to send a new request.</p>
-                           
+
+                            <p class="small mb-0">This Request was REJECTED. If you think this request was rejected by mistake, please ask <%= result.co_author %> to send a new request.</p>
+
     <% } else { %>
 
 
 
     <form method="POST" action="/co-author-request/accept/<%= result.request_id %>" style="display: inline;">
-                                <button type="submit" style="width:300px" class="btn btn-outline-success" title="Accept">
+                                <button type="submit" class="btn btn-outline-success btn-sm" title="Accept">
                                  Accept Request <i class="bi bi-check-circle-fill"></i>
                                 </button>
-                                <br>
                               </form>
                                <form method="POST" action="/co-author-request/reject/<%= result.request_id %>" style="display: inline;">
-                                <button type="submit" style="width:300px" class="btn btn-outline-danger" title="Reject">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" title="Reject">
                                   Reject Request <i class="bi bi-x-circle-fill"></i>
                                 </button>
                               </form>
                                 <% } %>
 </td>
 </tr>
+<% }) %>
 </table>
 
-    <% }) } else { %>
+    <% } else { %>
 <h6><i class="bi bi-emoji-frown-fill"></i> No one has requested to join your paper!</h6>
         <% } %>
 

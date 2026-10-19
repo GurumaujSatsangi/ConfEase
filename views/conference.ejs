@@ -14,25 +14,21 @@
 
         <h4><%= conference.title %></h4>
 
+      <p class="small"><%- sanitizeDescription(conference.description) %></p>
+
       <% if (conference.cfp_link) { %>
-        <p class="small"><a href="<%= conference.cfp_link %>" target="_blank" rel="noopener"><i class="bi bi-file-earmark-text"></i> Call for Papers</a></p>
+        <p class="small"><a href="<%= conference.cfp_link %>" target="_blank" class="btn btn-primary btn-sm" rel="noopener">Call for Papers&nbsp; <i class="bi bi-box-arrow-up-right"></i></a></p>
       <% } %>
 
         <%
-          let roleStr = "";
-          
-          if (user && user.roles) {
-            // Check if user.roles is a raw array of database rows
-            if (Array.isArray(user.roles)) {
-              // Filter roles that match the current conference_id
-              const matchedRoles = user.roles.filter(r => r.conference_id === conference.conference_id);
-              roleStr = JSON.stringify(matchedRoles).toLowerCase();
-            } else {
-              // Fallback to object key notation if it is mapped by conference_id
-              const myRole = user.roles[conference.conference_id];
-              roleStr = myRole ? JSON.stringify(myRole).toLowerCase() : "";
-            }
-          }
+          // Driven by a live conference_roles read (passed in as liveRoles),
+          // not the JWT's cached roles claim - a revoked role (or one
+          // granted since this token was issued) is reflected immediately,
+          // instead of leaving the user with neither their old role's
+          // buttons nor the default-author "Create New Submission" UI.
+          let roleStr = (Array.isArray(liveRoles) && liveRoles.length > 0)
+            ? JSON.stringify(liveRoles).toLowerCase()
+            : "";
         %>
 
         <% if(!roleStr){ %>
@@ -81,9 +77,9 @@
     
     <% if(roleStr && roleStr.includes('poster_presentation_coordinator')){%>
 
-        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
+        <a href="/score-posters/<%= conference.conference_id %>" type="button" class="btn btn-primary btn-sm">
   Start Poster Presentations
-</button>
+</a>
 
 
 
@@ -94,9 +90,9 @@
         <% if(roleStr && roleStr.includes('session_chair')){ %>
 
 
-        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#MySubmissions">
+        <a href="/panelist/active-session/<%=conference.conference_id%>" type="button" class="btn btn-primary btn-sm" >
   Start Oral Presentation
-</button>
+</a>
         
         <% }%>
 
@@ -109,14 +105,15 @@
         
         <% }%>
 
-        <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle-fill"></i>
+        <button type="button" class="btn btn-warning btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle"></i>
 </button>
 
+<% if(isInvitee) { %>
 <div class="modal fade" id="MySubmissions2" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h1 class="modal-title fs-5" id="exampleModalLabel">My Submissions</h1>
+        <h1 class="modal-title fs-5" id="exampleModalLabel">My Invited Talk Submissions</h1>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
@@ -134,28 +131,27 @@
                 <tr>
                     <td><%= submission.title %></td>
                     <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
-                    <td><%= submission.submission_status %></td>
                     <td>
-                        
+
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
-                
-            
+                    </li><li><form method="POST" action="/submission/delete/invitee/<%= submission.paper_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
+
+
             </p></td>
                 </tr>
-            
+
             <%}) %>
 
                     </table>
 
-        
+
         <% } else { %>
 
             <p class="small">You have not made any submissions.</p>
 
             <% } %>
 
-        
+
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -163,6 +159,7 @@
     </div>
   </div>
 </div>
+<% } %>
 
 
 <div class="modal fade" id="MySubmissions" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
@@ -181,7 +178,7 @@
                 <th>Submission Title</th>
                 <th>View Paper</th>
                 <th>Paper Code</th>
-                <th>Co-Authors</th>
+                <th>Co-Authors / Primary Author</th>
                 <th>Status</th>
                 <th>Action</th>
             </tr>
@@ -194,22 +191,22 @@
                     <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
                     <td><button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.paper_code %>">View</button></td>
                     <td>
-                        <% if(submission.co_authors && submission.co_authors.length>0) { %>
-
-                        <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.co_authors %>">View</button></td>
-
-                        
-                        <% } else{ %>
-
-                            <p class="small">None</p>
-
+                        <% if (submission.isPrimaryAuthor) { %>
+                            <% if (submission.co_authors && submission.co_authors.length > 0) { %>
+                                <button type="button" class="btn btn-primary btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="top" data-bs-content="<%= submission.co_authors %>">View</button>
+                            <% } else { %>
+                                <p class="small">None</p>
                             <% } %>
+                        <% } else { %>
+                            <%= submission.primary_author %>
+                        <% } %>
+                    </td>
 
                     <td>
                         <%= submission.submission_status %>
-                        <% if (submission.submission_status === 'Revision Required') { %>
+                        <% if (submission.submission_status === 'Revision Required' && submission.isPrimaryAuthor) { %>
                             <br><a href="/submission/revised/primary-author/<%= submission.submission_id %>">Submit Revised Paper</a>
-                        <% } else if (submission.submission_status === 'Accepted for Oral Presentation' || submission.submission_status === 'Accepted for Poster Presentation') { %>
+                        <% } else if ((submission.submission_status === 'Accepted for Oral Presentation' || submission.submission_status === 'Accepted for Poster Presentation') && submission.isPrimaryAuthor) { %>
                             <br><a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit Final Camera Ready Paper</a>
                         <% } else if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
                             <br><strong><%= submission.scheduleText %></strong>
@@ -219,6 +216,12 @@
                     <td>
                         <% if (submission.registration) { %>
                             <button type="button" class="btn btn-success btn-sm" disabled>Registered</button>
+
+                        <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation' && submission.registration.mode_of_presentation === 'Online' && posterSchedule && posterSchedule.vc_link) { %>
+
+                      <p class="small mb-1"><strong>Link for Online Attendees:</strong> <a href="<%= posterSchedule.vc_link %>" target="_blank" rel="noopener">Join</a></p>
+
+                      <% } %>
                             <div class="accordion mt-2" id="registrationAccordion-<%= submission.submission_id %>">
                               <div class="accordion-item">
                                 <h2 class="accordion-header">
@@ -235,8 +238,10 @@
                                 </div>
                               </div>
                             </div>
-                        <% } else { %>
+                        <% } else if (submission.isPrimaryAuthor) { %>
                             <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
+                        <% } else { %>
+                            <p class="small">Not yet registered. Only the primary author can register this submission.</p>
                         <% } %>
                     </td>
                     <% } else if (submission.submission_status === 'Poster Scored' || submission.submission_status === 'Presentation Completed') { %>
@@ -249,12 +254,16 @@
                     </td>
                     <% } else { %>
                     <td>
-
+                        <% if (submission.isPrimaryAuthor) { %>
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
                     </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
                 <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
 
-            </p></td>
+            </p>
+                        <% } else { %>
+                            <p class="small">None</p>
+                        <% } %>
+                    </td>
                     <% } %>
                 </tr>
             

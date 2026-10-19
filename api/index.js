@@ -1750,6 +1750,48 @@ async function checkPosterCoordinatorAccess(conferenceId, email) {
   return posterAccess.rows.length > 0;
 }
 
+// Checks whether "now" (IST) falls inside [start_time - 5min buffer, end_time]
+// on `date`. Returns { blocked: 'not_started' | 'ended' | null, sessionEndIso }.
+// Lenient by design: if date/startTime/endTime aren't all set yet (chair
+// hasn't scheduled this session), returns { blocked: null }, imposing no
+// restriction - same behavior /panelist/active-session already relied on.
+function checkSessionTimeWindow(date, startTime, endTime) {
+  if (!date || !startTime || !endTime) return { blocked: null, sessionEndIso: null };
+  try {
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const dateStr = date instanceof Date ? date.toISOString().slice(0, 10) : String(date);
+    const [y, mo, d] = dateStr.split("-").map(Number);
+    const [sh, sm] = String(startTime).split(":").map(Number);
+    const [eh, em] = String(endTime).split(":").map(Number);
+
+    const startUtcMs = Date.UTC(y, mo - 1, d, sh, sm) - istOffset;
+    const endUtcMs = Date.UTC(y, mo - 1, d, eh, em) - istOffset;
+    const nowUtcMs = Date.now();
+    const bufferMs = 5 * 60 * 1000;
+
+    if (nowUtcMs < (startUtcMs - bufferMs)) return { blocked: "not_started", sessionEndIso: null };
+    if (nowUtcMs > endUtcMs) return { blocked: "ended", sessionEndIso: null };
+    return { blocked: null, sessionEndIso: new Date(endUtcMs).toISOString() };
+  } catch (timeErr) {
+    console.error("Session window parse error:", timeErr);
+    return { blocked: null, sessionEndIso: null };
+  }
+}
+
+// Keeps only submissions that have a row in `registration` - an accepted
+// paper whose author never completed registration isn't actually
+// presenting, so it shouldn't appear wherever this is used.
+async function filterToRegisteredSubmissions(submissions) {
+  const submissionIds = submissions.map((s) => s.submission_id);
+  if (submissionIds.length === 0) return [];
+  const registered = await pool.query(
+    "select submission_id from registration where submission_id = ANY($1)",
+    [submissionIds]
+  );
+  const registeredIds = new Set(registered.rows.map((r) => r.submission_id));
+  return submissions.filter((s) => registeredIds.has(s.submission_id));
+}
+
 app.get("/score-posters/:id",checkAuth,async(req,res)=>{
 
 if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
@@ -1760,13 +1802,37 @@ const data = await loadPosterSessionsDashboardData(req.params.id);
 if (!data) {
   return res.redirect("/dashboard?message=Conference not found.");
 }
+
+// Same session-time enforcement as /panelist/active-session: a poster
+// coordinator shouldn't be able to score outside the scheduled poster
+// session window. Lenient if no window has been scheduled yet (see
+// checkSessionTimeWindow).
+const posterWindow = checkSessionTimeWindow(
+  data.posterSession?.date,
+  data.posterSession?.start_time,
+  data.posterSession?.end_time
+);
+if (posterWindow.blocked === "not_started") {
+  return res.redirect("/dashboard?message=Session not started yet.");
+}
+if (posterWindow.blocked === "ended") {
+  return res.redirect("/dashboard?message=Session has ended.");
+}
+
+// An accepted poster whose author never completed registration isn't
+// actually presenting, so it shouldn't be offered for scoring here - unlike
+// the chair's manage-poster-sessions view (same shared loader), which still
+// needs to show every accepted submission to follow up on registration.
+const registeredSubmissions = await filterToRegisteredSubmissions(data.submissions);
+
 res.render("score-posters.ejs",{
-  result: data.submissions,
+  result: registeredSubmissions,
   conference: data.conference,
   posterSession: data.posterSession,
   leaderboard: data.leaderboard,
   user: req.user,
   message: req.query.message || null,
+  session_end_iso: posterWindow.sessionEndIso,
 })
 
 })
@@ -1781,6 +1847,8 @@ app.get("/score-posters/:id/export", checkAuth, conferenceOperationCooldown("sco
       return res.redirect("/dashboard?message=Conference not found.");
     }
 
+    const registeredSubmissions = await filterToRegisteredSubmissions(data.submissions);
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Final Camera Ready Papers");
     sheet.columns = [
@@ -1790,7 +1858,7 @@ app.get("/score-posters/:id/export", checkAuth, conferenceOperationCooldown("sco
       { header: "Co-Authors", key: "coAuthors", width: 30 },
     ];
     sheet.getRow(1).font = { bold: true };
-    for (const sub of data.submissions) {
+    for (const sub of registeredSubmissions) {
       sheet.addRow({
         paperId: sub.paperId,
         title: sub.title,
@@ -1872,7 +1940,8 @@ app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
 
   return res.render("co-author-requests",{
     result:results.rows,
-  submission: submissions.rows[0]
+  submission: submissions.rows[0],
+  message: req.query.message || null
 });
 
 })
@@ -2138,18 +2207,29 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   if (cachedConferenceSubmissions) {
     submissions = cachedConferenceSubmissions;
   } else {
-  
+
+      // Co-authors see the submission too (read-only: no edit/delete/final
+      // camera-ready/registration - those stay primary-author-only), not
+      // just the primary author.
       const dbresult = await pool.query(
-        "select * from submissions where conference_id = $1 and primary_author = $2",
+        "select * from submissions where conference_id = $1 and (primary_author = $2 or $2 = any(co_authors))",
         [req.params.id, req.user.email]
       );
       submissions = dbresult.rows;
-    
+
 
     if (redisClient) {
       await redisClient.set(conferenceSubmissionsCacheKey, JSON.stringify(submissions), { EX: DATA_CACHE_TTL_SECONDS });
     }
   }
+
+  // Computed fresh every request, never cached: a pre-existing cache entry
+  // written before this field existed (or written for a different viewer,
+  // if the cache key itself were ever reused) would otherwise serve it as
+  // undefined - which silently hid Edit/Delete/Co-Author Requests from the
+  // real primary author, since those checks read isPrimaryAuthor straight
+  // off the submission object.
+  submissions = submissions.map((s) => ({ ...s, isPrimaryAuthor: s.primary_author === req.user.email }));
 
 
   // Presentation schedule, shown under the status once a final camera-ready
@@ -2176,7 +2256,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   let posterSchedule = null;
   if (submissions.some((s) => s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")) {
     const posterResult = await pool.query(
-      "select date, start_time, end_time from poster_session where conference_id = $1",
+      "select date, start_time, end_time, vc_link from poster_session where conference_id = $1",
       [req.params.id]
     );
     posterSchedule = posterResult.rows[0] || null;
@@ -2258,7 +2338,19 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     [req.params.id, req.user.email]
   )).rows.length > 0;
 
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user, isInvitee})
+  // The other role buttons (reviewer/session-chair/poster-coordinator/
+  // meta-reviewer) and the "no role -> show default author UI" fallback
+  // used to be driven by the roles baked into the JWT at login time - the
+  // same staleness problem isInvitee above was fixed for. Reading
+  // conference_roles fresh here means a revoked role (or one cleaned up by
+  // a grant/prune helper since this token was issued) can never leave the
+  // user stuck with neither their old role's buttons nor the author default.
+  const liveRoles = (await pool.query(
+    "select distinct role from conference_roles where conference_id = $1 and lower(email_id) = lower($2)",
+    [req.params.id, req.user.email]
+  )).rows.map((r) => r.role);
+
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user, isInvitee, liveRoles, posterSchedule})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
@@ -2943,7 +3035,7 @@ app.post("/chair/dashboard/set-poster-session/:id", checkChairAuth, async (req, 
   }
   
 
-  const { session_date, start_time, end_time, conference_id,coordinators } = req.body;
+  const { session_date, start_time, end_time, conference_id,coordinators, vc_link } = req.body;
  try {
   // Split comma-separated coordinators into an array
   const coordinatorArray = coordinators
@@ -2968,9 +3060,10 @@ try {
    SET date = $1,
        start_time = $2,
        end_time = $3,
-       coodinators = $4
-   WHERE conference_id = $5;`,
-  [session_date, start_time, end_time, coordinatorArray, conference_id]
+       coodinators = $4,
+       vc_link=$5
+   WHERE conference_id = $6;`,
+  [session_date, start_time, end_time, coordinatorArray, vc_link, conference_id]
   );
   for (const removed of coordinatorDiff.removed) {
     await posterClient.query(
@@ -3063,50 +3156,36 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
 
     // 2. Session time enforcement
     let session_end_iso = null;
-    try {
-      const activeTrack = trackinfo.find(
-        (track) =>
-          track.presentation_date &&
-          track.presentation_start_time &&
-          track.presentation_end_time
+    const activeTrack = trackinfo.find(
+      (track) =>
+        track.presentation_date &&
+        track.presentation_start_time &&
+        track.presentation_end_time
+    );
+    if (activeTrack) {
+      const windowResult = checkSessionTimeWindow(
+        activeTrack.presentation_date,
+        activeTrack.presentation_start_time,
+        activeTrack.presentation_end_time
       );
-
-      if (activeTrack) {
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const dateStr = activeTrack.presentation_date instanceof Date
-          ? activeTrack.presentation_date.toISOString().slice(0, 10)
-          : String(activeTrack.presentation_date);
-        const [y, mo, d] = dateStr.split("-").map(Number);
-        const startTimeStr = String(activeTrack.presentation_start_time);
-        const endTimeStr = String(activeTrack.presentation_end_time);
-        const [sh, sm] = startTimeStr.split(":").map(Number);
-        const [eh, em] = endTimeStr.split(":").map(Number);
-
-        const startUtcMs = Date.UTC(y, mo - 1, d, sh, sm) - istOffset;
-        const endUtcMs = Date.UTC(y, mo - 1, d, eh, em) - istOffset;
-        const nowUtcMs = Date.now();
-        const bufferMs = 5 * 60 * 1000;
-
-        if (nowUtcMs < (startUtcMs - bufferMs)) {
-          return res.redirect('/dashboard?message=Session not started yet.');
-        }
-
-        if (nowUtcMs > endUtcMs) {
-          return res.redirect('/dashboard?message=Session has ended.');
-        }
-
-        session_end_iso = new Date(endUtcMs).toISOString();
+      if (windowResult.blocked === "not_started") {
+        return res.redirect('/dashboard?message=Session not started yet.');
       }
-    } catch (timeErr) {
-      console.error("Session window parse error:", timeErr);
-      session_end_iso = null;
+      if (windowResult.blocked === "ended") {
+        return res.redirect('/dashboard?message=Session has ended.');
+      }
+      session_end_iso = windowResult.sessionEndIso;
     }
 
-    // 3. Fetch approved oral presentation submissions for only the assigned tracks
+    // 3. Fetch approved oral presentation submissions for only the assigned
+    // tracks, and only once registered - an accepted paper whose author
+    // never completed registration isn't actually presenting, so panelists
+    // shouldn't see it in the active session.
     const sessionResult = await pool.query(
       `SELECT * FROM submissions
        WHERE track_id = ANY($1)
-       AND submission_status = 'Submitted Final Camera Ready Paper for Oral Presentation'`,
+       AND submission_status = 'Submitted Final Camera Ready Paper for Oral Presentation'
+       AND EXISTS (SELECT 1 FROM registration r WHERE r.submission_id = submissions.submission_id)`,
       [trackIds]
     );
     const session = sessionResult.rows;
@@ -4070,7 +4149,7 @@ app.post("/auth/refresh", handleRefresh);
 
 
 
-app.get("/admin", checkAuth, requireAdmin, async(req,res)=>{
+app.get("/admin",  async(req,res)=>{
 
 
 const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
@@ -4208,7 +4287,7 @@ async function issueAccountSetupLink(email) {
   return `${getAppUrl()}/chair-password-setup?token=${token}`;
 }
 
-app.post("/create-chair-credentials", checkAuth, requireAdmin, async(req,res)=>{
+app.post("/create-chair-credentials", async(req,res)=>{
 
   const {name,email,contact_number, faculty, department} = req.body;
 
@@ -4774,8 +4853,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
       "We would be honoured to have you share your valuable knowledge, expertise, and insights with the participants. Your presence and contribution would greatly enrich the academic discussions and enhance the overall experience of the conference.<br><br>";
     const invitedTalkEmailOutro =
       "We sincerely hope you will accept our invitation and look forward to your participation in the conference.<br><br>" +
-      "Thank you for your valuable time and consideration.<br><br>" +
-      "Thanks & Regards,<br>" + escapeHtml(conferenceName) + " Organizing Committee";
+      "Thank you for your valuable time and consideration.<br><br>" ;
     const invitedTalkEmailSubject = "Invitation to Deliver an Invited Talk at " + conferenceName;
     if(data.rows[0] && !data2.rows[0]){
       await pool.query(
@@ -4783,7 +4861,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-      await pool.query("insert into conference_roles values($1, $2, $3)",[conference_id, email, "invitee"]);
+      await ensureConferenceRole(conference_id, email, "invitee");
      await sendMail(email,invitedTalkEmailSubject,null,
       invitedTalkEmailIntro +
       "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
@@ -4802,7 +4880,7 @@ await pool.query(
        VALUES ($1, $2, $3);`,
       [conference_id, name, email]
     );
-     await pool.query("insert into conference_roles values($1, $2, $3)",[conference_id, email, "invitee"]);
+     await ensureConferenceRole(conference_id, email, "invitee");
 
      await pool.query(
       `INSERT INTO users (name, email,password)
@@ -4833,6 +4911,36 @@ await pool.query(
   }
 
 
+});
+
+// Revokes an invitee: removes the `invitees` row and the matching
+// conference_roles "invitee" row together, so a later login's JWT no longer
+// carries the role. Without this, nothing ever cleared conference_roles,
+// and conference.ejs's `!roleStr` check kept hiding the default-author
+// "Create New Submission" UI even though the person had no real role left.
+app.post("/remove-invitee", checkChairAuth, async (req, res) => {
+  const { email, conference_id } = req.body;
+  if (!email || !conference_id) {
+    return res.status(400).send("Email and conference ID are required.");
+  }
+  if (!(await chairOwnsConference(req.user.email, conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+
+  try {
+    await pool.query(
+      "delete from invitees where conference_id = $1 and lower(email) = lower($2)",
+      [conference_id, email]
+    );
+    await pool.query(
+      "delete from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+      [conference_id, email, "invitee"]
+    );
+    return res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Invitee removed.`);
+  } catch (err) {
+    console.error("Error removing invitee:", err);
+    return res.redirect(`/chair/dashboard/invited-talks/${conference_id}?message=Error removing invitee.`);
+  }
 });
 
 
@@ -6072,16 +6180,16 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
     // 7. Send notification email to primary author
     try {
       const primaryAuthorName = await getUserDisplayName(submission.primary_author);
+      const requesterName = await getUserDisplayName(req.user.email);
+      const conferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [id])).rows[0]?.title || "the conference";
+      const paperId = formatPaperId(submission.paper_number);
       await sendMail(
         submission.primary_author,
-        `Co-Author Request - ${submission.title}${paperIdSubjectSuffix(submission.paper_number)}`,
-        `A co-author request for your paper "${submission.title}" has been submitted.`,
+        `${requesterName} has requested to join the Paper ID - ${paperId} as Co-Author | ${conferenceTitle}`,
+        null,
         `<p>${greeting(primaryAuthorName)}</p>
-         <p>A co-author has requested to join your paper titled <strong>"${escapeHtml(submission.title)}"</strong>.</p>
-         <p><strong>Co-Author Email:</strong> ${escapeHtml(req.user.email)}</p>
-         <p>Please review and accept or reject this request from your dashboard.</p>
-         <p>For assistance, contact <strong>multimedia@dei.ac.in</strong> or <strong>+91 9875691340</strong>.</p>
-         <p>Best Regards,<br>DEI Conference Management Toolkit Team</p>`
+         <p>${escapeHtml(requesterName)}, has requested to join your paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${paperId}) as a co-author.</p>
+         <p>Please log in to the DEI CMT portal to review and approve or reject the request.</p>`
       );
     } catch (emailErr) {
       console.error("Email send error:", emailErr);
@@ -6178,8 +6286,18 @@ app.post("/co-author-request/accept/:request_id", checkAuth, async (req, res) =>
     await invalidateConferenceSubmissionCache([submission.primary_author, ...coAuthors], submission.conference_id);
 
     // 7. Send email to co-author
-   const coAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
-   await sendMail(coAuthorRequest.co_author,"Co-Author Request Approved | "+submission.title+paperIdSubjectSuffix(submission.paper_number),null,greeting(coAuthorName)+" <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been approved by the Primary Author. The submission will now be available on your Dashboard under the My Submissions section. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+    const coAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+    const acceptConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const acceptPaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      coAuthorRequest.co_author,
+      `Your request to join the Paper ID - ${acceptPaperId} as Co-Author has been APPROVED | ${acceptConferenceTitle}`,
+      null,
+      `<p>${greeting(coAuthorName)}</p>
+       <p>Your request to join the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${acceptPaperId}) has been approved by the Primary Author.</p>
+       <p>The submission is now available on your dashboard under the My Submissions section.</p>`,
+      submission.primary_author
+    );
 
     return res.redirect("/dashboard?message=Co-author request accepted successfully.");
 
@@ -6232,14 +6350,89 @@ app.post("/co-author-request/reject/:request_id", checkAuth, async (req, res) =>
     );
 
     // 5. Notify via email
-       const rejectedCoAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
-       await sendMail(coAuthorRequest.co_author,"Co-Author Request Rejected | "+submission.title+paperIdSubjectSuffix(submission.paper_number),null,greeting(rejectedCoAuthorName)+" <br><br>your request to join the paper titled "+ escapeHtml(submission.title)+" has been rejected by the Primary Author. If you think this was an error, please speak to the Primary Author. <br><br>Incase of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit",submission.primary_author);
+    const rejectedCoAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+    const rejectConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const rejectPaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      coAuthorRequest.co_author,
+      `Your request to join the Paper ID - ${rejectPaperId} as Co-Author has been REJECTED | ${rejectConferenceTitle}`,
+      null,
+      `<p>${greeting(rejectedCoAuthorName)}</p>
+       <p>Your request to join the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${rejectPaperId}) has been rejected by the Primary Author.</p>`,
+      submission.primary_author
+    );
 
 
     return res.redirect("/dashboard?message=Co-author request rejected successfully.");
 
   } catch (err) {
     console.error("Error rejecting co-author request:", err);
+    return res.redirect("/dashboard?message=Something went wrong.");
+  }
+});
+
+// Lets a primary author revoke a co-author who was previously accepted.
+// Deletes the co_author_requests row entirely (not just a status flip) so
+// uniq_co_author_requests_pending (migration 014, partial unique index on
+// (submission_id, co_author) WHERE status != 'Rejected') doesn't leave a
+// stale 'Accepted' row blocking that person from ever sending a new join
+// request for this paper again.
+app.post("/remove-co-author/:submission_id/:co_author", checkAuth, async (req, res) => {
+  const { submission_id } = req.params;
+  const co_author = decodeURIComponent(req.params.co_author);
+
+  try {
+    const submissionResult = await pool.query(
+      `SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+      [submission_id]
+    );
+    const submission = submissionResult.rows[0];
+
+    if (!submission) {
+      return res.redirect("/dashboard?message=Submission not found.");
+    }
+    if (submission.primary_author !== req.user.email) {
+      return res.redirect("/dashboard?message=You are not authorized to remove co-authors from this submission.");
+    }
+
+    const removeClient = await pool.connect();
+    let remainingCoAuthors;
+    try {
+      await removeClient.query("BEGIN");
+      const updated = await removeClient.query(
+        `UPDATE submissions SET co_authors = array_remove(COALESCE(co_authors, ARRAY[]::text[]), $1) WHERE submission_id = $2 RETURNING co_authors;`,
+        [co_author, submission_id]
+      );
+      remainingCoAuthors = updated.rows[0]?.co_authors || [];
+      await removeClient.query(
+        `DELETE FROM co_author_requests WHERE submission_id = $1 AND lower(co_author) = lower($2);`,
+        [submission_id, co_author]
+      );
+      await removeClient.query("COMMIT");
+    } catch (txErr) {
+      await removeClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      removeClient.release();
+    }
+
+    await invalidateConferenceSubmissionCache([submission.primary_author, co_author, ...remainingCoAuthors], submission.conference_id);
+
+    const removedCoAuthorName = await getUserDisplayName(co_author);
+    const removeConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const removePaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      co_author,
+      `You have been removed as a Co-Author from Paper ID - ${removePaperId} | ${removeConferenceTitle}`,
+      null,
+      `<p>${greeting(removedCoAuthorName)}</p>
+       <p>You have been removed as a co-author from the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${removePaperId}) by the Primary Author.</p>`,
+      submission.primary_author
+    );
+
+    return res.redirect(`/submission/view-co-author-requests/${submission_id}?message=Co-author removed successfully.`);
+  } catch (err) {
+    console.error("Error removing co-author:", err);
     return res.redirect("/dashboard?message=Something went wrong.");
   }
 });
@@ -6394,6 +6587,15 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
   }
 });
 
+app.post("/delete/invited-submission/:id", checkAuth, async(req,res)=>{
+
+  const {submission_id} = req.params.id;
+
+  await pool.query("delete from invited_talk_submissions where submission_id = $1",[submission_id]);
+
+  return res.redirect("/dashboard?message=Submission deleted succesfully!");
+})
+
 app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
 
 
@@ -6495,12 +6697,10 @@ app.get("/submission/edit/primary-author/:id", checkAuth, async (req, res) => {
       return res.redirect("/dashboard?message=Submission not found.");
     }
 
-    // 2. Permission check
+    // 2. Permission check - co-authors can view the submission on their
+    // dashboard, but editing stays primary-author-only.
     if (submission.primary_author !== req.user.email) {
-      const coAuthors = submission.co_authors || []; // co_authors must be TEXT[] in DB
-      if (!coAuthors.includes(req.user.email)) {
-        return res.redirect("/dashboard?message=You can only edit your own submissions.");
-      }
+      return res.redirect("/dashboard?message=Only the primary author can edit this submission.");
     }
 
     // 3. Allow edit only if status is Submitted for Review
@@ -6629,8 +6829,8 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     if(isInviteeResult === true || isReviewerResult===true || isSessionChairResult===true){
       return res.redirect("/dashboard?message=Please note, Reviewers / Session Chairs / Invited Speakers are not allowed to submit papers. If you think this is an error, please reach out to us at multimedia@dei.ac.in.")
     }
-    
- 
+
+
 
   try {
     // 1. Fetch submission
@@ -6643,8 +6843,11 @@ app.get("/submission/final-camera-ready/primary-author/:id", checkAuth, async (r
     if (!submission) {
       return res.redirect("/dashboard?message=Submission not found.");
     }
-    if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
-      return res.redirect("/dashboard?message=You are not authorized to view this submission.");
+    // Co-authors can view the submission on their dashboard, but submitting
+    // the camera-ready paper stays primary-author-only (matches the POST
+    // /final-camera-ready-submission route's own check).
+    if (submission.primary_author !== req.user.email) {
+      return res.redirect("/dashboard?message=Only the primary author can submit the camera-ready paper.");
     }
 
     // 2. Get track name (optional)
@@ -6753,8 +6956,10 @@ async function loadRegistrationEligibleSubmission(req, res) {
     res.redirect("/dashboard?message=Submission not found.");
     return null;
   }
-  if (submission.primary_author !== req.user.email && !(Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email))) {
-    res.redirect("/dashboard?message=You are not authorized to register this submission.");
+  // Co-authors can view the submission on their dashboard, but registration
+  // stays primary-author-only.
+  if (submission.primary_author !== req.user.email) {
+    res.redirect("/dashboard?message=Only the primary author can register this submission.");
     return null;
   }
   if (!REGISTRATION_STATUSES.includes(submission.submission_status)) {
@@ -7208,6 +7413,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
     conference_end_date,
     full_paper_submission,
     acceptance_notification,
+    peer_review,
     camera_ready_paper_submission,
     cfp_link,
   } = req.body;
@@ -7225,8 +7431,9 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
            full_paper_submission = $5,
            acceptance_notification = $6,
            camera_ready_paper_submission = $7,
-           cfp_link = $8
-       WHERE conference_id = $9;`,
+           cfp_link = $8,
+           deadline_peer_review = $9
+       WHERE conference_id = $10;`,
       [
         title,
         sanitizeDescription(description),
@@ -7236,6 +7443,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
         acceptance_notification,
         camera_ready_paper_submission,
         cfp_link || null,
+        peer_review,
         conferenceId
       ]
     );

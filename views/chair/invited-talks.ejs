@@ -175,7 +175,11 @@
                 <% } %>
               </div>
               <div>
-              
+                <form action="/remove-invitee" method="POST" onsubmit="return confirm('Remove this invitee? They will lose invited-speaker access to this conference.');">
+                  <input type="hidden" name="email" value="<%= invitee.email %>">
+                  <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">Remove Invitee</button>
+                </form>
               </div>
             </div>
           <% }); %>

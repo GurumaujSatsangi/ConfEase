@@ -515,7 +515,8 @@ CREATE TABLE public.poster_session (
     date date,
     start_time time without time zone,
     end_time time without time zone,
-    coodinators text[]
+    coodinators text[],
+    vc_link text
 );
 
 
@@ -1117,6 +1118,13 @@ CREATE INDEX idx_submissions_primary_author ON public.submissions USING btree (p
 --
 
 CREATE UNIQUE INDEX uniq_co_author_requests_pending ON public.co_author_requests USING btree (submission_id, co_author) WHERE (status <> 'Rejected'::text);
+
+
+--
+-- Name: uniq_conference_roles_conference_email_role; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_conference_roles_conference_email_role ON public.conference_roles USING btree (conference_id, lower((email_id)::text), role);
 
 
 --

@@ -65,6 +65,11 @@
                <textarea required name="coordinators" placeholder="Email IDs of the Coordinators (seperated by comma)" class="form-control"></textarea>
               </div>
 
+               <div class="col-md-4 mb-3">
+                <label for="coordinators" class="form-label">Video Conference Link for Online Attendees</label>
+               <textarea required name="vc_link" class="form-control"></textarea>
+              </div>
+
             </div>
             <input type="hidden" name="conference_id" value="<%= conference.conference_id %>">
             <button type="submit" class="btn btn-success">
@@ -83,6 +88,9 @@
                     <th scope="col">Start Time</th>
                     <th scope="col">End Time</th>
                     <th scope="col">Coordinators</th>
+                    <th scope="col">VC Link</th>
+
+                    
                   </tr>
                 </thead>
                 <tbody>
@@ -91,6 +99,8 @@
                     <td><%= posterSession.start_time || 'Not set' %></td>
                     <td><%= posterSession.end_time || 'Not set' %></td>
                     <td><%= posterSession.coodinators %></td>
+                   <td><a href="<%= posterSession.vc_link %>">Join</a></td>
+
                   </tr>
                 </tbody>
               </table>

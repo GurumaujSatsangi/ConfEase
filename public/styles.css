@@ -15,6 +15,11 @@ body {
 .accordion-body{
   text-align: justify;
 }
+.footer-link{
+  color:yellow;
+  text-decoration:underline dotted;
+  
+}
 .card-body2{
   background-color:grey;
 }
@@ -26,6 +31,10 @@ body {
   max-width: 100%;
   padding-left: 15px;
   padding-right: 15px;
+}
+
+a{
+  text-decoration: none;
 }
 
 /* Responsive Navbar */
