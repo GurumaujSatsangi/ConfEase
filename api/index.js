@@ -417,7 +417,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the <b>${name}</b> Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been invited to serve as a <b>Reviewer</b> for ${name}.<br><br>` +
       `We highly value your academic expertise and experience, and we believe that your contribution to the review process will be instrumental in maintaining the quality and academic standards of the conference.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `We look forward to your valuable contribution to the conference and appreciate your willingness to support the academic review process.`,
   }),
   session_chair: (name) => ({
@@ -427,7 +427,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the ${name} Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been appointed as a <b>Session Chair</b> for ${name}.<br><br>` +
       `Your role will be important in ensuring the smooth and effective conduct of the assigned session, facilitating academic discussions, managing the presentation schedule, and encouraging meaningful interaction between presenters and participants.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `Further information regarding the session schedule, assigned presentations, and other responsibilities will be communicated to you through the conference portal or by the organizing team.<br><br>` +
       `We look forward to your valuable contribution to the successful conduct of the conference.`,
   }),
@@ -438,7 +438,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the ${name} Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been appointed as the <b>Poster Presentation Coordinator</b> for ${name}.<br><br>` +
       `In this role, you will help coordinate the poster presentation sessions and facilitate the smooth conduct of poster presentations. Your responsibilities include communicating relevant instructions, managing presentation schedules and scoring the posters.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `Further details regarding the assigned sessions, schedules, and coordination responsibilities will be shared through the conference portal or by the organizing team.<br><br>` +
       `We look forward to your support and valuable contribution to the successful organization of the conference.`,
   }),
@@ -450,7 +450,7 @@ const ROLE_INVITATION_EMAILS = {
       `We are pleased to inform you that you have been invited to serve as a <b>Meta-Reviewer</b> for ${name}.<br><br>` +
       `We highly value your academic expertise and experience, and we believe that your contribution will be valuable in ensuring a fair, consistent, and high-quality paper evaluation process.<br><br>` +
       `As a Meta-Reviewer, you will be expected to review the feedback provided by the assigned reviewers, assess their recommendations, and provide an overall evaluation to assist the conference committee in making informed decisions regarding paper acceptance.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `We look forward to your valuable contribution to maintaining the academic quality and integrity of the conference.`,
   }),
 };
@@ -479,7 +479,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `This email is to confirm that your paper has been successfully submitted to ${conferenceName}. The details of your submission are provided below:<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode]]) +
       `<br><br>Please retain these details for future reference. The Paper ID can be used to identify your submission, while the Paper Code can be shared with your co-authors to enable them to join the paper through the DEI CMT portal.<br><br>` +
-      `You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view your submission details and track its progress.<br><br>` +
+      `You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view your submission details and track its progress.<br><br>` +
       `Please ensure that all the information provided in your submission is accurate and complete.<br><br>` +
       `We appreciate your interest in ${conferenceName} and look forward to your participation.`,
   }),
@@ -490,7 +490,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `This email is to inform you that your submission has been successfully updated on the DEI CMT portal.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode], ["Last Updated On", updatedAt]]) +
-      `<br><br>The latest changes have been saved successfully. You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to review the updated submission details.<br><br>` +
+      `<br><br>The latest changes have been saved successfully. You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to review the updated submission details.<br><br>` +
       `Thank you for your continued engagement with ${conferenceName}.`,
   }),
   desk_review_decision: ({ conferenceName, authorName, title, paperId, decision, remarks }) => ({
@@ -500,7 +500,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We would like to inform you that the desk review of your submission has been completed. The decision and relevant details are provided below.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Desk Review Decision", decision], ["Remarks", remarks]]) +
-      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
       `If revisions are requested, we kindly ask you to follow the instructions provided and adhere to the specified deadline, if applicable.`,
   }),
   peer_review_decision: ({ conferenceName, authorName, title, paperId, decision, reviewerComments }) => ({
@@ -510,7 +510,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We are writing to inform you that the peer review process for your submission to ${conferenceName} has been completed. The decision regarding your paper is provided below.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Peer Review Decision", decision], ["Reviewer Comments", reviewerComments]]) +
-      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision, reviewer feedback, and any further instructions.<br><br>` +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view the complete decision, reviewer feedback, and any further instructions.<br><br>` +
       `If your paper has been accepted subject to revisions, please carefully review the comments and submit the revised manuscript within the specified deadline. If your paper has been accepted, further instructions regarding presentation and other conference requirements will be communicated through the portal, as applicable.<br><br>` +
       `We appreciate your contribution to ${conferenceName} and thank you for your interest in the conference.`,
   }),
@@ -521,7 +521,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We are pleased to inform you that your certificate for ${conferenceName} is now available for download through the DEI CMT portal.<br><br>` +
       submissionDetailsBlock("Certificate Details", [["Paper Title", title], ["Paper ID", paperId], ["Certificate Type", certificateType]]) +
-      `<br><br>You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> and navigate to the relevant section to view and download your certificate.<br><br>` +
+      `<br><br>You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> and navigate to the relevant section to view and download your certificate.<br><br>` +
       `We appreciate your participation in ${conferenceName} and hope the conference has been a valuable academic experience for you.`,
   }),
 };
@@ -3973,7 +3973,7 @@ if(result==true){
 
     const activation_code = crypto.randomUUID();
     await pool.query("insert into activation_requests(email, activation_code, expires_at) values($1, $2, NOW() + INTERVAL '24 hours')",[email,activation_code]);
-     await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Greetings!<br><br>We are pleased to inform you that your account has been successfully created on the DEI CMT portal.<br><br>Visit https://cmt.dei.ac.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code).catch((mailErr) => console.error("Welcome email failed:", mailErr));
+     await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Greetings!<br><br>We are pleased to inform you that your account has been successfully created on the DEI CMT portal.<br><br>Visit https://cmt.gurumaujsatsangi.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code).catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -4983,7 +4983,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
       await ensureConferenceRole(conference_id, email, "invitee");
      await sendMail(email,invitedTalkEmailSubject,null,
       invitedTalkEmailIntro +
-      "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
+      "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
       invitedTalkEmailOutro
      )
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
