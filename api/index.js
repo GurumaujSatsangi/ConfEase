@@ -304,6 +304,24 @@ async function pruneConferenceRoleIfUnassigned(conferenceId, excludeTrackId, ema
   );
 }
 
+// Same idea as pruneConferenceRoleIfUnassigned, but for meta_reviewer -
+// conference_tracks.meta_reviewer is a single scalar column, not an array
+// like track_reviewers/panelists, so it needs its own plain-equality check
+// rather than unnest().
+async function pruneMetaReviewerRoleIfUnassigned(conferenceId, excludeTrackId, email) {
+  const stillAssignedElsewhere = await pool.query(
+    `select 1 from conference_tracks
+     where conference_id = $1 and track_id <> $2 and lower(meta_reviewer) = lower($3)
+     limit 1`,
+    [conferenceId, excludeTrackId, email]
+  );
+  if (stillAssignedElsewhere.rows.length > 0) return;
+  await pool.query(
+    "delete from conference_roles where conference_id = $1 and lower(email_id) = lower($2) and role = $3",
+    [conferenceId, email, "meta_reviewer"]
+  );
+}
+
 // Diffs an old vs new list of emails (case-insensitively) into what was
 // added and what was removed.
 function diffEmailLists(oldList, newList) {
@@ -360,6 +378,18 @@ function formatPaperId(paperNumber) {
 function paperIdSubjectSuffix(paperNumber) {
   const paperId = formatPaperId(paperNumber);
   return paperId ? ` | Paper ID: ${paperId}` : "";
+}
+
+// Submission actions (submit, edit, register, delete, ...) used to redirect
+// back to the generic /dashboard regardless of which conference the user
+// was just working in - inconvenient, since /dashboard only lists every
+// conference, not that submission's own page. Every one of those routes
+// already knows (or can cheaply look up) the submission's conference_id,
+// so they redirect here instead; falls back to /dashboard only when the
+// conference id genuinely isn't known yet (e.g. the request was malformed
+// before it could be resolved at all).
+function postActionRedirect(conferenceId) {
+  return conferenceId ? `/conference/${conferenceId}` : "/dashboard";
 }
 
 // Email salutation: always "Dear <name>," - never "Hi"/"Hello"/"Dear <name>!".
@@ -2414,7 +2444,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   const oralScheduleByTrack = {};
   if (oralTrackIds.length > 0) {
     const trackScheduleResult = await pool.query(
-      "select track_id, presentation_date, presentation_start_time, presentation_end_time from conference_tracks where track_id = ANY($1)",
+      "select track_id, presentation_date, presentation_start_time, presentation_end_time, vc_link from conference_tracks where track_id = ANY($1)",
       [oralTrackIds]
     );
     trackScheduleResult.rows.forEach((t) => { oralScheduleByTrack[t.track_id] = t; });
@@ -2453,15 +2483,19 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
 
   submissions = submissions.map((s) => {
     let scheduleText = null;
+    let onlineVcLink = null;
     if (s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation") {
       scheduleText = buildScheduleText("Poster", posterSchedule?.date, posterSchedule?.start_time, posterSchedule?.end_time);
+      onlineVcLink = posterSchedule?.vc_link || null;
     } else if (s.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation") {
       const t = oralScheduleByTrack[s.track_id];
       scheduleText = buildScheduleText("Oral", t?.presentation_date, t?.presentation_start_time, t?.presentation_end_time);
+      onlineVcLink = t?.vc_link || null;
     }
     return {
       ...withSignedPaperUrl(s),
       scheduleText,
+      onlineVcLink,
       registration: registrationBySubmission[s.submission_id] || null,
       certificateGenerated: generatedCertificateSubmissionIds.has(s.submission_id),
     };
@@ -2494,7 +2528,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     [req.params.id, req.user.email]
   )).rows.map((r) => r.role);
 
-  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user, isInvitee, liveRoles, posterSchedule})
+  return res.render("conference.ejs",{conference: conference.rows[0], conference_tracks: conference_tracks.rows, submissions, invited_talk_submissions:invited_talk_submissions.rows, user:req.user, isInvitee, liveRoles, posterSchedule, message: req.query.message || null})
 })
 
 app.get("/create-new-announcement", checkChairAuth, async(req,res)=>{
@@ -4723,12 +4757,15 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
       session_date,
       start_time,
       end_time,
-      panelists
+      panelists,
+      vc_link,
+      meta_reviewers
     } = req.body;
 
     // 1. Clean up comma-separated values (filter out empty strings to avoid [""])
     const reviewersArray = reviewers ? reviewers.split(",").map(r => r.trim()).filter(r => r) : [];
     const panelistsArray = panelists ? panelists.split(",").map(p => p.trim()).filter(p => p) : [];
+    const metaReviewerEmail = String(meta_reviewers || "").trim() || null;
 
     const subjectRow = await pool.query("select conference_id, group_id from conference_tracks where track_id = $1", [trackId]);
     const newSubjectName = String(track_title || "").trim();
@@ -4738,12 +4775,13 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
 
     // 2. FETCH OLD ROLES FIRST (Crucial for invalidating users who are being removed)
     const oldTrackData = await pool.query(
-      `SELECT track_reviewers, panelists FROM conference_tracks WHERE track_id = $1`,
+      `SELECT track_reviewers, panelists, meta_reviewer FROM conference_tracks WHERE track_id = $1`,
       [trackId]
     );
-    
+
     const oldReviewers = oldTrackData.rows[0]?.track_reviewers || [];
     const oldPanelists = oldTrackData.rows[0]?.panelists || [];
+    const oldMetaReviewer = oldTrackData.rows[0]?.meta_reviewer || null;
 
     // 3. Update the database
     await pool.query(
@@ -4753,8 +4791,10 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
            presentation_date = $3,
            presentation_start_time = $4,
            presentation_end_time = $5,
-           panelists = $6
-       WHERE track_id = $7`,
+           panelists = $6,
+           vc_link = $7,
+           meta_reviewer = $8
+       WHERE track_id = $9`,
       [
         track_title,
         reviewersArray,
@@ -4762,6 +4802,8 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
         start_time,
         end_time,
         panelistsArray,
+        String(vc_link || "").trim() || null,
+        metaReviewerEmail,
         trackId
       ]
     );
@@ -4789,6 +4831,21 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
     for (const email of sessionChairDiff.added) {
       if (await ensureConferenceRole(conferenceId, email, "session_chair")) {
         await sendRoleInvitationEmail(email, "session_chair", conferenceId);
+      }
+    }
+
+    // Meta-reviewer is a single scalar field, not a list - diffed directly
+    // rather than via diffEmailLists. Previously this route had no field
+    // for it at all, so a track's meta-reviewer could only ever be set at
+    // creation, never changed afterward.
+    if (String(oldMetaReviewer || "").toLowerCase() !== String(metaReviewerEmail || "").toLowerCase()) {
+      if (oldMetaReviewer) {
+        await pruneMetaReviewerRoleIfUnassigned(conferenceId, trackId, oldMetaReviewer);
+      }
+      if (metaReviewerEmail) {
+        if (await ensureConferenceRole(conferenceId, metaReviewerEmail, "meta_reviewer")) {
+          await sendRoleInvitationEmail(metaReviewerEmail, "meta_reviewer", conferenceId);
+        }
       }
     }
 
@@ -5236,7 +5293,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       session_end_time,
       session_chairs,
       meta_reviewers,
-      group_id
+      group_id,
+      vc_link
     } = req.body;
 
     const normalizeEmails = (value) => {
@@ -5263,8 +5321,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
 
     await pool.query(
       `INSERT INTO conference_tracks
-       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer, group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9)`,
+       (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer, group_id, vc_link)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10)`,
       [
         subjectName,
         reviewersArray,
@@ -5274,7 +5332,8 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
         sessionChairsArray,
         req.params.id,
         metaReviewerEmail,
-        trackGroupId
+        trackGroupId,
+        String(vc_link || "").trim() || null
       ]
     );
 
@@ -6189,26 +6248,26 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
     const submission = submissionResult.rows[0];
 
     if (!submission) {
-      return res.redirect("/dashboard?message=Invalid Paper Code. Please try again.");
+      return res.redirect(`${postActionRedirect(id)}?message=Invalid Paper Code. Please try again.`);
     }
 
     // 2. Check status requirement for joining
     if (submission.submission_status !== "Submitted for Review") {
       return res.redirect(
-        `/dashboard?message=Cannot join this paper as co-author. Current status: ${submission.submission_status}. Co-authors can only join papers with 'Submitted for Review' status.`
+        `${postActionRedirect(id)}?message=Cannot join this paper as co-author. Current status: ${submission.submission_status}. Co-authors can only join papers with 'Submitted for Review' status.`
       );
     }
 
     // 3. Prevent primary author from joining as co-author
     if (submission.primary_author === req.user.email) {
-      return res.redirect("/dashboard?message=You are the primary author of this paper. You cannot join as a co-author.");
+      return res.redirect(`${postActionRedirect(id)}?message=You are the primary author of this paper. You cannot join as a co-author.`);
     }
 
     const coAuthors = submission.co_authors || [];
 
     // 4. Prevent duplicate co-author entries
     if (coAuthors.includes(req.user.email)) {
-      return res.redirect("/dashboard?message=You are already a co-author of this paper.");
+      return res.redirect(`${postActionRedirect(id)}?message=You are already a co-author of this paper.`);
     }
 
     // 5. Check if join request already exists
@@ -6220,7 +6279,7 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
     );
 
     if (existingReqResult.rows.length > 0) {
-      return res.redirect("/dashboard?message=You have already sent a request to join this paper.");
+      return res.redirect(`${postActionRedirect(id)}?message=You have already sent a request to join this paper.`);
     }
 
     // 6. Insert new co-author request (track primary author and set clear pending status)
@@ -6236,7 +6295,7 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
       [id, submission.submission_id, submission.primary_author, req.user.email, "Pending"]
     );
     if (joinInsertResult.rowCount === 0) {
-      return res.redirect("/dashboard?message=You have already sent a request to join this paper.");
+      return res.redirect(`${postActionRedirect(id)}?message=You have already sent a request to join this paper.`);
     }
 
     // 7. Send notification email to primary author
@@ -6262,7 +6321,7 @@ app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
 
   } catch (err) {
     console.error("Join error:", err);
-    return res.redirect("/dashboard?message=Something went wrong while submitting your request.");
+    return res.redirect(`${postActionRedirect(id)}?message=Something went wrong while submitting your request.`);
   }
 });
 
@@ -6510,6 +6569,7 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
     acceptance_notification,
     camera_ready_paper_submission,
     deadline_peer_review,
+    deadline_registration,
     cfp_link
   } = req.body;
 
@@ -6517,8 +6577,8 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
     // 1. Insert conference and return row
     const confResult = await pool.query(
       `INSERT INTO conferences
-      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,created_by,cfp_link)
-      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10)
+      (title, description, conference_start_date, conference_end_date, full_paper_submission, acceptance_notification, camera_ready_paper_submission,deadline_peer_review,registration_deadline, created_by,cfp_link)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9,$10,$11)
       RETURNING conference_id;`,
       [
         title,
@@ -6529,6 +6589,7 @@ app.post("/create-new-conference", checkChairAuth,async (req, res) => {
         acceptance_notification,
         camera_ready_paper_submission,
         deadline_peer_review,
+        deadline_registration,
         req.user.email,
         cfp_link || null
       ]
@@ -7021,13 +7082,29 @@ async function loadRegistrationEligibleSubmission(req, res) {
   // Co-authors can view the submission on their dashboard, but registration
   // stays primary-author-only.
   if (submission.primary_author !== req.user.email) {
-    res.redirect("/dashboard?message=Only the primary author can register this submission.");
+    res.redirect(`${postActionRedirect(submission.conference_id)}?message=Only the primary author can register this submission.`);
     return null;
   }
   if (!REGISTRATION_STATUSES.includes(submission.submission_status)) {
-    res.redirect("/dashboard?message=Registration is not open for this submission yet.");
+    res.redirect(`${postActionRedirect(submission.conference_id)}?message=Registration is not open for this submission yet.`);
     return null;
   }
+
+  // registration_deadline is optional (null for any conference where a
+  // chair hasn't set one, including every conference created before this
+  // column existed) - lenient on null, same reasoning as other
+  // not-yet-configured schedule fields elsewhere in this app: it means
+  // "no deadline configured", not "block everyone until one is set".
+  const confResult = await pool.query(
+    `SELECT registration_deadline FROM conferences WHERE conference_id = $1 LIMIT 1;`,
+    [submission.conference_id]
+  );
+  const deadline = confResult.rows[0]?.registration_deadline ? formatDateISO(confResult.rows[0].registration_deadline) : null;
+  if (deadline && getCurrentDateIST() > deadline) {
+    res.redirect(`${postActionRedirect(submission.conference_id)}?message=The registration deadline for this conference has passed.`);
+    return null;
+  }
+
   return submission;
 }
 
@@ -7040,7 +7117,7 @@ app.get("/submission/register/:id", checkAuth, async (req, res) => {
     // the form be filled in again.
     const existing = await pool.query("select 1 from registration where submission_id = $1", [req.params.id]);
     if (existing.rows.length > 0) {
-      return res.redirect("/dashboard?message=This submission has already been registered.");
+      return res.redirect(`${postActionRedirect(submission.conference_id)}?message=This submission has already been registered.`);
     }
 
     const conferenceResult = await pool.query(
@@ -7097,7 +7174,7 @@ app.post("/submission/register/:id", checkAuth, async (req, res) => {
       if (insertErr.code === "23505") {
         // Unique constraint on submission_id - someone else (or a double
         // submit) already registered this one between the check above and now.
-        return res.redirect("/dashboard?message=This submission has already been registered.");
+        return res.redirect(`${postActionRedirect(submission.conference_id)}?message=This submission has already been registered.`);
       }
       throw insertErr;
     }
@@ -7225,21 +7302,22 @@ app.get("/remarks/:id", checkAuth, async (req, res) => {
 
 app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
   upload.single("file")(req, res, async (err) => {
+    const confid = req.body?.confid;
     try {
       if (err instanceof multer.MulterError) {
         const message = err.code === "LIMIT_FILE_SIZE"
           ? "File size exceeds 4MB limit. Please upload a smaller file."
           : err.message;
-        return res.redirect(`/dashboard?message=Error: ${message}`);
+        return res.redirect(`${postActionRedirect(confid)}?message=Error: ${message}`);
       }
 
-      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
+      if (csrfRejectUnlessSkipped(req, res, postActionRedirect(confid))) return;
 
       if (!req.file) {
-        return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+        return res.redirect(`${postActionRedirect(confid)}?message=Error: No file uploaded. File size must not exceed 4MB.`);
       }
 
-      const { confid, title, abstract, areas, id, co_authors } = req.body;
+      const { title, abstract, areas, id, co_authors } = req.body;
 
       // Authorization: only the primary author of this submission (in this conference) may submit its camera-ready paper
       const finalOwnerResult = await pool.query(
@@ -7248,17 +7326,17 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
       );
       const finalOwnerRow = finalOwnerResult.rows[0];
       if (!finalOwnerRow || finalOwnerRow.primary_author !== req.user.email) {
-        return res.redirect("/dashboard?message=You are not authorized to submit a camera-ready paper for this submission.");
+        return res.redirect(`${postActionRedirect(confid)}?message=You are not authorized to submit a camera-ready paper for this submission.`);
       }
       if (["Submitted for Review", "Rejected", "Submitted Final Camera Ready Paper", "Presentation Completed"].includes(finalOwnerRow.submission_status)) {
-        return res.redirect("/dashboard?message=Camera-ready paper cannot be submitted at the current submission status.");
+        return res.redirect(`${postActionRedirect(confid)}?message=Camera-ready paper cannot be submitted at the current submission status.`);
       }
 
       // 1. Verify camera-ready deadline
       try {
         const confResult = await pool.query(
-          `SELECT camera_ready_paper_submission 
-           FROM conferences 
+          `SELECT camera_ready_paper_submission
+           FROM conferences
            WHERE conference_id = $1 LIMIT 1;`,
           [confid]
         );
@@ -7266,7 +7344,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
         const confRow = confResult.rows[0];
 
         if (!confRow || !confRow.camera_ready_paper_submission) {
-          return res.redirect("/dashboard?message=The camera-ready deadline is not configured for this conference.");
+          return res.redirect(`${postActionRedirect(confid)}?message=The camera-ready deadline is not configured for this conference.`);
         }
         {
           const currentDate = getCurrentDateIST();
@@ -7274,17 +7352,17 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
           // Check if current date is AFTER the deadline (not on the deadline day)
           if (!deadline || currentDate > deadline) {
-            return res.redirect("/dashboard?message=The camera-ready submission deadline has passed.");
+            return res.redirect(`${postActionRedirect(confid)}?message=The camera-ready submission deadline has passed.`);
           }
         }
       } catch (deadlineErr) {
         console.error("Deadline check error:", deadlineErr);
-        return res.redirect("/dashboard?message=Unable to verify the camera-ready deadline. Please try again later.");
+        return res.redirect(`${postActionRedirect(confid)}?message=Unable to verify the camera-ready deadline. Please try again later.`);
       }
 
       // 2. Upload to Cloudinary
       if (!isAllowedDocument(req.file)) {
-        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+        return res.redirect(`${postActionRedirect(confid)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
       }
       // FILE-04: type:"private" - this is the camera-ready paper/poster,
       // same sensitivity as the original manuscript, visible only through
@@ -7345,11 +7423,11 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
         confid
       );
 
-      return res.redirect("/dashboard");
+      return res.redirect(postActionRedirect(confid));
 
     } catch (error) {
       console.error("Final camera-ready submission error:", error);
-      return res.redirect("/dashboard?message=Something went wrong while submitting the final camera-ready paper.");
+      return res.redirect(`${postActionRedirect(confid)}?message=Something went wrong while submitting the final camera-ready paper.`);
     }
   });
 });
@@ -7479,6 +7557,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
     peer_review,
     camera_ready_paper_submission,
     cfp_link,
+    deadline_registration,
   } = req.body;
 
   try {
@@ -7495,8 +7574,9 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
            acceptance_notification = $6,
            camera_ready_paper_submission = $7,
            cfp_link = $8,
-           deadline_peer_review = $9
-       WHERE conference_id = $10;`,
+           deadline_peer_review = $9,
+           registration_deadline = $10
+       WHERE conference_id = $11;`,
       [
         title,
         sanitizeDescription(description),
@@ -7507,6 +7587,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
         camera_ready_paper_submission,
         cfp_link || null,
         peer_review,
+        deadline_registration || null,
         conferenceId
       ]
     );
@@ -7980,18 +8061,18 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         // 2. Security + Status checks
         //
         if (submission.primary_author !== req.user.email) {
-          return res.redirect("/dashboard?message=Only the primary author can submit revised papers.");
+          return res.redirect(`${postActionRedirect(submission.conference_id)}?message=Only the primary author can submit revised papers.`);
         }
 
         if (submission.submission_status !== "Revision Required") {
-          return res.redirect("/dashboard?message=This submission is not waiting for revisions.");
+          return res.redirect(`${postActionRedirect(submission.conference_id)}?message=This submission is not waiting for revisions.`);
         }
 
         //
         // 3. Upload File
         //
         if (!isAllowedDocument(req.file)) {
-          return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+          return res.redirect(`${postActionRedirect(submission.conference_id)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
         }
         // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -8014,7 +8095,7 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
           submission.conference_id
         );
 
-        return res.redirect("/dashboard?message=Revised paper submitted successfully for re-review!");
+        return res.redirect(`${postActionRedirect(submission.conference_id)}?message=Revised paper submitted successfully for re-review!`);
 
       } catch (error) {
         console.error("Error in submit revised paper:", error);
@@ -8027,6 +8108,7 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
 
 app.post("/edit-submission", checkAuth, (req, res) => {
   upload.single("file")(req, res, async (err) => {
+    let editRow;
     try {
       if (err instanceof multer.MulterError) {
         const message = err.code === "LIMIT_FILE_SIZE"
@@ -8044,12 +8126,12 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         `SELECT primary_author, co_authors, submission_status, conference_id, paper_number, paper_code FROM submissions WHERE submission_id = $1 LIMIT 1;`,
         [id]
       );
-      const editRow = editOwnerResult.rows[0];
+      editRow = editOwnerResult.rows[0];
       if (!editRow || (editRow.primary_author !== req.user.email && !(Array.isArray(editRow.co_authors) && editRow.co_authors.includes(req.user.email)))) {
-        return res.redirect("/dashboard?message=You can only edit your own submissions.");
+        return res.redirect(`${postActionRedirect(editRow?.conference_id)}?message=You can only edit your own submissions.`);
       }
       if (editRow.submission_status !== "Submitted for Review") {
-        return res.redirect("/dashboard?message=Papers can only be edited when status is Submitted for Review.");
+        return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Papers can only be edited when status is Submitted for Review.`);
       }
 
       // Deadline (same full-paper deadline enforced by the submission pages); fail closed
@@ -8058,7 +8140,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         [editRow.conference_id]
       );
       if (!editConfResult.rows[0] || deadlineClosed(editConfResult.rows[0].full_paper_submission)) {
-        return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
+        return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=The full paper submission deadline has passed.`);
       }
 
       // Track must belong to the submission's conference
@@ -8068,7 +8150,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
           [areas, editRow.conference_id]
         );
         if (editTrackResult.rows.length === 0) {
-          return res.redirect("/dashboard?message=Invalid track selection for the chosen conference.");
+          return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Invalid track selection for the chosen conference.`);
         }
       }
       if (typeof areas !== "string") areas = String(areas).trim();
@@ -8091,7 +8173,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       // If user uploaded a new file
       if (req.file) {
         if (!isAllowedDocument(req.file)) {
-          return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+          return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
         }
         // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -8143,11 +8225,11 @@ app.post("/edit-submission", checkAuth, (req, res) => {
         editRow.co_authors
       );
 
-      return res.redirect("/dashboard?message=Submission updated successfully!");
+      return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Submission updated successfully!`);
 
     } catch (error) {
       console.error("Error in edit submission:", error);
-      return res.redirect("/dashboard?message=Error updating submission.");
+      return res.redirect(`${postActionRedirect(editRow?.conference_id)}?message=Error updating submission.`);
     }
   });
 });
@@ -8159,15 +8241,15 @@ app.post("/submission/delete/primary-author/:id", checkAuth, async (req, res) =>
   try {
     // Authorization: only the primary author may delete, and only while the paper is awaiting review
     const ownerResult = await pool.query(
-      `SELECT primary_author, submission_status FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+      `SELECT primary_author, submission_status, conference_id FROM submissions WHERE submission_id = $1 LIMIT 1;`,
       [req.params.id]
     );
     const ownerRow = ownerResult.rows[0];
     if (!ownerRow || ownerRow.primary_author !== req.user.email) {
-      return res.redirect("/dashboard?message=You are not authorized to delete this submission.");
+      return res.redirect(`${postActionRedirect(ownerRow?.conference_id)}?message=You are not authorized to delete this submission.`);
     }
     if (ownerRow.submission_status !== "Submitted for Review") {
-      return res.redirect("/dashboard?message=This submission cannot be deleted at its current status.");
+      return res.redirect(`${postActionRedirect(ownerRow.conference_id)}?message=This submission cannot be deleted at its current status.`);
     }
 
     const selfDeleteClient = await pool.connect();
@@ -8190,7 +8272,7 @@ app.post("/submission/delete/primary-author/:id", checkAuth, async (req, res) =>
 
     if (redisClient && conferenceId) await redisClient.del(submissionsCacheKey(req.user.email, conferenceId));
 
-    return res.redirect("/dashboard?message=Submission deleted Successfully!");
+    return res.redirect(`${postActionRedirect(conferenceId || ownerRow.conference_id)}?message=Submission deleted Successfully!`);
   } catch (err) {
     console.error("Error deleting submission:", err);
     return res.redirect("/dashboard?message=Error deleting submission.");
@@ -8201,12 +8283,12 @@ app.post("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
 
 
   try {
-    await pool.query(
-      `DELETE FROM invited_talk_submissions WHERE paper_id = $1 AND invitee_email = $2`,
+    const deleted = await pool.query(
+      `DELETE FROM invited_talk_submissions WHERE paper_id = $1 AND invitee_email = $2 RETURNING conference_id`,
       [req.params.id, req.user.email]
     );
 
-    return res.redirect("/dashboard?message=Submission deleted successfully!");
+    return res.redirect(`${postActionRedirect(deleted.rows[0]?.conference_id)}?message=Submission deleted successfully!`);
   } catch (err) {
     console.error("Error deleting invited talk submission:", err);
     return res.redirect("/?message=Error deleting submission.");
@@ -8215,28 +8297,32 @@ app.post("/submission/delete/invitee/:id", checkAuth, async (req, res) => {
 
 app.post("/submit", checkAuth, async (req, res) => {
   upload.single("file")(req, res, async (err) => {
+    // Known as soon as multer parses the form's non-file fields, regardless
+    // of whether the file itself failed - every redirect below goes back
+    // to this specific conference instead of the generic /dashboard.
+    const conferenceId = req.body?.id;
     try {
       if (err instanceof multer.MulterError) {
         const message = err.code === "LIMIT_FILE_SIZE"
           ? "File size exceeds 4MB limit. Please upload a smaller file."
           : err.message;
-        return res.redirect(`/dashboard?message=Error: ${message}`);
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: ${message}`);
       }
 
-      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
+      if (csrfRejectUnlessSkipped(req, res, postActionRedirect(conferenceId))) return;
 
       if (!req.file) {
-        return res.redirect("/dashboard?message=Error: No file uploaded. File size must not exceed 4MB.");
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: No file uploaded. File size must not exceed 4MB.`);
       }
 
       const { title, abstract, areas, id } = req.body;
 
       if (!title || !abstract || !areas || !id) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required: Title, Abstract, Area and Conference."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("All fields are required: Title, Abstract, Area and Conference."));
       }
 
       if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("Upload service is not configured. Please contact the administrator."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Upload service is not configured. Please contact the administrator."));
       }
 
       // Track Validation
@@ -8245,18 +8331,18 @@ app.post("/submit", checkAuth, async (req, res) => {
         [areas, id]
       );
       if (trackCheck.rows.length === 0) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid track selection for the chosen conference."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Invalid track selection for the chosen conference."));
       }
 
       // Deadline (same full-paper deadline enforced by the submission page); fail closed
       const submitConfResult = await pool.query(`SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`, [id]);
       if (!submitConfResult.rows[0] || deadlineClosed(submitConfResult.rows[0].full_paper_submission)) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
       // Cloudinary Upload
       if (!isAllowedDocument(req.file)) {
-        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
       }
       // FILE-04: type:"private" - see getSignedPaperUrl.
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -8354,10 +8440,10 @@ app.post("/submit", checkAuth, async (req, res) => {
         }
       );
 
-      return res.redirect("/dashboard?message=Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors. Keep checking the status of your submission from the dashboard.");
+      return res.redirect(`${postActionRedirect(id)}?message=` + encodeURIComponent("Paper Submitted Successfully, You can now share the Paper Code with your Co-Authors."));
     } catch (error) {
       console.error("Submit error:", error);
-      return res.redirect("/dashboard?message=Something went wrong while submitting the paper.");
+      return res.redirect(`${postActionRedirect(conferenceId)}?message=Something went wrong while submitting the paper.`);
     }
   });
 });
@@ -8368,24 +8454,25 @@ app.post("/submit", checkAuth, async (req, res) => {
 
 app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
+    const conferenceId = req.body?.conference_id;
     if (err instanceof multer.MulterError) {
-      const message = err.code === 'LIMIT_FILE_SIZE' 
+      const message = err.code === 'LIMIT_FILE_SIZE'
         ? 'File size exceeds 4MB limit. Please upload a smaller file.'
         : err.message;
-      return res.redirect(`/dashboard?message=Error: ${message}`);
+      return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: ${message}`);
     }
 
     (async () => {
 
-      if (csrfRejectUnlessSkipped(req, res, "/dashboard")) return;
+      if (csrfRejectUnlessSkipped(req, res, postActionRedirect(conferenceId))) return;
 
       if (!req.file) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
       }
 
       const { title, abstract, areas, conference_id } = req.body;
       if (!title || !abstract || !areas) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("All fields are required"));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("All fields are required"));
       }
 
       // Only invitees of this conference may submit an invited talk, and only before the deadline
@@ -8394,18 +8481,18 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         [conference_id, req.user.email]
       );
       if (inviteeCheckResult.rows.length === 0) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("We could not find your Email ID in the list of Invited Speakers."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("We could not find your Email ID in the list of Invited Speakers."));
       }
       const inviteConfResult = await pool.query(
         `SELECT full_paper_submission FROM conferences WHERE conference_id = $1 LIMIT 1;`,
         [conference_id]
       );
       if (!inviteConfResult.rows[0] || deadlineClosed(inviteConfResult.rows[0].full_paper_submission)) {
-        return res.redirect("/dashboard?message=" + encodeURIComponent("The full paper submission deadline has passed."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
       if (!isAllowedDocument(req.file)) {
-        return res.redirect("/dashboard?message=Error: Only PDF, DOC and DOCX files are allowed.");
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
       }
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
         resource_type: "auto",
@@ -8432,10 +8519,10 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         );
       } catch (dbErr) {
         console.error("Error inserting submission:", dbErr);
-        return res.redirect("/dashboard?message=" + encodeURIComponent("Submission failed."));
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Submission failed."));
       }
 
-      return res.redirect("/dashboard?message=" + encodeURIComponent("Submission saved successfully"));
+      return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Submission saved successfully"));
     })().catch(next);
   });
 });

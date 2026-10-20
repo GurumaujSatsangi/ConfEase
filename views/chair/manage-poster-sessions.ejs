@@ -62,12 +62,12 @@
 
               <div class="col-md-4 mb-3">
                 <label for="coordinators" class="form-label">Coordinators</label>
-               <textarea required name="coordinators" placeholder="Email IDs of the Coordinators (seperated by comma)" class="form-control"></textarea>
+               <textarea required name="coordinators" placeholder="Email IDs of the Coordinators (seperated by comma)" class="form-control"><%= (posterSession && posterSession.coodinators) ? posterSession.coodinators.join(', ') : '' %></textarea>
               </div>
 
                <div class="col-md-4 mb-3">
                 <label for="coordinators" class="form-label">Video Conference Link for Online Attendees</label>
-               <textarea required name="vc_link" class="form-control"></textarea>
+               <textarea required name="vc_link" class="form-control"><%= (posterSession && posterSession.vc_link) ? posterSession.vc_link : '' %></textarea>
               </div>
 
             </div>

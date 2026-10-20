@@ -314,3 +314,31 @@ test("score-posters export contains only the FCRP scoring list, with Paper IDs",
   assert.equal(rows[0][1], "0201");
   assert.equal(rows[0][2], "Dash Poster FCRP");
 });
+
+test("manage-poster-sessions prefills the Coordinators and Link for Online Attendees fields, not just the read-only summary", async () => {
+  const conf = await pool.query(
+    "insert into conferences (title, created_by) values ($1,$2) returning conference_id",
+    ["SESSIONS_DASH_PREFILL_TEST_" + crypto.randomBytes(3).toString("hex"), chairEmail]
+  );
+  const confId = conf.rows[0].conference_id;
+  await pool.query(
+    "insert into poster_session (conference_id, date, start_time, end_time, coodinators, vc_link) values ($1,'2027-01-01','10:00','12:00', ARRAY[$2,$3], $4)",
+    [confId, "coord-a@example.com", "coord-b@example.com", "https://meet.example.com/prefill-room"]
+  );
+
+  try {
+    const html = await (await get(`/chair/dashboard/manage-poster-sessions/${confId}`, chairToken)).text();
+    const coordinatorsField = html.match(/<textarea[^>]*name="coordinators"[^>]*>([\s\S]*?)<\/textarea>/);
+    const vcLinkField = html.match(/<textarea[^>]*name="vc_link"[^>]*>([\s\S]*?)<\/textarea>/);
+
+    assert.ok(coordinatorsField, "the coordinators textarea must exist");
+    assert.match(coordinatorsField[1], /coord-a@example\.com/, "previously-saved coordinators must be prefilled, not left blank");
+    assert.match(coordinatorsField[1], /coord-b@example\.com/);
+
+    assert.ok(vcLinkField, "the vc_link textarea must exist");
+    assert.match(vcLinkField[1], /https:\/\/meet\.example\.com\/prefill-room/, "the previously-saved vc_link must be prefilled, not left blank");
+  } finally {
+    await pool.query("delete from poster_session where conference_id = $1", [confId]);
+    await pool.query("delete from conferences where conference_id = $1", [confId]);
+  }
+});

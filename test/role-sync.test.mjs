@@ -205,3 +205,126 @@ test("set-poster-session: removed coordinators lose the role, re-saving the same
 
   await pool.query("delete from poster_session where conference_id = $1", [conferenceId]);
 });
+
+test("update-track: meta-reviewer can now be set, changed, and cleared, with the role granted/revoked to match", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+  const trackId = await createTrack(conferenceId);
+
+  const baseBody = {
+    track_title: "Meta-Reviewer Test Subject Area",
+    reviewers: "",
+    session_date: "2027-01-02",
+    start_time: "09:00",
+    end_time: "10:00",
+    panelists: "",
+  };
+
+  // 1. Set a meta-reviewer for the first time.
+  await post(`/chair/dashboard/update-track/${trackId}`, { ...baseBody, meta_reviewers: "meta-a@example.com" });
+  let row = await pool.query("select meta_reviewer from conference_tracks where track_id = $1", [trackId]);
+  assert.equal(row.rows[0].meta_reviewer, "meta-a@example.com");
+  let metaRoles = (await roles(conferenceId)).filter((r) => r.role === "meta_reviewer").map((r) => r.email_id);
+  assert.deepEqual(metaRoles, ["meta-a@example.com"]);
+
+  // 2. Change it to a different person - the old one must lose the role, the new one must gain it.
+  await post(`/chair/dashboard/update-track/${trackId}`, { ...baseBody, meta_reviewers: "meta-b@example.com" });
+  row = await pool.query("select meta_reviewer from conference_tracks where track_id = $1", [trackId]);
+  assert.equal(row.rows[0].meta_reviewer, "meta-b@example.com");
+  metaRoles = (await roles(conferenceId)).filter((r) => r.role === "meta_reviewer").map((r) => r.email_id);
+  assert.deepEqual(metaRoles, ["meta-b@example.com"], "meta-a@ must be revoked, meta-b@ granted");
+
+  // 3. Clear it entirely.
+  await post(`/chair/dashboard/update-track/${trackId}`, { ...baseBody, meta_reviewers: "" });
+  row = await pool.query("select meta_reviewer from conference_tracks where track_id = $1", [trackId]);
+  assert.equal(row.rows[0].meta_reviewer, null);
+  metaRoles = (await roles(conferenceId)).filter((r) => r.role === "meta_reviewer");
+  assert.equal(metaRoles.length, 0, "clearing the meta-reviewer must revoke the role entirely");
+});
+
+test("update-track: a meta-reviewer still assigned to another subject area in the same conference keeps their role", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+  const trackToEdit = await createTrack(conferenceId);
+  const otherTrack = await createTrack(conferenceId);
+
+  const baseBody = {
+    track_title: "Shared Meta-Reviewer Subject Area",
+    reviewers: "",
+    session_date: "2027-01-02",
+    start_time: "09:00",
+    end_time: "10:00",
+    panelists: "",
+  };
+
+  await post(`/chair/dashboard/update-track/${trackToEdit}`, { ...baseBody, meta_reviewers: "shared-meta@example.com" });
+  await post(`/chair/dashboard/update-track/${otherTrack}`, { ...baseBody, track_title: "Other Subject Area", meta_reviewers: "shared-meta@example.com" });
+
+  // Remove from the first track only - still assigned to the second.
+  await post(`/chair/dashboard/update-track/${trackToEdit}`, { ...baseBody, meta_reviewers: "" });
+
+  const metaRoles = (await roles(conferenceId)).filter((r) => r.role === "meta_reviewer").map((r) => r.email_id);
+  assert.deepEqual(metaRoles, ["shared-meta@example.com"], "the role must survive since the subject area field still has meta_reviewer set here");
+});
+
+test("update-track saves vc_link (the subject area's Link for Online Attendees)", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+  const trackId = await createTrack(conferenceId);
+
+  const res = await post(`/chair/dashboard/update-track/${trackId}`, {
+    track_title: "Updated Subject Area",
+    reviewers: "",
+    session_date: "2027-01-02",
+    start_time: "09:00",
+    end_time: "10:00",
+    panelists: "",
+    vc_link: "https://meet.example.com/updated-track-room",
+  });
+  assert.equal(res.status, 302);
+  assert.match(loc(res), /Track updated successfully/);
+
+  const row = await pool.query("select vc_link from conference_tracks where track_id = $1", [trackId]);
+  assert.equal(row.rows[0].vc_link, "https://meet.example.com/updated-track-room");
+});
+
+test("update-track clears vc_link when the field is submitted empty", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+  const trackId = await createTrack(conferenceId);
+  await pool.query("update conference_tracks set vc_link = $1 where track_id = $2", ["https://meet.example.com/stale", trackId]);
+
+  await post(`/chair/dashboard/update-track/${trackId}`, {
+    track_title: "Updated Subject Area",
+    reviewers: "",
+    session_date: "2027-01-02",
+    start_time: "09:00",
+    end_time: "10:00",
+    panelists: "",
+    vc_link: "",
+  });
+
+  const row = await pool.query("select vc_link from conference_tracks where track_id = $1", [trackId]);
+  assert.equal(row.rows[0].vc_link, null);
+});
+
+test("create-track saves vc_link on a brand-new subject area", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+
+  const res = await post(`/create-track/${conferenceId}`, {
+    track_title: "Brand New Subject Area " + crypto.randomBytes(3).toString("hex"),
+    reviewers: "",
+    session_date: "2027-01-02",
+    session_start_time: "09:00",
+    session_end_time: "10:00",
+    session_chairs: "",
+    meta_reviewers: "",
+    vc_link: "https://meet.example.com/new-track-room",
+  });
+  assert.equal(res.status, 302);
+  assert.match(loc(res), /Track Added Succesfully/);
+
+  const row = await pool.query("select vc_link from conference_tracks where conference_id = $1 order by track_id desc limit 1", [conferenceId]);
+  assert.equal(row.rows[0].vc_link, "https://meet.example.com/new-track-room");
+});

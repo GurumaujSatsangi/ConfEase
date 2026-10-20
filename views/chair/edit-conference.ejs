@@ -142,6 +142,20 @@
         </div>
 
         <div class="form-group">
+          <label class="form-check-label" for="deadline_registration">
+            Deadline for Registration (Post Final Camera Ready Paper Submission)
+          </label>
+          <input
+            type="date"
+            class="form-control"
+            id="deadline_registration"
+            name="deadline_registration"
+            value="<%= conference.registration_deadline || '' %>"
+            placeholder="Registration Deadline"
+          />
+        </div>
+
+        <div class="form-group">
           <label class="form-check-label" for="cfp_link">
             Call for Papers (CFP) Link
           </label>

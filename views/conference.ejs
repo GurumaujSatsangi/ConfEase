@@ -119,6 +119,7 @@
       <div class="modal-body">
 
         <% if(invited_talk_submissions && invited_talk_submissions.length>0) { %>
+            <div class="table-responsive">
             <table class="table">
             <tr>
                 <th>Submission Title</th>
@@ -143,6 +144,7 @@
             <%}) %>
 
                     </table>
+                    </div>
 
 
         <% } else { %>
@@ -172,6 +174,7 @@
       <div class="modal-body">
 
         <% if(submissions && submissions.length>0) { %>
+            <div class="table-responsive">
             <table class="table">
             <tr>
                 <th>Paper ID</th>
@@ -217,9 +220,9 @@
                         <% if (submission.registration) { %>
                             <button type="button" class="btn btn-success btn-sm" disabled>Registered</button>
 
-                        <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation' && submission.registration.mode_of_presentation === 'Online' && posterSchedule && posterSchedule.vc_link) { %>
+                        <% if (submission.registration.mode_of_presentation === 'Online' && submission.onlineVcLink) { %>
 
-                      <p class="small mb-1"><strong>Link for Online Attendees:</strong> <a href="<%= posterSchedule.vc_link %>" target="_blank" rel="noopener">Join</a></p>
+                      <p class="small mb-1"><strong>Link for Online Attendees:</strong> <a href="<%= submission.onlineVcLink %>" target="_blank" rel="noopener">Join</a></p>
 
                       <% } %>
                             <div class="accordion mt-2" id="registrationAccordion-<%= submission.submission_id %>">
@@ -270,8 +273,9 @@
             <%}) %>
 
                     </table>
+                    </div>
 
-        
+
         <% } else { %>
 
             <p class="small">You have not made any submissions.</p>
@@ -291,8 +295,9 @@
 
         <h5>Important Dates</h5>
         <p class="small">(All timings are in IST)</p>
+        <div class="table-responsive">
         <table class="table">
-            
+
             <tr>
                 <th>FULL PAPER SUBMISSION</th>
                 <th>ACCEPTANCE NOTIFICATION</th>
@@ -303,13 +308,15 @@
                 <td><%= conference.full_paper_submission %> (11:59 PM)</td>
                 <td><%= conference.acceptance_notification %></td>
                 <td><%= conference.camera_ready_paper_submission %> (11:59 PM)</td>
-                <td><%= conference.registration %> (11:59 PM)</td>
+                <td><%= conference.registration_deadline || 'Not set' %> (11:59 PM)</td>
             </tr>
         </table>
+        </div>
 
         <h5>Subject Areas</h5>
 
         <% if(conference_tracks && conference_tracks.length>0){ %>
+            <div class="table-responsive">
             <table class="table table-bordered">
               <thead class="table-light">
                 <tr>
@@ -331,6 +338,7 @@
                 <% }); %>
               </tbody>
             </table>
+            </div>
         <% } else { %>
 
             <p class="small">No subject areas have been added by the Chair! If you think this is an error, please contact the conference Chair.</p>

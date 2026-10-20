@@ -22,6 +22,7 @@
     <!-- Session Details -->
     <% if (posterSession && (posterSession.date || posterSession.start_time || posterSession.end_time)) { %>
       <p class="mb-2"><strong>Session Details:</strong></p>
+      <div class="table-responsive">
       <table class="table table-sm table-hover mb-4">
         <thead class="table-light">
           <tr>
@@ -46,6 +47,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
           <p class="small">(Changes in the schedule can be done only by the conference chairs. Reach out to the chair at <a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></a>)</p>
     <% } %>
 
@@ -147,6 +149,7 @@
     <hr>
 
     <% if(result && result.length>0) { %>
+        <div class="table-responsive">
         <table class="table">
             <tr>
                 <th>Paper ID</th>
@@ -170,6 +173,7 @@
 
         <% }) %>
     </table>
+    </div>
     <% } else { %>
         <h6><i class="bi bi-emoji-frown-fill"></i> &nbsp;No submissions with the status 'Submitted Final Camera Ready Paper for Poster Presentation'</h6>
 

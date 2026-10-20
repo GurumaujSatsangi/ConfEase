@@ -113,7 +113,7 @@ test("full registration flow: form renders, submits, saves, and then disables it
   assert.ok(confHtml.includes("https://drive.google.com/file/d/abc123"));
 });
 
-test("My Submissions shows the poster session's vc_link for an online poster registration, but not for an offline one or an oral submission", async () => {
+test("My Submissions shows the Link for Online Attendees for online poster/oral registrations (from poster_session/conference_tracks respectively), not for offline ones", async () => {
   const onlinePoster = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Poster Presentation");
   await pool.query(
     "insert into poster_session (conference_id, vc_link) values ($1,$2)",
@@ -142,18 +142,43 @@ test("My Submissions shows the poster session's vc_link for an online poster reg
   const offlineHtml = await (await get(`/conference/${offlinePoster.conferenceId}`)).text();
   assert.ok(!offlineHtml.includes("Link for Online Attendees"), "an offline registration must not show the vc_link");
 
+  // An oral submission's "Link for Online Attendees" comes from its own
+  // subject area's vc_link (conference_tracks), not poster_session's - the
+  // poster_session.vc_link inserted above for this conference must not
+  // leak into an oral submission's display.
   const onlineOral = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
   await pool.query(
     "insert into poster_session (conference_id, vc_link) values ($1,$2)",
     [onlineOral.conferenceId, "https://meet.example.com/should-not-appear"]
   );
+  const oralTrack = await pool.query(
+    "insert into conference_tracks (conference_id, track_name, vc_link) values ($1,'Oral VC Link Track','https://meet.example.com/online-oral-room') returning track_id",
+    [onlineOral.conferenceId]
+  );
+  await pool.query("update submissions set track_id = $1 where submission_id = $2", [oralTrack.rows[0].track_id, onlineOral.submissionId]);
   await post(`/submission/register/${onlineOral.submissionId}`, {
     mode_of_presentation: "Online",
     attending_offline: "0",
     link_to_video: "https://drive.google.com/file/d/online-oral",
   });
   const oralHtml = await (await get(`/conference/${onlineOral.conferenceId}`)).text();
-  assert.ok(!oralHtml.includes("Link for Online Attendees"), "vc_link only applies to poster submissions, not oral ones");
+  assert.ok(oralHtml.includes("Link for Online Attendees"), "an online oral registration must show its subject area's vc_link");
+  assert.ok(oralHtml.includes("https://meet.example.com/online-oral-room"));
+  assert.ok(!oralHtml.includes("https://meet.example.com/should-not-appear"), "the poster session's vc_link must not leak into the oral submission's link");
+
+  const offlineOral = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+  const offlineOralTrack = await pool.query(
+    "insert into conference_tracks (conference_id, track_name, vc_link) values ($1,'Offline Oral Track','https://meet.example.com/not-shown-offline') returning track_id",
+    [offlineOral.conferenceId]
+  );
+  await pool.query("update submissions set track_id = $1 where submission_id = $2", [offlineOralTrack.rows[0].track_id, offlineOral.submissionId]);
+  await post(`/submission/register/${offlineOral.submissionId}`, {
+    mode_of_presentation: "Offline",
+    attending_offline: "2",
+    link_to_video: "https://drive.google.com/file/d/offline-oral",
+  });
+  const offlineOralHtml = await (await get(`/conference/${offlineOral.conferenceId}`)).text();
+  assert.ok(!offlineOralHtml.includes("Link for Online Attendees"), "an offline oral registration must not show the vc_link even though the track has one");
 });
 
 test("POST rejects an invalid mode of presentation and a missing video link, without writing a row", async () => {
@@ -175,4 +200,45 @@ test("POST rejects an invalid mode of presentation and a missing video link, wit
 
   const rowCount = (await pool.query("select count(*) from registration where submission_id = $1", [submissionId])).rows[0].count;
   assert.equal(Number(rowCount), 0);
+});
+
+// registration_deadline (conferences table) - a chair-configured, optional
+// cutoff. Null (the default for any conference that predates this column,
+// or where a chair just hasn't set one) must never block registration.
+async function setRegistrationDeadline(conferenceId, deadline) {
+  await pool.query("update conferences set registration_deadline = $1 where conference_id = $2", [deadline, conferenceId]);
+}
+
+test("GET and POST /submission/register/:id are blocked once the conference's registration deadline has passed", async () => {
+  const { conferenceId, submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+  await setRegistrationDeadline(conferenceId, "2000-01-01");
+
+  const getRes = await get(`/submission/register/${submissionId}`);
+  assert.equal(getRes.status, 302);
+  assert.match(loc(getRes), /registration deadline for this conference has passed/);
+
+  const postRes = await post(`/submission/register/${submissionId}`, {
+    mode_of_presentation: "Online",
+    attending_offline: "0",
+    link_to_video: "https://drive.google.com/file/d/past-deadline",
+  });
+  assert.match(loc(postRes), /registration deadline for this conference has passed/);
+
+  const row = await pool.query("select 1 from registration where submission_id = $1", [submissionId]);
+  assert.equal(row.rows.length, 0, "a past-deadline attempt must not create a registration row");
+});
+
+test("registration still works when the deadline is in the future", async () => {
+  const { conferenceId, submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+  await setRegistrationDeadline(conferenceId, "2099-01-01");
+
+  const res = await get(`/submission/register/${submissionId}`);
+  assert.equal(res.status, 200);
+});
+
+test("registration still works when no deadline has been configured at all (null, the pre-existing default)", async () => {
+  const { submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+  // createConferenceWithSubmission never sets registration_deadline - confirms it stays null and isn't treated as "already passed".
+  const res = await get(`/submission/register/${submissionId}`);
+  assert.equal(res.status, 200);
 });
