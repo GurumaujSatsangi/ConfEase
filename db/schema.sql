@@ -289,7 +289,8 @@ CREATE TABLE public.conference_tracks (
     status character varying,
     session_code character varying,
     meta_reviewer character varying,
-    group_id uuid
+    group_id uuid,
+    vc_link text
 );
 
 
@@ -309,7 +310,8 @@ CREATE TABLE public.conferences (
     conference_id uuid DEFAULT gen_random_uuid() NOT NULL,
     deadline_peer_review date,
     created_by character varying(40),
-    cfp_link text
+    cfp_link text,
+    registration_deadline date
 );
 
 
