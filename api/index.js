@@ -1631,6 +1631,31 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       submissiondata = submissionResult.rows;
     }
 
+    // Per-paper reviewer assignment (reviewers_assigned_papers, set by the
+    // chair's /chair/dashboard/assign-papers/:id page): once a track has
+    // ANY assignment rows, only this reviewer's own assigned papers on
+    // that track are visible to them - everyone else on the track no
+    // longer sees it. A track with no assignment rows at all (the chair
+    // has never used that page for it) keeps the old "every reviewer sees
+    // every submission on the track" behavior, so this is purely additive
+    // for conferences that don't use the feature.
+    let filterSubmissionsByAssignment = (rows) => rows;
+    if (trackIds.length > 0) {
+      const assignmentResult = await pool.query(
+        "select track, submission_id, reviewer from reviewers_assigned_papers where track = ANY($1)",
+        [trackIds]
+      );
+      const tracksWithAnyAssignment = new Set(assignmentResult.rows.map((r) => r.track));
+      const submissionsAssignedToThisReviewer = new Set(
+        assignmentResult.rows
+          .filter((r) => String(r.reviewer).toLowerCase() === String(req.user.email).toLowerCase())
+          .map((r) => r.submission_id)
+      );
+      filterSubmissionsByAssignment = (rows) =>
+        rows.filter((s) => !tracksWithAnyAssignment.has(s.track_id) || submissionsAssignedToThisReviewer.has(s.submission_id));
+      submissiondata = filterSubmissionsByAssignment(submissiondata);
+    }
+
     // Submissions this specific reviewer has already reviewed, so the
     // "Start Review" button can be hidden for them specifically (the status
     // column is shared across all reviewers of a track and must not be used
@@ -1647,7 +1672,7 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
       const placeholders = trackIds.map((_, i) => `$${i + 1}`).join(",");
       const revisedQuery = `SELECT * FROM submissions WHERE track_id IN (${placeholders}) AND submission_status = $${trackIds.length + 1}`;
       const revisedResult = await pool.query(revisedQuery, [...trackIds, "Submitted Revised Paper"]);
-      revisedSubmissions = revisedResult.rows;
+      revisedSubmissions = filterSubmissionsByAssignment(revisedResult.rows);
     }
 
     // Same per-reviewer "already done" tracking for re-reviews.
@@ -4975,6 +5000,115 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
   } catch (err) {
     console.error("Error updating track:", err);
     res.redirect("/chair/dashboard?message=Failed to update Track!");
+  }
+});
+
+// Lets the chair assign each submission in a subject area to one specific
+// reviewer (reviewers_assigned_papers), instead of every reviewer on the
+// track seeing every submission - see the filtering this drives on
+// GET /reviewer/dashboard. A track with no assignment rows at all keeps the
+// old "every reviewer sees every submission on the track" behavior, so
+// conferences that never use this page are unaffected.
+app.get("/chair/dashboard/assign-papers/:id", checkChairAuth, async (req, res) => {
+  const trackId = req.params.id;
+  try {
+    const trackResult = await pool.query("select * from conference_tracks where track_id = $1", [trackId]);
+    const track = trackResult.rows[0];
+    if (!track) {
+      return res.redirect("/chair/dashboard?message=Subject area not found.");
+    }
+    if (!(await chairOwnsConference(req.user.email, track.conference_id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
+    }
+
+    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [track.conference_id]);
+
+    const submissionsResult = await pool.query(
+      "select submission_id, paper_number, title from submissions where track_id = $1 order by paper_number nulls last, created_at",
+      [trackId]
+    );
+
+    const assignmentsResult = await pool.query(
+      "select submission_id, reviewer from reviewers_assigned_papers where track = $1",
+      [trackId]
+    );
+    const assignedReviewerBySubmission = {};
+    assignmentsResult.rows.forEach((a) => (assignedReviewerBySubmission[a.submission_id] = a.reviewer));
+
+    const submissions = submissionsResult.rows.map((s) => ({
+      ...s,
+      paperId: formatPaperId(s.paper_number) || s.submission_id,
+      assignedReviewer: assignedReviewerBySubmission[s.submission_id] || "",
+    }));
+
+    return res.render("chair/assign-papers.ejs", {
+      user: req.user,
+      track,
+      conferenceTitle: conferenceResult.rows[0]?.title || "",
+      reviewers: Array.isArray(track.track_reviewers) ? track.track_reviewers : [],
+      submissions,
+      message: req.query.message || null,
+    });
+  } catch (err) {
+    console.error("Error loading assign-papers page:", err);
+    return res.redirect("/chair/dashboard?message=Error loading the paper assignment page.");
+  }
+});
+
+app.post("/chair/dashboard/assign-papers/:id", checkChairAuth, async (req, res) => {
+  const trackId = req.params.id;
+  try {
+    const trackResult = await pool.query("select * from conference_tracks where track_id = $1", [trackId]);
+    const track = trackResult.rows[0];
+    if (!track) {
+      return res.redirect("/chair/dashboard?message=Subject area not found.");
+    }
+    if (!(await chairOwnsConference(req.user.email, track.conference_id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
+    }
+
+    const trackReviewers = new Set((Array.isArray(track.track_reviewers) ? track.track_reviewers : []).map((e) => String(e).toLowerCase()));
+
+    const submissionsResult = await pool.query("select submission_id from submissions where track_id = $1", [trackId]);
+    const submissionIds = submissionsResult.rows.map((s) => s.submission_id);
+
+    const assignClient = await pool.connect();
+    try {
+      await assignClient.query("BEGIN");
+      for (const submissionId of submissionIds) {
+        const reviewerEmail = String(req.body[`reviewer_${submissionId}`] || "").trim();
+
+        if (!reviewerEmail) {
+          // Cleared back to "Unassigned" - remove any existing assignment.
+          await assignClient.query("delete from reviewers_assigned_papers where submission_id = $1", [submissionId]);
+          continue;
+        }
+
+        // Only ever accept an email that's actually one of this track's
+        // own reviewers - a submitted value can't be trusted otherwise.
+        if (!trackReviewers.has(reviewerEmail.toLowerCase())) {
+          continue;
+        }
+
+        await assignClient.query(
+          `INSERT INTO reviewers_assigned_papers (conference_id, submission_id, reviewer, track)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (submission_id) DO UPDATE SET reviewer = excluded.reviewer, conference_id = excluded.conference_id, track = excluded.track`,
+          [track.conference_id, submissionId, reviewerEmail, trackId]
+        );
+      }
+      await assignClient.query("COMMIT");
+    } catch (txErr) {
+      await assignClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      assignClient.release();
+    }
+
+    return res.redirect(`/chair/dashboard/assign-papers/${trackId}?message=Paper assignments saved successfully!`);
+  } catch (err) {
+    console.error("Error saving paper assignments:", err);
+    return res.redirect(`/chair/dashboard/assign-papers/${trackId}?message=Error saving paper assignments.`);
   }
 });
 

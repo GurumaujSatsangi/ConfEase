@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+    <title>DEI CMT</title>
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
+</head>
+<body>
+    <%- include('../partials/dashboard/header') %>
+    <div class="container">
+        <h4>Assign Papers to Reviewers</h4>
+        <h6>Conference: <%= conferenceTitle %></h6>
+        <h6>Subject Area: <%= track.track_name %></h6>
+
+        <% if (message) { %>
+          <div class="alert alert-info"><%= message %></div>
+        <% } %>
+
+        <% if (!reviewers || reviewers.length === 0) { %>
+          <div class="alert alert-warning">
+            This subject area has no reviewers yet. Add reviewers from the
+            <a href="/chair/dashboard/manage-tracks/<%= track.conference_id %>">Manage Tracks</a> page first.
+          </div>
+        <% } %>
+
+        <p class="small text-muted">
+          Assign each paper to one specific reviewer. Only that reviewer will see the paper on their dashboard.
+          A paper left "Unassigned" falls back to being visible to every reviewer on this subject area, same as before this page existed.
+        </p>
+
+        <hr>
+
+        <% if (submissions && submissions.length > 0) { %>
+          <form method="POST" action="/chair/dashboard/assign-papers/<%= track.track_id %>">
+            <div class="table-responsive">
+              <table class="table table-bordered align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width:25%;">Paper ID</th>
+                    <th>Reviewer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% submissions.forEach(function(submission) { %>
+                    <tr>
+                      <td><%= submission.paperId %></td>
+                      <td>
+                        <select class="form-select" name="reviewer_<%= submission.submission_id %>">
+                          <option value="">-- Unassigned --</option>
+                          <% reviewers.forEach(function(reviewerEmail) { %>
+                            <option value="<%= reviewerEmail %>" <%= submission.assignedReviewer === reviewerEmail ? 'selected' : '' %>>
+                              <%= reviewerEmail %>
+                            </option>
+                          <% }); %>
+                        </select>
+                      </td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
+            <button type="submit" class="btn btn-success">Save Assignments</button>
+          </form>
+        <% } else { %>
+          <h6><i class="bi bi-emoji-frown-fill"></i> No submissions have been made to this subject area yet.</h6>
+        <% } %>
+    </div>
+
+    <%- include('../partials/footer') %>
+
+</body>
+<script src="/script.js"></script>
+</html>

@@ -570,6 +570,18 @@ CREATE TABLE public.registration (
 
 
 --
+-- Name: reviewers_assigned_papers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reviewers_assigned_papers (
+    conference_id text NOT NULL,
+    submission_id text NOT NULL,
+    reviewer text NOT NULL,
+    track text NOT NULL
+);
+
+
+--
 -- Name: revised_submissions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1135,6 +1147,13 @@ CREATE UNIQUE INDEX uniq_conference_roles_conference_email_role ON public.confer
 --
 
 CREATE UNIQUE INDEX uniq_peer_review_submission_reviewer ON public.peer_review USING btree (submission_id, reviewer);
+
+
+--
+-- Name: uniq_reviewers_assigned_papers_submission; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_reviewers_assigned_papers_submission ON public.reviewers_assigned_papers USING btree (submission_id);
 
 
 --
