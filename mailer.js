@@ -18,6 +18,14 @@ function getResendClient() {
   return resendClient;
 }
 
+// Test-only record of every sendMail() call made while SKIP_AUTOLISTEN=1
+// (when the real Resend call is skipped - see sendMail below). Lets a test
+// assert who an email would have gone to without actually sending one.
+export const testSentEmails = [];
+export function resetTestSentEmails() {
+  testSentEmails.length = 0;
+}
+
 // Resend's own type definitions (node_modules/resend/dist/index.d.mts,
 // checked directly rather than assumed) list `rate_limit_exceeded` as one
 // of a fixed set of error codes the API returns - confirmed real, not
@@ -131,6 +139,9 @@ export async function sendMail(to, subject, text, html, cc = null) {
   // history for what happened when this wasn't guarded against for the
   // previous (SMTP) transport.
   if (process.env.SKIP_AUTOLISTEN === "1") {
+    // Recorded (not sent) so tests can assert who *would* have been
+    // emailed - see testSentEmails/resetTestSentEmails below.
+    testSentEmails.push({ to, subject });
     return { messageId: "skipped-in-test@localhost", accepted: [to], rejected: [] };
   }
 

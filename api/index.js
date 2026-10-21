@@ -2581,6 +2581,18 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
   // double-counted) on a later publish. Now all-or-nothing in one
   // transaction, matching the pattern already used elsewhere in this file
   // (desk review, poster-session save, conference delete).
+  // Tracks which submissions have a decision becoming newly visible in
+  // *this* publish - i.e. a meta-reviewer recommendation applied just
+  // above. Only these get the decision email below. Without this, the
+  // email loop had no way to tell "just decided" apart from "decided at
+  // some earlier publish and already notified" - any submission sitting
+  // in any non-pending status (including ones several stages further
+  // along, like Poster Scored or Presentation Completed) got the same
+  // "peer_review_decision" email resent every single time the chair
+  // published anything else in the conference, authors with no revision
+  // and no new decision included.
+  const newlyDecidedSubmissionIds = new Set();
+
   const submissionIds = authors.rows.map((a) => a.submission_id);
   if (submissionIds.length > 0) {
     const metaDecisions = await pool.query(
@@ -2614,6 +2626,7 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
           author.submission_status = decision.status;
           author.remarks = decision.remarks;
         }
+        newlyDecidedSubmissionIds.add(decision.submission_id);
       }
     }
   }
@@ -2634,7 +2647,10 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
       pending_acceptance_notifications_titles[i] = authors.rows[i].title;
 
     }
-    else {
+    else if (newlyDecidedSubmissionIds.has(authors.rows[i].submission_id)) {
+      // Only email submissions whose decision is newly published right now -
+      // anything else sitting in a non-pending status was already decided
+      // (and already emailed) at an earlier publish.
       const authorName = await getUserDisplayName(authors.rows[i].primary_author);
       await sendSubmissionLifecycleEmail(
         authors.rows[i].primary_author,
