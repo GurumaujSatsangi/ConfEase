@@ -33,6 +33,7 @@ let conferenceId;
 let pendingSubmissionId; // "Submitted for Review" - details must stay hidden
 let deskRejectSubmissionId; // "DESK REJECT" - a dead end
 let decidedSubmissionId; // "Accepted for Oral Presentation" with a peer review and a meta-reviewer decision already applied
+let fcrpSubmissionId; // "Submitted Final Camera Ready Paper for Oral Presentation" - decision already published, final paper already in
 
 const get = (path) => fetch(base + path, { headers: { Authorization: `Bearer ${chairToken}` }, redirect: "manual" });
 
@@ -80,11 +81,21 @@ before(async () => {
     "insert into peer_review (conference_id, submission_id, reviewer, mean_score, remarks) values ($1,$2,$3,$4,$5)",
     [conferenceId, decidedSubmissionId, chairEmail, 4.5, "Well written."]
   );
+
+  // The meta-reviewer decided "Accepted for Oral Presentation", and the
+  // author has since submitted their camera-ready paper - submission_status
+  // has moved on from the decision itself, but remarks (set when the
+  // decision was published) is untouched by that later status change.
+  const fcrp = await pool.query(
+    "insert into submissions (conference_id, primary_author, title, paper_code, paper_number, submission_status, remarks) values ($1,$2,'FCRP Paper','JP4',104,'Submitted Final Camera Ready Paper for Oral Presentation','Great revision, accept.') returning submission_id",
+    [conferenceId, "journey-test-author-fcrp@example.com"]
+  );
+  fcrpSubmissionId = fcrp.rows[0].submission_id;
 });
 
 after(async () => {
   if (conferenceId) {
-    const ids = [pendingSubmissionId, deskRejectSubmissionId, decidedSubmissionId];
+    const ids = [pendingSubmissionId, deskRejectSubmissionId, decidedSubmissionId, fcrpSubmissionId];
     await pool.query("delete from peer_review where submission_id = ANY($1)", [ids]);
     await pool.query("delete from submissions where conference_id = $1", [conferenceId]);
     await pool.query("delete from conferences where conference_id = $1", [conferenceId]);
@@ -134,6 +145,32 @@ test("view-submissions: a decided, published submission shows its peer review an
   assert.match(reviewModalHtml, /Well written\./, "the reviewer's remarks must appear");
   assert.match(reviewModalHtml, />Meta-Reviewer Decision</, "the meta-reviewer's final decision must be shown once published");
   assert.match(reviewModalHtml, /Strong paper, accept\./, "the meta-reviewer's remarks must appear");
+});
+
+test("view-submissions: once the final paper is submitted, the journey's last stage reads as done (not still in progress), and the decision shown is the original decision, not the drifted current status", async () => {
+  const res = await get(`/chair/dashboard/view-submissions/${conferenceId}`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+
+  const reviewModalHtml = extractReviewModalHtml(html, fcrpSubmissionId);
+  assert.ok(reviewModalHtml, "the review modal for the FCRP submission must be present");
+
+  assert.match(
+    reviewModalHtml,
+    /journey-step done">[\s\S]*?Submitted Final\s*Paper/,
+    "'Submitted Final Paper' must read as done, not current/in-progress, once the final paper has actually been submitted"
+  );
+  assert.doesNotMatch(
+    reviewModalHtml,
+    /journey-step current">[\s\S]*?Submitted Final\s*Paper/,
+    "the final stage must never be shown as still in progress"
+  );
+
+  assert.match(
+    reviewModalHtml,
+    /Accepted for Oral Presentation<\/td>\s*<td>Great revision, accept\./,
+    "the Meta-Reviewer Decision table must show the original decision (Accepted for Oral Presentation), not the submission's current status (Submitted Final Camera Ready Paper for Oral Presentation)"
+  );
 });
 
 test("every response carries a CSP that allows inline event handler attributes (script-src-attr), not Helmet's silent 'none' default", async () => {

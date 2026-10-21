@@ -453,10 +453,40 @@ function buildSubmissionJourney(submissionStatus, hasPendingMetaDecision) {
 
   if (hasPendingMetaDecision && stageIndex < 3) stageIndex = 3;
 
+  // The final stage has nothing after it to still be waiting on - once
+  // reached, it's complete, not "in progress" (a blue hourglass there read
+  // as "still pending" even though the final paper had, in fact, already
+  // been submitted).
+  const lastStageIndex = SUBMISSION_JOURNEY_STAGES.length - 1;
+
   return SUBMISSION_JOURNEY_STAGES.map((label, i) => ({
     label,
-    state: i < stageIndex ? "done" : i === stageIndex ? "current" : "pending",
+    state: i < stageIndex ? "done" : i === stageIndex ? (i === lastStageIndex ? "done" : "current") : "pending",
   }));
+}
+
+// The "Meta-Reviewer Decision" table on the Review Details modal shows what
+// the meta-reviewer actually decided (Accept/Reject/Revision Required) -
+// not the submission's current status, which keeps moving on past that
+// decision (camera-ready paper submitted, poster scored, presentation
+// completed, ...). submission_status IS the decision only for as long as
+// the submission sits at that exact decided status; every status further
+// downstream has to be mapped back to the decision that put it on that
+// path. submission.remarks (the meta-reviewer's remarks) stays correct on
+// its own - only this status update route (/final-camera-ready-submission)
+// and the panelist/poster-scoring ones ever touch submission_status after
+// a decision is published, and none of them touch remarks.
+function decisionLabelForStatus(submissionStatus) {
+  if (SUBMISSION_DECIDED_STATUSES.includes(submissionStatus)) return submissionStatus;
+  if (submissionStatus === "Submitted Revised Paper") return "Revision Required";
+  if (submissionStatus === "Submitted Final Camera Ready Paper for Oral Presentation" || submissionStatus === "Presentation Completed") {
+    return "Accepted for Oral Presentation";
+  }
+  if (submissionStatus === "Submitted Final Camera Ready Paper for Poster Presentation" || submissionStatus === "Poster Scored") {
+    return "Accepted for Poster Presentation";
+  }
+  if (submissionStatus === "Submitted Final Camera Ready Paper") return "Accepted";
+  return submissionStatus;
 }
 
 // Email salutation: always "Dear <name>," - never "Hi"/"Hello"/"Dear <name>!".
@@ -7878,6 +7908,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
       s.revisedReviews = revisedReviewsBySubmission[s.submission_id] || [];
       s.canShowReviewDetails = !['Submitted for Review', 'Reviewed'].includes(s.submission_status);
       s.journey = buildSubmissionJourney(s.submission_status, pendingMetaDecisionIds.has(s.submission_id));
+      s.metaDecisionLabel = decisionLabelForStatus(s.submission_status);
     }
 
     const uniqueStatuses = [...new Set(submissions.map(sub => sub.submission_status))];
