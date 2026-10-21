@@ -26,6 +26,7 @@ import { attachCsrfToken, injectCsrfIntoForms, verifyCsrfToken, csrfRejectUnless
 import helmet from "helmet"
 import ExcelJS from "exceljs";
 import { ZipArchive } from "archiver";
+import { submitSubmissionForAnalysis, refreshPendingReports, fetchDrillbitReport, isDrillbitConfigured } from "../drillbit.js";
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
 const DESCRIPTION_OPTIONS = {
@@ -2347,9 +2348,67 @@ app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id=$1",[conference_id]);
   const submissions = await pool.query("select * from submissions where conference_id=$1 and submission_status=$2",[conference_id,"Submitted for Review"]);
 
-  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows.map(withSignedPaperUrl)});
+  const submissionIds = submissions.rows.map((s) => s.submission_id);
+  // Checks Drillbit for a result on every still-"pending" submission on
+  // this page before rendering, so the chair sees fresh-as-possible
+  // scores without this app needing a background worker/cron - see
+  // drillbit.js. A no-op (and never throws) when Drillbit isn't
+  // configured yet or nothing here is pending.
+  await refreshPendingReports(pool, submissionIds).catch((err) => console.error("Error refreshing Drillbit reports:", err));
+
+  let drillbitBySubmission = {};
+  if (submissionIds.length > 0) {
+    const drillbitResult = await pool.query(
+      "select submission_id, status, plagiarism_percent, ai_percent, paper_id, d_key, error_message from drillbit_reports where submission_id = ANY($1)",
+      [submissionIds]
+    );
+    drillbitResult.rows.forEach((r) => (drillbitBySubmission[r.submission_id] = r));
+  }
+
+  const submissionsWithDrillbit = submissions.rows.map(withSignedPaperUrl).map((s) => ({
+    ...s,
+    drillbit: drillbitBySubmission[s.submission_id] || null,
+  }));
+
+  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissionsWithDrillbit, drillbitConfigured: isDrillbitConfigured()});
 
 })
+
+// Proxies one of Drillbit's PDF reports for a submission - Drillbit
+// requires its own Bearer token on every report download, which a plain
+// <a href> can't attach, so this app fetches it server-side (already
+// authenticated with Drillbit) and streams it back to the chair.
+app.get("/chair/dashboard/desk/drillbit-report/:submissionId/:type", checkChairAuth, async (req, res) => {
+  const { submissionId, type } = req.params;
+  if (!["similarity", "ai"].includes(type)) {
+    return res.status(400).send("Invalid report type.");
+  }
+
+  const reportRow = await pool.query(
+    "select s.conference_id, d.paper_id, d.d_key from submissions s join drillbit_reports d on d.submission_id = s.submission_id where s.submission_id = $1",
+    [submissionId]
+  );
+  if (!reportRow.rows[0]) {
+    return res.redirect("/chair/dashboard?message=Drillbit report not found for this submission.");
+  }
+  if (!(await chairOwnsConference(req.user.email, reportRow.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to view this report.");
+  }
+  if (!reportRow.rows[0].paper_id || !reportRow.rows[0].d_key) {
+    return res.redirect("/chair/dashboard?message=This report is not ready yet. Please check back shortly.");
+  }
+
+  try {
+    const drillbitRes = await fetchDrillbitReport(reportRow.rows[0].paper_id, reportRow.rows[0].d_key, type);
+    const pdfBuffer = Buffer.from(await drillbitRes.arrayBuffer());
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${type}-report-${submissionId}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error fetching Drillbit report:", err);
+    return res.redirect("/chair/dashboard?message=Error fetching the report from Drillbit. Please try again later.");
+  }
+});
 
 // Streams every submission currently awaiting desk review (same query as
 // the page itself) into a single .zip, fetched one at a time from
@@ -8794,8 +8853,23 @@ app.post("/submit", checkAuth, async (req, res) => {
       }
       }
 
-      const conference_data = await pool.query("select * from conferences where conference_id=$1", [id]); 
+      const conference_data = await pool.query("select * from conferences where conference_id=$1", [id]);
       console.log("ADDED TO DB!");
+
+      // Fire-and-forget: send this first-time full paper submission to
+      // Drillbit for AI/plagiarism analysis (not revised papers, not
+      // camera-ready papers - only this route). Never awaited as part of
+      // the author's own request/redirect - a slow or unreachable
+      // Drillbit must never delay submitting a paper, and
+      // submitSubmissionForAnalysis already catches every failure itself
+      // (recording it on the row, see drillbit.js) rather than throwing.
+      submitSubmissionForAnalysis(pool, {
+        submissionId: submission_result.rows[0].submission_id,
+        fileBuffer: req.file.buffer,
+        fileName: req.file.originalname,
+        authorName: req.user.name,
+        title,
+      }).catch((err) => console.error("Unexpected error kicking off Drillbit analysis:", err));
 
       // --- FIXED: Consistent User Submissions Cache handling ---
       const cacheKey = submissionsCacheKey(req.user.email, id);

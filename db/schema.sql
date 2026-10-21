@@ -350,6 +350,36 @@ ALTER SEQUENCE public.desk_review_id_seq OWNED BY public.desk_review.id;
 
 
 --
+-- Name: drillbit_connection; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.drillbit_connection (
+    id smallint DEFAULT 1 NOT NULL,
+    folder_id text NOT NULL,
+    CONSTRAINT drillbit_connection_singleton CHECK ((id = 1))
+);
+
+
+--
+-- Name: drillbit_reports; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.drillbit_reports (
+    submission_id uuid NOT NULL,
+    folder_id text,
+    paper_id text,
+    d_key text,
+    status text DEFAULT 'pending'::text NOT NULL,
+    plagiarism_percent numeric,
+    ai_percent numeric,
+    error_message text,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    checked_at timestamp with time zone,
+    CONSTRAINT drillbit_reports_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: final_camera_ready_submissions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -879,6 +909,22 @@ ALTER TABLE ONLY public.desk_review
 
 
 --
+-- Name: drillbit_connection drillbit_connection_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drillbit_connection
+    ADD CONSTRAINT drillbit_connection_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drillbit_reports drillbit_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drillbit_reports
+    ADD CONSTRAINT drillbit_reports_pkey PRIMARY KEY (submission_id);
+
+
+--
 -- Name: final_camera_ready_submissions final_camera_ready_submissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1186,6 +1232,14 @@ ALTER TABLE ONLY public.co_author_requests
 
 ALTER TABLE ONLY public.co_author_requests
     ADD CONSTRAINT co_author_requests_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(submission_id) ON DELETE CASCADE;
+
+
+--
+-- Name: drillbit_reports drillbit_reports_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drillbit_reports
+    ADD CONSTRAINT drillbit_reports_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(submission_id) ON DELETE CASCADE;
 
 
 --
