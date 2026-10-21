@@ -174,41 +174,6 @@ function showSingleBlind(){
 const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]')
 const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
 
-const desk_decision = document.querySelector('[name="decision"]').value;
-
-if (desk_decision === 'DESK ACCEPT') {
-  console.log("ACCEPTED FOR REVIEW");
-  // Add your logic here to proceed with the acceptance
-  
-} else {
-  console.log("REJECTED, WILL NOT BE SENT FOR REVIEW");
-  
-  // Trigger SweetAlert input box
-  Swal.fire({
-    title: 'Reason for Rejection',
-    text: 'Please provide a reason for rejecting this submission.',
-    input: 'textarea', // Use 'text' for a single-line input
-    inputPlaceholder: 'Type your reason here...',
-    showCancelButton: true,
-    confirmButtonText: 'Submit Rejection',
-    cancelButtonText: 'Cancel',
-    // Optional: Prevent them from submitting an empty reason
-    inputValidator: (value) => {
-      if (!value) {
-        return 'You need to write a reason for rejection!';
-      }
-    }
-  }).then((result) => {
-    // Check if the user clicked "Submit" and didn't cancel
-    if (result.isConfirmed) {
-      const rejectionReason = result.value;
-      console.log("Rejection Reason submitted:", rejectionReason);
-
-      // Add your logic here to save the rejection reason or submit the form
-    }
-  });
-}
-
 // Show/hide password toggle. `button` is the toggle button itself, so the
 // icon inside it (rendered by the caller) can be swapped in place.
 function togglePasswordVisibility(inputId, button) {

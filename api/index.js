@@ -392,6 +392,73 @@ function postActionRedirect(conferenceId) {
   return conferenceId ? `/conference/${conferenceId}` : "/dashboard";
 }
 
+// The six parcel-tracker-style milestones shown on the chair's "Review
+// Details" modal (view-submissions.ejs). A submission always has exactly
+// one of these as its current stage; everything before it is "done",
+// everything after is "pending". DESK REJECT is a dead end (handled
+// separately below, not part of this linear order) since a desk-rejected
+// paper never reaches peer review at all.
+const SUBMISSION_JOURNEY_STAGES = [
+  "Submitted",
+  "Desk Review",
+  "Peer Review",
+  "Meta-Reviewer Review",
+  "Decision Published",
+  "Submitted Final Paper",
+];
+
+const SUBMISSION_FINAL_PAPER_STATUSES = [
+  "Submitted Final Camera Ready Paper",
+  "Submitted Final Camera Ready Paper for Oral Presentation",
+  "Submitted Final Camera Ready Paper for Poster Presentation",
+  "Poster Scored",
+  "Presentation Completed",
+];
+
+const SUBMISSION_DECIDED_STATUSES = [
+  "Accepted for Oral Presentation",
+  "Accepted for Poster Presentation",
+  "Rejected",
+  "Revision Required",
+];
+
+// Builds the ordered { label, state } list for the journey timeline.
+// `state` is one of "done" | "current" | "pending" | "rejected" | "skipped".
+// hasPendingMetaDecision = a meta_reviewer_decision row exists for this
+// submission (a recommendation has been made but not yet published) - only
+// used to light up "Meta-Reviewer Review" as reached; the recommendation's
+// actual content stays hidden until publish, same as everywhere else.
+function buildSubmissionJourney(submissionStatus, hasPendingMetaDecision) {
+  if (submissionStatus === "DESK REJECT") {
+    return SUBMISSION_JOURNEY_STAGES.map((label, i) => ({
+      label,
+      state: i === 0 ? "done" : i === 1 ? "rejected" : "skipped",
+    }));
+  }
+
+  let stageIndex;
+  if (submissionStatus === "Submitted for Review") {
+    stageIndex = 0;
+  } else if (submissionStatus === "DESK ACCEPT") {
+    stageIndex = 2; // desk review passed, now awaiting/undergoing peer review
+  } else if (submissionStatus === "Submitted Revised Paper") {
+    stageIndex = 2; // re-review round - desk review isn't repeated, so this reuses the "Peer Review" slot
+  } else if (SUBMISSION_DECIDED_STATUSES.includes(submissionStatus)) {
+    stageIndex = 4;
+  } else if (SUBMISSION_FINAL_PAPER_STATUSES.includes(submissionStatus)) {
+    stageIndex = 5;
+  } else {
+    stageIndex = 1; // unrecognized/legacy status - safest default is "past Submitted, not yet decided"
+  }
+
+  if (hasPendingMetaDecision && stageIndex < 3) stageIndex = 3;
+
+  return SUBMISSION_JOURNEY_STAGES.map((label, i) => ({
+    label,
+    state: i < stageIndex ? "done" : i === stageIndex ? "current" : "pending",
+  }));
+}
+
 // Email salutation: always "Dear <name>," - never "Hi"/"Hello"/"Dear <name>!".
 // Many role-assignment emails only have the recipient's email (entered by a
 // chair), not their name, so this looks the account up when needed and falls
@@ -609,6 +676,15 @@ app.use(cookieParser());
 const CSP_DIRECTIVES = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.startbootstrap.com", "https://kit.fontawesome.com"],
+  // Helmet's own built-in default (script-src-attr 'none') still applies to
+  // any directive not explicitly listed here, even though scriptSrc above
+  // already allows 'unsafe-inline' - confirmed by rendering the actual
+  // header this config produces, not assumed. Without this, that default
+  // silently overrides the 'unsafe-inline' above specifically for inline
+  // event handler attributes (onclick=, onsubmit=, ...), which this app
+  // uses extensively (dozens of files) and which the comment above already
+  // says is an accepted trade-off - so it must be stated here too.
+  scriptSrcAttr: ["'unsafe-inline'"],
   styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://kit.fontawesome.com"],
   fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com", "https://kit.fontawesome.com", "data:"],
   imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
@@ -7750,6 +7826,58 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
           });
         }
       }
+    }
+
+    // Desk review decision, re-review (revised_submissions), and whether a
+    // meta-reviewer recommendation is sitting unpublished - all used to
+    // build each submission's "Review Details" modal (journey timeline +
+    // score/remarks tables) below.
+    const allSubmissionIds = submissionsWithTracks.map((s) => s.submission_id);
+    let deskReviewBySubmission = {};
+    let revisedReviewsBySubmission = {};
+    let pendingMetaDecisionIds = new Set();
+
+    if (allSubmissionIds.length > 0) {
+      const [deskReviewResult, revisedReviewsResult, pendingMetaResult] = await Promise.all([
+        pool.query(
+          `SELECT paper_id AS submission_id, decision, remarks FROM desk_review WHERE paper_id = ANY($1);`,
+          [allSubmissionIds]
+        ),
+        pool.query(
+          `SELECT rs.submission_id, rs.reviewer, u.name AS reviewer_name, rs.mean_score, rs.remarks
+           FROM revised_submissions rs
+           LEFT JOIN users u ON u.email = rs.reviewer
+           WHERE rs.submission_id = ANY($1);`,
+          [allSubmissionIds]
+        ),
+        pool.query(
+          `SELECT submission_id FROM meta_reviewer_decision WHERE submission_id = ANY($1);`,
+          [allSubmissionIds]
+        ),
+      ]);
+
+      deskReviewResult.rows.forEach((d) => (deskReviewBySubmission[d.submission_id] = d));
+      revisedReviewsResult.rows.forEach((r) => {
+        if (!revisedReviewsBySubmission[r.submission_id]) revisedReviewsBySubmission[r.submission_id] = [];
+        revisedReviewsBySubmission[r.submission_id].push({
+          email: r.reviewer,
+          name: r.reviewer_name || r.reviewer,
+          mean_score: r.mean_score !== null ? parseFloat(r.mean_score).toFixed(2) : null,
+          remarks: r.remarks,
+        });
+      });
+      pendingMetaResult.rows.forEach((d) => pendingMetaDecisionIds.add(d.submission_id));
+    }
+
+    // Same gate the "Review Details" column has always used - unchanged -
+    // now also controls the re-review table and the meta-reviewer's final
+    // score/remarks inside the new modal, so nothing is revealed any
+    // earlier than it already was.
+    for (const s of submissionsWithTracks) {
+      s.deskReview = deskReviewBySubmission[s.submission_id] || null;
+      s.revisedReviews = revisedReviewsBySubmission[s.submission_id] || [];
+      s.canShowReviewDetails = !['Submitted for Review', 'Reviewed'].includes(s.submission_status);
+      s.journey = buildSubmissionJourney(s.submission_status, pendingMetaDecisionIds.has(s.submission_id));
     }
 
     const uniqueStatuses = [...new Set(submissions.map(sub => sub.submission_status))];

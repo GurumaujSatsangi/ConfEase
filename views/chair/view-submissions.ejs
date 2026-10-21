@@ -108,35 +108,58 @@
                 /* Custom accordion styling for compact tables */
                 .table-accordion .accordion-button { padding: 0.5rem 1rem; font-size: 0.9rem; }
                 .table-accordion .accordion-body { padding: 0.75rem 1rem; font-size: 0.85rem; }
+
+                /* Review journey tracker (parcel-delivery style) */
+                .journey-track { display: flex; align-items: flex-start; overflow-x: auto; padding: 0.5rem 0 1rem; }
+                .journey-step { flex: 1 0 110px; text-align: center; position: relative; padding: 0 4px; }
+                .journey-step .journey-line { position: absolute; top: 17px; left: -50%; width: 100%; height: 3px; background: #e9ecef; z-index: 0; }
+                .journey-step:first-child .journey-line { display: none; }
+                .journey-step .journey-dot {
+                  width: 34px; height: 34px; border-radius: 50%; margin: 0 auto 6px;
+                  display: flex; align-items: center; justify-content: center; position: relative; z-index: 1;
+                  background: #fff; color: #adb5bd; font-size: 1rem; border: 3px solid #e9ecef;
+                }
+                .journey-step .journey-label { font-size: 0.78rem; color: #495057; }
+                .journey-step.pending .journey-label, .journey-step.skipped .journey-label { color: #adb5bd; }
+                .journey-step.done .journey-dot { background: #198754; border-color: #198754; color: #fff; }
+                .journey-step.done .journey-line { background: #198754; }
+                .journey-step.current .journey-dot { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+                .journey-step.rejected .journey-dot { background: #dc3545; border-color: #dc3545; color: #fff; }
+                .journey-step.rejected .journey-line { background: #dc3545; }
+                .journey-step.skipped .journey-dot { background: #f8f9fa; border-color: #f1f1f1; color: #ced4da; }
               </style>
-              
+
               <table class="table table-bordered align-middle text-wrap cs-table" style="width:100%;">
                 <thead class="table-light text-center">
                   <tr>
                     <th style="min-width:100px;">Paper ID</th>
-                    <th style="min-width:200px;">Title</th>
                     <th style="min-width:180px;">Subject Area</th>
                     <th style="min-width:200px;">Primary Author</th>
                     <th style="min-width:200px;">Co-Authors</th>
                     <th style="min-width:120px;">Status</th>
-                    <th style="min-width:300px;">Review Details</th>
-                    <th style="min-width:150px;">View / Actions</th>
+                    <th style="min-width:160px;">Review Details</th>
+                    <th style="min-width:150px;">Actions</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   <% submissions.forEach(function(submission) { %>
-                    <tr class="submission-item" 
+                    <% const paperId = submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—'; %>
+                    <% const modalSuffix = submission.submission_id; %>
+                    <tr class="submission-item"
                         data-title="<%= submission.title ? submission.title.toLowerCase() : '' %>"
                         data-track="<%= submission.track_name || '' %>"
                         data-status="<%= submission.submission_status || '' %>"
                         data-author="<%= submission.primary_author_formatted ? submission.primary_author_formatted.toLowerCase() : '' %>"
                         data-coauthors="<%= submission.co_authors_formatted ? submission.co_authors_formatted.toLowerCase() : '' %>"
                         data-papercode="<%= submission.submission_id ? submission.submission_id.toLowerCase() : '' %>">
-                      
-                      <td><%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %></td>
 
-                      <td><%= submission.title %></td>
+                      <td class="text-center">
+                        <div class="fw-bold mb-2"><%= paperId %></div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#detailsModal-<%= modalSuffix %>">
+                          <i class="bi bi-file-earmark-text"></i> Details
+                        </button>
+                      </td>
 
                       <td><%= submission.track_name || '—' %></td>
 
@@ -145,62 +168,25 @@
                       <td><%= submission.co_authors_formatted || '—' %></td>
 
                       <td class="text-center">
-                        <span class="badge 
-                          <%= submission.submission_status === 'Accepted' ? 'bg-success' : 
-                              submission.submission_status === 'Rejected' ? 'bg-danger' : 
-                              submission.submission_status === 'Reviewed' ? 'bg-warning text-dark' : 
+                        <span class="badge
+                          <%= submission.submission_status === 'Accepted' ? 'bg-success' :
+                              submission.submission_status === 'Rejected' ? 'bg-danger' :
+                              submission.submission_status === 'Reviewed' ? 'bg-warning text-dark' :
                               'bg-secondary' %>">
                           <%= submission.submission_status %>
                         </span>
                        </td>
 
-                      <td>
-                        <% if (!['Submitted for Review', 'Reviewed'].includes(submission.submission_status)) { %>
-                          <% if (submission.reviews && submission.reviews.length > 0) { %>
-                            <div class="accordion accordion-flush table-accordion border" id="accordion-<%= submission.submission_id %>">
-                              <% submission.reviews.forEach(function(review, index) { %>
-                                <div class="accordion-item">
-                                  <h2 class="accordion-header" id="heading-<%= submission.submission_id %>-<%= index %>">
-                                    <button class="accordion-button collapsed bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= submission.submission_id %>-<%= index %>" aria-expanded="false" aria-controls="collapse-<%= submission.submission_id %>-<%= index %>">
-                                      <div class="d-flex w-100 justify-content-between align-items-center me-2">
-                                        <span class="text-truncate" style="max-width: 150px;" title="<%= review.name || review.email %>">
-                                          <strong><%= review.name || 'Unknown' %></strong>
-                                        </span>
-                                        <% if (review.mean_score) { %>
-                                          <span class="badge bg-primary rounded-pill"><%= review.mean_score %></span>
-                                        <% } %>
-                                      </div>
-                                    </button>
-                                  </h2>
-                                  <div id="collapse-<%= submission.submission_id %>-<%= index %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= submission.submission_id %>-<%= index %>" data-bs-parent="#accordion-<%= submission.submission_id %>">
-                                    <div class="accordion-body bg-white">
-                                      <p class="mb-1 text-muted" style="font-size: 0.8rem;"><%= review.email %></p>
-                                      <% if (review.remarks) { %>
-                                        <p class="mb-0"><strong>Remarks:</strong> <%- sanitizeDescription(review.remarks) %></p>
-                                      <% } else { %>
-                                        <p class="mb-0 text-muted"><em>No remarks provided.</em></p>
-                                      <% } %>
-                                    </div>
-                                  </div>
-                                </div>
-                              <% }); %>
-                            </div>
-                          <% } else { %>
-                            <em class="text-muted d-block text-center mt-2">No reviews yet</em>
-                          <% } %>
-                        <% } else { %>
-                          <div class="text-center text-muted mt-2"><i class="bi bi-eye-slash-fill"></i> Hidden</div>
-                        <% } %>
+                      <td class="text-center">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#reviewModal-<%= modalSuffix %>">
+                          <i class="bi bi-clipboard-data"></i> Review Details
+                        </button>
                       </td>
 
                       <td class="text-center">
                         <div class="d-grid gap-2">
-                          <a href="<%= submission.file_url %>" target="_blank" class="btn btn-primary btn-sm">
-                            <i class="bi bi-eye-fill"></i> View
-                          </a>
-
                           <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper') { %>
-                            
+
                             <p class="small" style="color:red">
                               <i class="bi bi-exclamation-circle"></i> Cannot be Deleted
                             </p>
@@ -216,14 +202,12 @@
 
                             <% } %>
 
-
-                          
-                          <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper' && submission.submission_status!='DESK ACCEPT') { %>
+                          <!-- <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper' && submission.submission_status!='DESK ACCEPT') { %>
                           <p class="small" style="color:green"><i class="bi bi-check2-circle"></i> Submitted Final Decision</p>
                           <% } else { %>
                           <p class="small text-muted"><i class="bi bi-hourglass-split"></i> Pending Meta-Reviewer Decision</p>
-                            <% } %>
-                         
+                            <% } %> -->
+
                         </div>
                       </td>
                     </tr>
@@ -231,6 +215,134 @@
                 </tbody>
               </table>
             </div>
+
+            <!-- Modals rendered outside the table (a <div> is not valid
+                 inside <tbody>/<tr> - browsers foster-parent it out and
+                 corrupt the table layout when placed there). -->
+            <% submissions.forEach(function(submission) { %>
+              <% const paperId = submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—'; %>
+              <% const modalSuffix = submission.submission_id; %>
+
+              <!-- Modal: Title / Abstract / View Paper -->
+              <div class="modal fade" id="detailsModal-<%= modalSuffix %>" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Paper <%= paperId %></h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      <h6>Title</h6>
+                      <p><%= submission.title %></p>
+                      <h6>Abstract</h6>
+                      <p style="white-space: pre-wrap;"><%= submission.abstract || 'No abstract provided.' %></p>
+                    </div>
+                    <div class="modal-footer">
+                      <a href="<%= submission.file_url %>" target="_blank" class="btn btn-primary">
+                        <i class="bi bi-eye-fill"></i> View Paper
+                      </a>
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Modal: Review journey + score/remarks -->
+              <div class="modal fade" id="reviewModal-<%= modalSuffix %>" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Review Journey - Paper <%= paperId %></h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      <div class="journey-track">
+                        <% submission.journey.forEach(function(step) { %>
+                          <div class="journey-step <%= step.state %>">
+                            <div class="journey-line"></div>
+                            <div class="journey-dot">
+                              <% if (step.state === 'done') { %><i class="bi bi-check-lg"></i>
+                              <% } else if (step.state === 'current') { %><i class="bi bi-hourglass-split"></i>
+                              <% } else if (step.state === 'rejected') { %><i class="bi bi-x-lg"></i>
+                              <% } else if (step.state === 'skipped') { %><i class="bi bi-dash-lg"></i>
+                              <% } else { %><i class="bi bi-circle"></i>
+                              <% } %>
+                            </div>
+                            <div class="journey-label"><%= step.label %></div>
+                          </div>
+                        <% }); %>
+                      </div>
+
+                      <hr>
+
+                      <% if (!submission.canShowReviewDetails) { %>
+                        <div class="text-center text-muted my-3">
+                          <i class="bi bi-eye-slash-fill"></i> Review details are hidden until results are published.
+                        </div>
+                      <% } else { %>
+                        <% if (submission.reviews && submission.reviews.length > 0) { %>
+                          <h6>Peer Review</h6>
+                          <div class="table-responsive mb-3">
+                            <table class="table table-sm table-bordered align-middle">
+                              <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
+                              <tbody>
+                                <% submission.reviews.forEach(function(r) { %>
+                                  <tr>
+                                    <td><%= r.name || 'Unknown' %></td>
+                                    <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
+                                    <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
+                                  </tr>
+                                <% }); %>
+                              </tbody>
+                            </table>
+                          </div>
+                        <% } %>
+
+                        <% if (submission.revisedReviews && submission.revisedReviews.length > 0) { %>
+                          <h6>Re-Review (Revised Paper)</h6>
+                          <div class="table-responsive mb-3">
+                            <table class="table table-sm table-bordered align-middle">
+                              <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
+                              <tbody>
+                                <% submission.revisedReviews.forEach(function(r) { %>
+                                  <tr>
+                                    <td><%= r.name || 'Unknown' %></td>
+                                    <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
+                                    <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
+                                  </tr>
+                                <% }); %>
+                              </tbody>
+                            </table>
+                          </div>
+                        <% } %>
+
+                        <% if (submission.remarks) { %>
+                          <h6>Meta-Reviewer Decision</h6>
+                          <div class="table-responsive mb-3">
+                            <table class="table table-sm table-bordered align-middle">
+                              <thead class="table-light"><tr><th style="width:30%;">Decision</th><th>Remarks</th></tr></thead>
+                              <tbody>
+                                <tr>
+                                  <td><%= submission.submission_status %></td>
+                                  <td><%- sanitizeDescription(submission.remarks) %></td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        <% } %>
+
+                        <% if ((!submission.reviews || submission.reviews.length === 0) && (!submission.revisedReviews || submission.revisedReviews.length === 0) && !submission.remarks) { %>
+                          <p class="text-muted text-center">No reviews yet.</p>
+                        <% } %>
+                      <% } %>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <% }); %>
           <% } else { %>
             <div id="noSubmissionsMessage" class="text-center my-5">
               <h5 class="text-muted"><i class="bi bi-emoji-frown-fill"></i> No Submissions found.</h5>

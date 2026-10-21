@@ -160,6 +160,13 @@ table td, table th {
   flex-wrap: wrap;
 }
 
+/* The global .btn margin above breaks Bootstrap's .input-group layout -
+   e.g. the password show/hide toggle button, which must sit flush against
+   its input with no gap to match its height and join borders correctly. */
+.input-group > .btn {
+  margin: 0;
+}
+
 /* Accordion */
 .accordion {
   margin-bottom: 1rem;
