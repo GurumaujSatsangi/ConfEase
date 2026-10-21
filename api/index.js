@@ -25,6 +25,7 @@ import * as canva from "../canva.js"
 import { attachCsrfToken, injectCsrfIntoForms, verifyCsrfToken, csrfRejectUnlessSkipped } from "../csrf.js"
 import helmet from "helmet"
 import ExcelJS from "exceljs";
+import { ZipArchive } from "archiver";
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
 const DESCRIPTION_OPTIONS = {
@@ -2349,6 +2350,87 @@ app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
   return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows.map(withSignedPaperUrl)});
 
 })
+
+// Streams every submission currently awaiting desk review (same query as
+// the page itself) into a single .zip, fetched one at a time from
+// Cloudinary via a short-lived signed URL (the stored file is private) and
+// appended straight into the archive - never buffered as a whole set in
+// memory. archive.pipe(res) means headers go out before every file has
+// been fetched, so a failure partway through can only end the response,
+// never redirect (res.redirect would be a no-op/crash once streaming has
+// started).
+app.get("/chair/dashboard/desk/download-all/:id", checkChairAuth, async (req, res) => {
+  const conference_id = req.params.id;
+  if (!(await chairOwnsConference(req.user.email, conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+  }
+
+  try {
+    const submissionsResult = await pool.query(
+      "select * from submissions where conference_id=$1 and submission_status=$2 order by paper_number nulls last, created_at",
+      [conference_id, "Submitted for Review"]
+    );
+    const submissions = submissionsResult.rows;
+
+    if (submissions.length === 0) {
+      return res.redirect(`/chair/dashboard/desk/${conference_id}?message=` + encodeURIComponent("No submissions awaiting desk review to download."));
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="desk-review-submissions-${conference_id}.zip"`);
+
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    archive.on("error", (archiveErr) => {
+      console.error("Error building desk review zip:", archiveErr);
+      res.end();
+    });
+    archive.pipe(res);
+
+    // Guards against two papers producing the same sanitized entry name
+    // (e.g. identical titles) silently overwriting each other in the zip.
+    const usedEntryNames = new Set();
+
+    for (const submission of submissions) {
+      const signedUrl = getSignedPaperUrl(submission);
+      if (!signedUrl) continue;
+
+      let fileResponse;
+      try {
+        fileResponse = await fetch(signedUrl);
+      } catch (fetchErr) {
+        console.error(`Error fetching file for submission ${submission.submission_id}:`, fetchErr);
+        continue;
+      }
+      if (!fileResponse.ok) {
+        console.error(`Non-OK response (${fileResponse.status}) fetching file for submission ${submission.submission_id}`);
+        continue;
+      }
+
+      const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+      const paperId = formatPaperId(submission.paper_number) || submission.submission_id;
+      const extension = submission.file_format ? `.${submission.file_format}` : "";
+      const safeTitle = String(submission.title || "Untitled").replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 80);
+
+      let entryName = `${paperId} - ${safeTitle}${extension}`;
+      let dedupeSuffix = 2;
+      while (usedEntryNames.has(entryName)) {
+        entryName = `${paperId} - ${safeTitle} (${dedupeSuffix})${extension}`;
+        dedupeSuffix++;
+      }
+      usedEntryNames.add(entryName);
+
+      archive.append(fileBuffer, { name: entryName });
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    console.error("Error building desk review download:", err);
+    if (!res.headersSent) {
+      return res.redirect(`/chair/dashboard/desk/${conference_id}?message=Error downloading submissions.`);
+    }
+    res.end();
+  }
+});
 
 app.post("/submit-desk-decision/:id",checkChairAuth,async(req,res)=>{
 

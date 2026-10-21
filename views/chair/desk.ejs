@@ -12,7 +12,14 @@
 
     <div class="container">
         <h4>Desk Review</h4>
-        <h6><%= conference.title %></h6><hr>
+        <h6><%= conference.title %></h6>
+
+        <% if(submissions && submissions.length>0) { %>
+          <a href="/chair/dashboard/desk/download-all/<%= conference.conference_id %>" class="btn btn-outline-primary mb-2">
+            <i class="bi bi-file-earmark-zip"></i> Download All Submissions (.zip)
+          </a>
+        <% } %>
+        <hr>
 
         <% if(submissions && submissions.length>0) { %>
 
