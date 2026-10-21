@@ -27,13 +27,13 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.0",
     "multer": "^2.0.1",
+    "nodemailer": "^10.1.7",
     "nodemon": "^3.1.9",
     "passport": "^0.7.0",
     "password-validator": "^5.3.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "redis": "^5.12.1",
-    "resend": "^6.33.0",
     "sanitize-html": "^2.18.0"
   },
   "devDependencies": {

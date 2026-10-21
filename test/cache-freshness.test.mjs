@@ -327,12 +327,10 @@ test("publish/review-results: a submission with no decision yet stays pending, s
 // all-decided branch without it; this route has no test-mode flag for mail).
 // The conference used here is otherwise empty (withTestConference gives
 // every test its own), so this is the only email this test can trigger.
-// It sends exactly one real email (via Resend), addressed to
+// It sends exactly one real email (via Gmail SMTP), addressed to
 // CACHE_TEST_EMAIL_RECIPIENT - a dedicated env var for this one opt-in
-// test, deliberately separate from EMAIL_FROM (the sending identity):
-// Resend's sandbox sender only delivers to the account owner's own
-// verified address anyway, so set this to that address. Opt-in only -
-// see CACHE_TEST_ALLOW_EMAIL.
+// test, deliberately separate from EMAIL_USER (the sending identity).
+// Opt-in only - see CACHE_TEST_ALLOW_EMAIL.
 const emailTestAddress = process.env.CACHE_TEST_EMAIL_RECIPIENT;
 const allowEmailTest = process.env.CACHE_TEST_ALLOW_EMAIL === "1";
 test(
