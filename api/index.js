@@ -2535,7 +2535,18 @@ app.get("/chair/dashboard/desk/download-all/:id", checkChairAuth, async (req, re
 
       let fileResponse;
       try {
-        fileResponse = await fetch(signedUrl);
+        // Same risk drillbit.js's fetchWithTimeout was added for: fetch()
+        // has no default timeout, and this loop runs in the chair's
+        // request path - one unresponsive Cloudinary fetch would otherwise
+        // hang the whole zip download indefinitely instead of just
+        // skipping that one file.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        try {
+          fileResponse = await fetch(signedUrl, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
       } catch (fetchErr) {
         console.error(`Error fetching file for submission ${submission.submission_id}:`, fetchErr);
         continue;
@@ -5406,17 +5417,21 @@ app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) =>
       hasLoggedIn: Boolean(inv.name && inv.name.trim() !== "")
     }));
 
-    const inviteesWithSubmissions = await Promise.all(
-      inviteesWithStatus.map(async inv => {
-        const subs = await pool.query(
-          `SELECT * FROM invited_talk_submissions
-           WHERE conference_id = $1 AND invitee_email = $2;`,
-          [req.params.id, inv.email]
-        );
-
-        return { ...inv, submissions: subs.rows };
-      })
+    // DB-08-style fix: one query for every invitee's submissions instead of
+    // one query per invitee - the previous Promise.all(...map(...)) fired a
+    // DB round trip per row, unbounded by conference size.
+    const allSubsResult = await pool.query(
+      `SELECT * FROM invited_talk_submissions WHERE conference_id = $1;`,
+      [req.params.id]
     );
+    const subsByEmail = {};
+    for (const sub of allSubsResult.rows) {
+      (subsByEmail[sub.invitee_email] ||= []).push(sub);
+    }
+    const inviteesWithSubmissions = inviteesWithStatus.map(inv => ({
+      ...inv,
+      submissions: subsByEmail[inv.email] || [],
+    }));
 
     const tracksResult = await pool.query(
       `SELECT track_id, track_name FROM conference_tracks WHERE conference_id = $1;`,
@@ -6302,18 +6317,24 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
     const safeEmail = email.replace(/[^a-zA-Z0-9]/g, "_");
     const fileUrl = await generateCertificateAndUpload(templateId, fields, `${role}-${contextId}-${safeEmail}-certificate`);
 
-    await pool.query(
-      `insert into role_certificates (conference_id, role, email, context_id, status, file_url)
-       values ($1,$2,$3,$4,'GENERATED',$5)
-       on conflict (conference_id, role, email, context_id) do update set status = excluded.status, file_url = excluded.file_url`,
-      [conferenceId, role, email, contextId, fileUrl]
-    );
-
+    // The email IS the delivery mechanism for role certificates (see the
+    // comment above this function) - send it BEFORE marking the row
+    // 'GENERATED', so a send failure falls through to the catch below and
+    // deletes the still-'GENERATING' reservation, letting a later retry
+    // regenerate and resend instead of permanently losing the notification
+    // with the row stuck looking "done".
     await sendMail(
       email,
       `Certificate of Appreciation | ${conferenceTitle}`,
       null,
       `${greeting(name)}<br><br>Thank you for your valuable contribution as a ${roleLabel} for ${escapeHtml(conferenceTitle)}!<br><br>Your certificate of appreciation is ready. You can download it using the link below:<br><br><a href="${fileUrl}">Download Certificate</a>`
+    );
+
+    await pool.query(
+      `insert into role_certificates (conference_id, role, email, context_id, status, file_url)
+       values ($1,$2,$3,$4,'GENERATED',$5)
+       on conflict (conference_id, role, email, context_id) do update set status = excluded.status, file_url = excluded.file_url`,
+      [conferenceId, role, email, contextId, fileUrl]
     );
 
     return "generated";
