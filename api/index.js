@@ -2071,6 +2071,34 @@ async function isTrackReviewer(email, trackId) {
   return result.rows.length > 0;
 }
 
+// The real access-control check for opening/submitting a review or
+// re-review of one specific submission - isTrackReviewer alone only
+// confirms track membership, which GET/POST /reviewer/dashboard/review,
+// /reviewer/dashboard/re-review, /mark-as-reviewed, and
+// /mark-as-re-reviewed used to rely on exclusively. That left a gap: once
+// a chair starts using per-paper assignment (reviewers_assigned_papers,
+// see /chair/dashboard/assign-papers/:id), GET /reviewer/dashboard
+// correctly stops *listing* a paper to a reviewer it isn't assigned to,
+// but any reviewer still on the track could open or submit a review for
+// it directly by paper_code - not secret, shared with authors - since
+// none of those four routes ever checked the assignment itself. Same
+// "track has any assignment rows at all -> per-paper assignment is now
+// required; otherwise track membership is enough" rule as the dashboard
+// listing filter, so a conference that's never used that page is
+// unaffected.
+async function isAuthorizedReviewerForSubmission(email, trackId, submissionId) {
+  if (!(await isTrackReviewer(email, trackId))) return false;
+
+  const result = await pool.query(
+    `select
+       exists(select 1 from reviewers_assigned_papers where track = $1) as track_has_assignments,
+       exists(select 1 from reviewers_assigned_papers where track = $1 and submission_id = $2 and lower(reviewer) = lower($3)) as is_assigned_to_this_reviewer`,
+    [trackId, submissionId, email]
+  );
+  const { track_has_assignments, is_assigned_to_this_reviewer } = result.rows[0];
+  return !track_has_assignments || is_assigned_to_this_reviewer;
+}
+
 // True once every reviewer assigned to a submission's Subject Area has
 // submitted a review (peer_review) or re-review (revised_submissions) for
 // it - not as soon as the first one has. Used to gate the Meta-Reviewer's
@@ -3957,8 +3985,10 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
     }
 
     //
-    // Authorization: only reviewers assigned to this paper's track may review it
-    if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+    // Authorization: only reviewers assigned to this paper's track may
+    // review it - and, once the chair has assigned specific papers on this
+    // track, only the reviewer this specific paper was assigned to.
+    if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
       return res.render("error.ejs", {
         message: "You are not assigned as a reviewer for this submission.",
       });
@@ -4058,8 +4088,10 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
     //
     // 3. Check status
     //
-    // Authorization: only reviewers assigned to this paper's track may re-review it
-    if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+    // Authorization: only reviewers assigned to this paper's track may
+    // re-review it - and, once the chair has assigned specific papers on
+    // this track, only the reviewer this specific paper was assigned to.
+    if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
       return res.render("error.ejs", {
         message: "You are not assigned as a reviewer for this submission.",
       });
@@ -4167,8 +4199,10 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
     if (!submissionData) {
       return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
     }
-      // Authorization: only reviewers assigned to this paper's track may review it
-      if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+      // Authorization: only reviewers assigned to this paper's track may
+      // review it - and, once the chair has assigned specific papers on
+      // this track, only the reviewer this specific paper was assigned to.
+      if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
       }
 
@@ -5626,8 +5660,10 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
     if (!submissionData) {
       return res.redirect("/reviewer/dashboard?message=Error fetching submission details.");
     }
-      // Authorization: only reviewers assigned to this paper's track may review it
-      if (!(await isTrackReviewer(req.user.email, submissionData.track_id))) {
+      // Authorization: only reviewers assigned to this paper's track may
+      // review it - and, once the chair has assigned specific papers on
+      // this track, only the reviewer this specific paper was assigned to.
+      if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
       }
 
