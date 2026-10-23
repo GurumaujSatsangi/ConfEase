@@ -100,11 +100,22 @@ const rootDir = path.resolve(__dirname, "..");
 // call site, instead of silently leaving req.file undefined - which at
 // least one call site (edit-submission) would otherwise misinterpret as
 // "no new file was attached" rather than "a disallowed file was rejected".
+const DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".doc"];
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+
+// Field-aware: every upload in this app is a "file" (document) except
+// /submit-invited-talk's "profile_photo", which is a required image. Both
+// go through this one shared multer instance, so the allow-list has to
+// branch on file.fieldname rather than assuming every upload is a document.
 function rejectDisallowedFileExtension(req, file, cb) {
   const ext = path.extname(file.originalname || "").toLowerCase();
-  if (![".pdf", ".docx", ".doc"].includes(ext)) {
-    const err = new multer.MulterError("LIMIT_UNEXPECTED_FILE", "file");
-    err.message = "Only PDF, DOC, and DOCX files are allowed.";
+  const isProfilePhoto = file.fieldname === "profile_photo";
+  const allowed = isProfilePhoto ? IMAGE_EXTENSIONS : DOCUMENT_EXTENSIONS;
+  if (!allowed.includes(ext)) {
+    const err = new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname);
+    err.message = isProfilePhoto
+      ? "Only JPG, JPEG, PNG, and WEBP images are allowed."
+      : "Only PDF, DOC, and DOCX files are allowed.";
     return cb(err);
   }
   return cb(null, true);
@@ -1994,6 +2005,19 @@ function isAllowedDocument(file) {
     return head.subarray(0, 2).toString("latin1") === "PK" && file.buffer.includes("[Content_Types].xml");
   }
   if (ext === ".doc") return head.equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+  return false;
+}
+
+// Same magic-byte-over-extension-trust pattern as isAllowedDocument, for
+// the invited-talk submission's required profile_photo upload.
+function isAllowedImage(file) {
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  const head = file.buffer.subarray(0, 12);
+  if (ext === ".jpg" || ext === ".jpeg") return head.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+  if (ext === ".png") return head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (ext === ".webp") {
+    return head.subarray(0, 4).toString("latin1") === "RIFF" && head.subarray(8, 12).toString("latin1") === "WEBP";
+  }
   return false;
 }
 
@@ -8938,7 +8962,7 @@ app.post("/submit", checkAuth, async (req, res) => {
 
 
 app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
-  upload.single("file")(req, res, (err) => {
+  upload.fields([{ name: "file", maxCount: 1 }, { name: "profile_photo", maxCount: 1 }])(req, res, (err) => {
     const conferenceId = req.body?.conference_id;
     if (err instanceof multer.MulterError) {
       const message = err.code === 'LIMIT_FILE_SIZE'
@@ -8951,13 +8975,18 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
 
       if (csrfRejectUnlessSkipped(req, res, postActionRedirect(conferenceId))) return;
 
-      if (!req.file) {
-        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Error: No file uploaded. File size must not exceed 4MB."));
+      // The paper and subject area are both optional for an invited talk -
+      // only the profile photo is required.
+      const paperFile = req.files?.file?.[0] || null;
+      const profilePhotoFile = req.files?.profile_photo?.[0] || null;
+
+      if (!profilePhotoFile) {
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Error: A profile photo is required."));
       }
 
       const { title, abstract, areas, conference_id } = req.body;
-      if (!title || !abstract || !areas) {
-        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("All fields are required"));
+      if (!title || !abstract) {
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("Title and Abstract are required."));
       }
 
       // Only invitees of this conference may submit an invited talk, and only before the deadline
@@ -8976,30 +9005,43 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         return res.redirect(`${postActionRedirect(conferenceId)}?message=` + encodeURIComponent("The full paper submission deadline has passed."));
       }
 
-      if (!isAllowedDocument(req.file)) {
-        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
+      if (!isAllowedImage(profilePhotoFile)) {
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only JPG, JPEG, PNG, and WEBP images are allowed for the profile photo.`);
       }
-      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
-        resource_type: "auto",
-        folder: "submissions",
+      if (paperFile && !isAllowedDocument(paperFile)) {
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed for the paper.`);
+      }
+
+      const profilePhotoUploadResult = await uploadBufferToCloudinary(profilePhotoFile.buffer, {
+        resource_type: "image",
+        folder: "profile_photos",
         public_id: `${sanitizeCloudinaryIdSegment(req.user.email)}-${Date.now()}`,
       });
+
+      const paperUploadResult = paperFile
+        ? await uploadBufferToCloudinary(paperFile.buffer, {
+            resource_type: "auto",
+            folder: "submissions",
+            public_id: `${sanitizeCloudinaryIdSegment(req.user.email)}-${Date.now()}`,
+          })
+        : null;
 
       const paper_id = crypto.randomUUID();
 
       try {
         await pool.query(
-          `INSERT INTO invited_talk_submissions 
-           (conference_id, invitee_email, title, abstract, track_id, file_url, paper_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          `INSERT INTO invited_talk_submissions
+           (conference_id, invitee_email, title, abstract, track_id, file_url, paper_id, profile_photo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             conference_id,
             req.user.email,
             title,
             abstract,
-            areas,
-            uploadResult.secure_url,
-            paper_id
+            areas || null,
+            paperUploadResult?.secure_url || null,
+            paper_id,
+            profilePhotoUploadResult.secure_url
           ]
         );
       } catch (dbErr) {

@@ -67,6 +67,14 @@
         margin-bottom: 8px;
         font-size: 0.9em;
       }
+      .submission-photo {
+        width: 56px;
+        height: 56px;
+        object-fit: cover;
+        border-radius: 50%;
+        flex-shrink: 0;
+        border: 1px solid #dee2e6;
+      }
       .submission-title {
         font-weight: 500;
         color: #212529;
@@ -155,17 +163,39 @@
                     <div class="submissions-title">Submitted Talks (<%= invitee.submissions.length %>)</div>
                     <% invitee.submissions.forEach(submission => { %>
                       <div class="submission-row">
-                        <div class="submission-title"><%= submission.title %></div>
-                        <div class="submission-details">
-                          <strong>Subject Area:</strong> <%= submission.track_name %><br>
-                          <strong>Description:</strong> <%= submission.abstract ? submission.abstract.substring(0, 100) + (submission.abstract.length > 100 ? '...' : '') : 'N/A' %>
-                        </div>
-                        <div class="submission-actions">
-                          <% if (submission.file_url) { %>
-                            <a href="<%= submission.file_url %>" target="_blank" class="btn btn-sm btn-outline-info">
-                              <i class="bi bi-eye-fill"></i> View File
-                            </a>
+                        <div class="d-flex align-items-start gap-3">
+                          <% if (submission.profile_photo) { %>
+                            <img src="<%= submission.profile_photo %>" alt="Profile photo" class="submission-photo">
                           <% } %>
+                          <div class="flex-grow-1">
+                            <div class="submission-title"><%= submission.title %></div>
+                            <div class="submission-details">
+                              <strong>Subject Area:</strong> <%= submission.track_name %>
+                            </div>
+
+                            <div class="accordion accordion-flush mt-2" id="abstractAccordion-<%= submission.paper_id %>">
+                              <div class="accordion-item">
+                                <h2 class="accordion-header" id="abstractHeading-<%= submission.paper_id %>">
+                                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#abstractCollapse-<%= submission.paper_id %>" aria-expanded="false" aria-controls="abstractCollapse-<%= submission.paper_id %>">
+                                    Abstract
+                                  </button>
+                                </h2>
+                                <div id="abstractCollapse-<%= submission.paper_id %>" class="accordion-collapse collapse" aria-labelledby="abstractHeading-<%= submission.paper_id %>">
+                                  <div class="accordion-body">
+                                    <%= submission.abstract || 'No abstract provided.' %>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div class="submission-actions mt-2">
+                              <% if (submission.file_url) { %>
+                                <a href="<%= submission.file_url %>" target="_blank" class="btn btn-sm btn-outline-info">
+                                  <i class="bi bi-eye-fill"></i> View Paper
+                                </a>
+                              <% } %>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     <% }); %>

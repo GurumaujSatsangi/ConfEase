@@ -411,7 +411,8 @@ CREATE TABLE public.invited_talk_submissions (
     abstract text,
     file_url character varying,
     track_id uuid,
-    paper_id uuid DEFAULT gen_random_uuid() NOT NULL
+    paper_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    profile_photo character varying
 );
 
 

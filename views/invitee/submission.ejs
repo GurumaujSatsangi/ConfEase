@@ -62,27 +62,30 @@
         </div>
         <br />
         <div class="form-group">
-          <label for="exampleFormControlSelect1">Area</label>
+          <label for="exampleFormControlSelect1">Area (optional)</label>
           <select
             class="form-control"
-            required
             name="areas"
             id="exampleFormControlSelect1"
           >
+            <option value="">No subject area</option>
             <% if (tracks && tracks.length > 0) { %> <%
             tracks.forEach(function(track) { %>
             <option value="<%= track.track_id %>">
               <%= track.track_name %>
             </option>
-            <% }); %> <% } else { %>
-            <option disabled>No subject areas available</option>
-            <% } %>
+            <% }); %> <% } %>
           </select>
         </div>
         <br />
+         <div class="form-group">
+          <label for="exampleFormControlFile1">Upload Profile Photo </label>
+          <input type="file" required class="form-control" name="profile_photo" accept="image/jpeg,image/png,image/webp" />
+          <small class="form-text text-muted">Required. JPG, PNG, or WEBP. Maximum file size: 4MB</small>
+        </div>
         <div class="form-group">
-          <label for="exampleFormControlFile1">Upload Paper </label>
-          <input type="file" required class="form-control" name="file" />
+          <label for="exampleFormControlFile1">Upload Paper (optional) </label>
+          <input type="file"  class="form-control" name="file" />
           <small class="form-text text-muted">Maximum file size: 4MB</small>
         </div>
         <br />
