@@ -2829,10 +2829,19 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   const pending_acceptance_notifications = [];
   const pending_acceptance_notifications_titles = [];
+  // Same "keep going" pattern as /chair/dashboard/enable-pdf-download/:id's
+  // certificate batch: one author's notification failing to send (a
+  // permanent SMTP rejection, Gmail's daily cap, ...) must not abort
+  // notifying everyone else newly decided in this same publish - every
+  // submission's status/remarks update already committed before any email
+  // is sent (see the cache-invalidation comment below), so a failed email
+  // here is a delivery gap to surface to the chair, not a reason to leave
+  // the rest of the batch un-notified.
+  const notificationFailures = [];
 
   const {conference_id} = req.body;
 
-
+try {
   const conference_data = await pool.query("select * from conferences where conference_id = $1",[conference_id]);
 
   const authors = await pool.query("select submission_id, title, submission_status, primary_author, co_authors, paper_number, remarks from submissions where conference_id = $1",[conference_id]);
@@ -2923,20 +2932,25 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
       // Only email submissions whose decision is newly published right now -
       // anything else sitting in a non-pending status was already decided
       // (and already emailed) at an earlier publish.
-      const authorName = await getUserDisplayName(authors.rows[i].primary_author);
-      await sendSubmissionLifecycleEmail(
-        authors.rows[i].primary_author,
-        "peer_review_decision",
-        {
-          authorName,
-          conferenceName: conference_data.rows[0].title,
-          title: authors.rows[i].title,
-          paperId: formatPaperId(authors.rows[i].paper_number),
-          decision: authors.rows[i].submission_status,
-          reviewerComments: authors.rows[i].remarks,
-        },
-        authors.rows[i].co_authors
-      );
+      try {
+        const authorName = await getUserDisplayName(authors.rows[i].primary_author);
+        await sendSubmissionLifecycleEmail(
+          authors.rows[i].primary_author,
+          "peer_review_decision",
+          {
+            authorName,
+            conferenceName: conference_data.rows[0].title,
+            title: authors.rows[i].title,
+            paperId: formatPaperId(authors.rows[i].paper_number),
+            decision: authors.rows[i].submission_status,
+            reviewerComments: authors.rows[i].remarks,
+          },
+          authors.rows[i].co_authors
+        );
+      } catch (mailErr) {
+        console.error(`Error notifying ${authors.rows[i].primary_author} of their decision (submission ${authors.rows[i].submission_id}):`, mailErr);
+        notificationFailures.push(authors.rows[i].primary_author);
+      }
     }
   }
 
@@ -2948,8 +2962,14 @@ app.post("/publish/review-results", checkChairAuth, async (req, res) => {
 
   }
 
-  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=Acceptance Notification Published!");
-
+  const failureNote = notificationFailures.length
+    ? ` (${notificationFailures.length} notification(s) failed to send - check logs)`
+    : "";
+  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=" + encodeURIComponent(`Acceptance Notification Published!${failureNote}`));
+} catch (err) {
+  console.error("Error publishing review results:", err);
+  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=" + encodeURIComponent("An unexpected error occurred while publishing review results: " + err.message));
+}
 });
 
 app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) => {

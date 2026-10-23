@@ -49,6 +49,15 @@ export function resetTestSentEmails() {
   testSentEmails.length = 0;
 }
 
+// Test-only: recipients sendMail() should reject for instead of
+// succeeding, while SKIP_AUTOLISTEN=1. Lets a test simulate a real
+// delivery failure (e.g. for a bulk-send "keep going" regression test)
+// without needing a real SMTP server to actually refuse a message.
+export const testForcedFailures = new Set();
+export function resetTestForcedFailures() {
+  testForcedFailures.clear();
+}
+
 // Standard footer shared by every email
 const FOOTER_HTML =
   'Incase of any technical queries / assistance, please feel free to reach out to us at <a href="mailto:cmt@dei.ac.in">cmt@dei.ac.in</a> or contact us at +91 9875691340.<br><br>' +
@@ -131,6 +140,9 @@ export async function sendMail(to, subject, text, html, cc = null) {
   // development exhausted it and caused unrelated-looking test failures
   // (SMTP 550 5.4.5) across any test that happens to hit a mail-sending route.
   if (process.env.SKIP_AUTOLISTEN === "1") {
+    if (testForcedFailures.has(to)) {
+      throw new Error(`Simulated send failure to ${to} (testForcedFailures)`);
+    }
     // Recorded (not sent) so tests can assert who *would* have been
     // emailed - see testSentEmails/resetTestSentEmails above.
     testSentEmails.push({ to, subject });
