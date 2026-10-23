@@ -2373,10 +2373,23 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
   }
 });
 
+app.post("/update-profile", checkAuth, async(req,res)=>{
+  try {
+    const affiliation = String(req.body.affiliation || "").trim();
+
+    await pool.query("update users set affiliation=$1 where email=$2", [affiliation || null, req.user.email]);
+
+    return res.redirect("/my-profile?message=" + encodeURIComponent("Profile updated successfully!"));
+  } catch (err) {
+    console.error("Error updating profile:", err);
+    return res.redirect("/my-profile?message=" + encodeURIComponent("Error updating profile."));
+  }
+})
+
 app.get("/my-profile",checkAuth,async(req,res)=>{
-  const user_data = await pool.query("select id, name, email, contact_number, address from users where email=$1",[req.user.email]);
+  const user_data = await pool.query("select id, name, email, contact_number, affiliation from users where email=$1",[req.user.email]);
   const session_history = await pool.query("select created_at, ip_address, user_agent from sessions where user_id=$1",[user_data.rows[0].id]);
-  return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows});
+  return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows, message: req.query.message || null});
 })
 
 app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
@@ -4317,7 +4330,7 @@ const result = schema.validate(password);
 if(result==true){
 
  await pool.query(
-      "INSERT INTO users (name, email, password, status, contact_number, address) VALUES ($1, $2, $3,$4,$5,$6)",
+      "INSERT INTO users (name, email, password, status, contact_number, affiliation) VALUES ($1, $2, $3,$4,$5,$6)",
       [name, email, hashed_password,"ACTIVATION PENDING",contact_number, address]
     );
 

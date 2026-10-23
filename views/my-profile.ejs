@@ -13,6 +13,9 @@
 
     <h4>My Profile</h4><hr>
 
+    <% if (message) { %>
+      <div class="alert alert-info"><%= message %></div>
+    <% } %>
 
     <table class="table">
         <tr>
@@ -20,13 +23,20 @@
             <th>NAME</th>
             <th>EMAIL ID</th>
             <th>CONTACT NUMBER</th>
-            <th>ADDRESS</th>
+            <th>AFFILIATION</th>
         </tr>
         <tr>
             <td><%= user_data.name %></td>
             <td><%= user_data.email %></td>
             <td><%= user_data.contact_number %></td>
-            <td><%= user_data.address %></td>
+            <td>
+              <form method="POST" action="/update-profile" class="d-flex gap-2">
+                <input type="text" name="affiliation" class="form-control form-control-sm" value="<%= user_data.affiliation || '' %>" placeholder="Enter your affiliation">
+                <button type="submit" class="btn btn-success btn-sm" title="Save affiliation">
+                  <i class="bi bi-check-lg"></i>
+                </button>
+              </form>
+            </td>
         </tr>
     </table>
 
