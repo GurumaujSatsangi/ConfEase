@@ -122,7 +122,9 @@
             <div class="table-responsive">
             <table class="table">
             <tr>
+                <th>Profile Photo</th>
                 <th>Submission Title</th>
+                <th>Abstract</th>
                 <th>View Paper</th>
                 <th>Action</th>
             </tr>
@@ -130,15 +132,29 @@
             <% invited_talk_submissions.forEach(function(submission){ %>
 
                 <tr>
-                    <td><%= submission.title %></td>
-                    <td><a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a></td>
                     <td>
-
-                        <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><form method="POST" action="/submission/delete/invitee/<%= submission.paper_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
-
-
-            </p></td>
+                        <% if (submission.profile_photo) { %>
+                          <img src="<%= submission.profile_photo %>" alt="Profile photo" style="width:48px;height:48px;object-fit:cover;border-radius:50%;">
+                        <% } else { %>
+                          <span class="text-muted small">—</span>
+                        <% } %>
+                    </td>
+                    <td><%= submission.title %></td>
+                    <td style="max-width:260px;" title="<%= submission.abstract || '' %>">
+                        <%= submission.abstract ? (submission.abstract.length > 150 ? submission.abstract.substring(0, 150) + '...' : submission.abstract) : '—' %>
+                    </td>
+                    <td>
+                        <% if (submission.file_url) { %>
+                          <a class="btn btn-primary btn-sm" target="_blank" href="<%= submission.file_url %>">View</a>
+                        <% } else { %>
+                          <span class="text-muted small">Not submitted</span>
+                        <% } %>
+                    </td>
+                    <td>
+                        <form method="POST" action="/submission/delete/invitee/<%= submission.paper_id %>" class="m-0">
+                          <button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button>
+                        </form>
+                    </td>
                 </tr>
 
             <%}) %>

@@ -165,7 +165,13 @@
                       <div class="submission-row">
                         <div class="d-flex align-items-start gap-3">
                           <% if (submission.profile_photo) { %>
-                            <img src="<%= submission.profile_photo %>" alt="Profile photo" class="submission-photo">
+                            <div class="text-center">
+                              <img src="<%= submission.profile_photo %>" alt="Profile photo" class="submission-photo">
+                              <br>
+                              <a href="<%= submission.profile_photo.replace('/upload/', '/upload/fl_attachment/') %>" class="small" download>
+                                <i class="bi bi-download"></i> Download
+                              </a>
+                            </div>
                           <% } %>
                           <div class="flex-grow-1">
                             <div class="submission-title"><%= submission.title %></div>
