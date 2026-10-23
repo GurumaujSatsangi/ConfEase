@@ -13,18 +13,38 @@
 // app already treats Redis or Canva as optional until configured. No
 // submission route depends on Drillbit succeeding.
 //
-// There's no background worker/cron in this app, so rather than add one,
-// "pending" submissions are checked lazily: refreshPendingReports() is
-// called whenever the chair loads the desk review page, checking Drillbit
-// for a result for each submission still "pending" and updating the DB
-// in place. Drillbit's own docs say analysis typically takes 10-15
-// minutes, so a chair who reopens the page a few minutes later sees
-// updated results without any separate polling process.
+// "Pending" submissions are checked by a background interval
+// (startPendingReportsPoller, started once at app boot in api/index.js),
+// not by whoever happens to load the desk review page - that page only
+// ever reads drillbit_reports, a plain DB query. Checking it inline on
+// page load used to mean a chair's page load could hang on Drillbit
+// being slow (the global fetch has no default timeout), for an external
+// service's problem having nothing to do with that chair's own request.
+// A simple setInterval in this same long-lived process is enough; this
+// app doesn't need a job queue (Redis/BullMQ) for a handful of periodic
+// HTTP calls with no ordering/retry-queue requirements - a missed cycle
+// just means the next one catches up, no data lost.
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const DRILLBIT_BASE_URL = "https://s1.drillbitplagiarismcheck.com";
+
+// Drillbit's docs don't promise a response time, and fetch() has no
+// default timeout - without one, a single unresponsive request could
+// hang whichever call made it (the submission-time upload, or a poll
+// cycle) indefinitely instead of just failing and being retried next time.
+const DRILLBIT_REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DRILLBIT_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function isDrillbitConfigured() {
   return Boolean(process.env.DRILLBIT_EMAIL && process.env.DRILLBIT_PASSWORD);
@@ -39,7 +59,7 @@ let cachedTokenAt = 0;
 const TOKEN_TTL_MS = 50 * 60 * 1000;
 
 async function authenticate() {
-  const res = await fetch(`${DRILLBIT_BASE_URL}/authentication/authenticate`, {
+  const res = await fetchWithTimeout(`${DRILLBIT_BASE_URL}/authentication/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: process.env.DRILLBIT_EMAIL, password: process.env.DRILLBIT_PASSWORD }),
@@ -63,13 +83,13 @@ async function getToken(forceRefresh = false) {
 // token if the first attempt comes back 401.
 async function drillbitFetch(path, options = {}) {
   const token = await getToken();
-  let res = await fetch(`${DRILLBIT_BASE_URL}${path}`, {
+  let res = await fetchWithTimeout(`${DRILLBIT_BASE_URL}${path}`, {
     ...options,
     headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
   });
   if (res.status === 401) {
     const freshToken = await getToken(true);
-    res = await fetch(`${DRILLBIT_BASE_URL}${path}`, {
+    res = await fetchWithTimeout(`${DRILLBIT_BASE_URL}${path}`, {
       ...options,
       headers: { ...(options.headers || {}), Authorization: `Bearer ${freshToken}` },
     });
@@ -170,17 +190,16 @@ export async function submitSubmissionForAnalysis(pool, { submissionId, fileBuff
   }
 }
 
-// Checks Drillbit for a result on every submission still "pending" among
-// the given ids, updating the row in place as soon as a numeric percent
-// comes back. Never throws - a Drillbit outage just means the submissions
-// stay "pending" until the next time this is called (e.g. the chair's
-// next page load).
-export async function refreshPendingReports(pool, submissionIds) {
-  if (!isDrillbitConfigured() || !submissionIds || submissionIds.length === 0) return;
+// Checks Drillbit for a result on every submission still "pending" across
+// the whole table, updating each row in place as soon as a numeric percent
+// comes back. Never throws - a Drillbit outage just means those submissions
+// stay "pending" until the poller's next tick (see startPendingReportsPoller
+// below).
+export async function refreshAllPendingReports(pool) {
+  if (!isDrillbitConfigured()) return;
 
   const pendingResult = await pool.query(
-    "select submission_id, folder_id, paper_id, d_key from drillbit_reports where submission_id = ANY($1) and status = 'pending'",
-    [submissionIds]
+    "select submission_id, folder_id, paper_id, d_key from drillbit_reports where status = 'pending'"
   );
 
   for (const row of pendingResult.rows) {
@@ -205,6 +224,24 @@ export async function refreshPendingReports(pool, submissionIds) {
       console.error(`Drillbit result check failed for submission ${row.submission_id}:`, err);
     }
   }
+}
+
+// Starts the background poller, once, at app boot. A plain setInterval is
+// enough here - this process is already long-lived (see api/index.js's
+// app.listen() gating), there's no ordering/retry-queue need a job queue
+// (Redis/BullMQ) would earn its keep for, and a missed tick just means
+// results show up one tick later, never lost. unref() so this interval
+// alone never keeps the process alive (same reasoning as the graceful
+// shutdown timer in api/index.js).
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 min - Drillbit itself estimates 10-15 min to process a submission
+
+export function startPendingReportsPoller(pool) {
+  if (!isDrillbitConfigured()) return;
+
+  const timer = setInterval(() => {
+    refreshAllPendingReports(pool).catch((err) => console.error("Drillbit background poll failed:", err));
+  }, POLL_INTERVAL_MS);
+  timer.unref();
 }
 
 // Streams one of Drillbit's PDF reports. Throws on failure - the caller

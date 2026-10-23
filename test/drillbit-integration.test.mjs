@@ -11,8 +11,10 @@
 // page renders every drillbit_reports status correctly once rows exist,
 // and the report-proxy route's authorization/not-ready handling - all
 // without drillbit.js ever making a real network call (a 'pending' row
-// is seeded with no folder_id/paper_id, which refreshPendingReports
-// already skips rather than looking up).
+// is seeded with no folder_id/paper_id, which the background poller's
+// refreshAllPendingReports already skips rather than looking up - and
+// which this suite never even triggers, since SKIP_AUTOLISTEN keeps the
+// poller itself from starting).
 //
 // DRILLBIT_EMAIL/DRILLBIT_PASSWORD are set to fake values *before*
 // api/index.js (and therefore drillbit.js) is imported, purely to flip
@@ -69,8 +71,9 @@ before(async () => {
   failedSubmissionId = await makeSubmission(203);
   noRowSubmissionId = await makeSubmission(204);
 
-  // Deliberately no folder_id/paper_id - refreshPendingReports must skip
-  // this rather than attempt a real Drillbit call with fake credentials.
+  // Deliberately no folder_id/paper_id - refreshAllPendingReports must
+  // skip this rather than attempt a real Drillbit call with fake
+  // credentials (not that it runs in this suite at all - see above).
   await pool.query(
     "insert into drillbit_reports (submission_id, status) values ($1, 'pending')",
     [pendingSubmissionId]

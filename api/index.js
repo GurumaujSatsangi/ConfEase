@@ -26,7 +26,7 @@ import { attachCsrfToken, injectCsrfIntoForms, verifyCsrfToken, csrfRejectUnless
 import helmet from "helmet"
 import ExcelJS from "exceljs";
 import { ZipArchive } from "archiver";
-import { submitSubmissionForAnalysis, refreshPendingReports, fetchDrillbitReport, isDrillbitConfigured } from "../drillbit.js";
+import { submitSubmissionForAnalysis, startPendingReportsPoller, fetchDrillbitReport, isDrillbitConfigured } from "../drillbit.js";
 
 // Conference descriptions are rich text from the chair editor. Only safe formatting is kept.
 const DESCRIPTION_OPTIONS = {
@@ -2432,13 +2432,10 @@ app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
   const submissions = await pool.query("select * from submissions where conference_id=$1 and submission_status=$2",[conference_id,"Submitted for Review"]);
 
   const submissionIds = submissions.rows.map((s) => s.submission_id);
-  // Checks Drillbit for a result on every still-"pending" submission on
-  // this page before rendering, so the chair sees fresh-as-possible
-  // scores without this app needing a background worker/cron - see
-  // drillbit.js. A no-op (and never throws) when Drillbit isn't
-  // configured yet or nothing here is pending.
-  await refreshPendingReports(pool, submissionIds).catch((err) => console.error("Error refreshing Drillbit reports:", err));
-
+  // Drillbit "pending" rows are refreshed by a background poller (see
+  // startPendingReportsPoller in drillbit.js, started once at app boot) -
+  // this is a plain DB read, so loading this page can never hang on an
+  // external Drillbit request.
   let drillbitBySubmission = {};
   if (submissionIds.length > 0) {
     const drillbitResult = await pool.query(
@@ -9247,6 +9244,11 @@ if (process.env.VERCEL !== "1" && process.env.SKIP_AUTOLISTEN !== "1") {
   const server = app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
+
+  // Drillbit "pending" rows are resolved by this background poller, not by
+  // the desk review page - see drillbit.js. A no-op when Drillbit isn't
+  // configured.
+  startPendingReportsPoller(pool);
 
   // REL-02 (security-audit/COMPLETE_FINDINGS_REGISTER.md): previously
   // there was no SIGTERM/SIGINT handling at all - a container redeploy or
