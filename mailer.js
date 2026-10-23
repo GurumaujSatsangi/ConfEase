@@ -5,6 +5,40 @@ import { retryWithBackoff } from "./retry.js";
 
 dotenv.config();
 
+// Some Workspace orgs disable app-password generation entirely (an admin
+// policy, not something this app can work around) - OAuth2 is Google's
+// own recommended replacement for exactly that case: it authenticates via
+// a Cloud Console OAuth client + a refresh token for the sending account,
+// never a password-equivalent, and isn't affected by that admin setting
+// at all. Falls back to the original app-password auth when the OAuth2
+// vars aren't set, so nothing breaks before they're configured - same
+// "optional until configured" pattern this app already uses for Redis,
+// Canva, and Drillbit.
+function isGmailOAuth2Configured() {
+  return Boolean(
+    process.env.GMAIL_OAUTH_CLIENT_ID &&
+    process.env.GMAIL_OAUTH_CLIENT_SECRET &&
+    process.env.GMAIL_OAUTH_REFRESH_TOKEN &&
+    process.env.EMAIL_USER
+  );
+}
+
+function buildTransportAuth() {
+  if (isGmailOAuth2Configured()) {
+    return {
+      type: "OAuth2",
+      user: process.env.EMAIL_USER,
+      clientId: process.env.GMAIL_OAUTH_CLIENT_ID,
+      clientSecret: process.env.GMAIL_OAUTH_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_OAUTH_REFRESH_TOKEN,
+    };
+  }
+  return {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  };
+}
+
 // REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): previously a
 // brand-new SMTP connection was opened for every single email, with no
 // cap on how many could be opened at once and no self-imposed send rate -
@@ -17,10 +51,7 @@ dotenv.config();
 // in the first place.
 const transporter = nodemailer.createTransport({
   service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
+  auth: buildTransportAuth(),
   pool: true,
   maxConnections: 3,
   maxMessages: 100,
