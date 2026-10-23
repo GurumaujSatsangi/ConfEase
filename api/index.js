@@ -151,6 +151,24 @@ function uploadBufferToCloudinary(buffer, options) {
   });
 }
 
+// Cleans up the file an upload just superseded (edit-submission, a revised
+// paper, or a final camera-ready paper all overwrite submissions.file_url/
+// file_public_id with a new asset - the old one was never deleted, so it
+// just sat on Cloudinary forever, unreachable from the app). Called only
+// after the DB row has already been updated to point at the new file, so
+// a failure here can never leave a submission referencing a deleted asset
+// - it only means one old file doesn't get cleaned up this time, logged
+// rather than surfaced to the user, same as this app treats every other
+// best-effort cleanup (see e.g. desk_review cleanup in deleteSubmissionCascade).
+async function deleteSupersededCloudinaryAsset({ publicId, resourceType, type }) {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType || "image", type: type || "upload" });
+  } catch (err) {
+    console.error(`Could not delete superseded Cloudinary asset ${publicId}:`, err);
+  }
+}
+
 // FILE-04 (security-audit/COMPLETE_FINDINGS_REGISTER.md): the paper itself
 // (submissions.file_url / final_camera_ready_submissions.file_url) is
 // uploaded with `type: "private"` (see the upload call sites below).
@@ -7762,7 +7780,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
       // Authorization: only the primary author of this submission (in this conference) may submit its camera-ready paper
       const finalOwnerResult = await pool.query(
-        `SELECT primary_author, submission_status FROM submissions WHERE submission_id = $1 AND conference_id = $2 LIMIT 1;`,
+        `SELECT primary_author, submission_status, file_public_id, file_resource_type FROM submissions WHERE submission_id = $1 AND conference_id = $2 LIMIT 1;`,
         [id, confid]
       );
       const finalOwnerRow = finalOwnerResult.rows[0];
@@ -7858,6 +7876,16 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
          WHERE submission_id = $6;`,
         [newStatus, uploadResult.secure_url, uploadResult.public_id, uploadResult.resource_type, uploadResult.format, id]
       );
+
+      // The originally-accepted manuscript is superseded by the camera-ready
+      // file above (and already tracked separately in
+      // final_camera_ready_submissions) - safe to delete now that the DB
+      // no longer points at it.
+      await deleteSupersededCloudinaryAsset({
+        publicId: finalOwnerRow.file_public_id,
+        resourceType: finalOwnerRow.file_resource_type,
+        type: "private",
+      });
 
       await invalidateConferenceSubmissionCache(
         [req.user.email, ...(Array.isArray(co_authors) ? co_authors : [])],
@@ -8584,6 +8612,14 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
           [uploadResult.secure_url, uploadResult.public_id, uploadResult.resource_type, uploadResult.format, submission_id]
         );
 
+        // The pre-revision draft is superseded by the file just uploaded -
+        // safe to delete now that the DB no longer points at it.
+        await deleteSupersededCloudinaryAsset({
+          publicId: submission.file_public_id,
+          resourceType: submission.file_resource_type,
+          type: "private",
+        });
+
         await invalidateConferenceSubmissionCache(
           [submission.primary_author, ...(submission.co_authors || [])],
           submission.conference_id
@@ -8617,7 +8653,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
 
       // Authorization: only the primary author or a co-author may edit this submission
       const editOwnerResult = await pool.query(
-        `SELECT primary_author, co_authors, submission_status, conference_id, paper_number, paper_code FROM submissions WHERE submission_id = $1 LIMIT 1;`,
+        `SELECT primary_author, co_authors, submission_status, conference_id, paper_number, paper_code, file_public_id, file_resource_type FROM submissions WHERE submission_id = $1 LIMIT 1;`,
         [id]
       );
       editRow = editOwnerResult.rows[0];
@@ -8697,6 +8733,17 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       `;
 
       await pool.query(sql, updateValues);
+
+      // Only superseded when a new file was actually uploaded this edit -
+      // editRow still holds the old (now-overwritten) public_id/resource_type,
+      // since that's whatever the original SELECT above returned.
+      if (req.file) {
+        await deleteSupersededCloudinaryAsset({
+          publicId: editRow.file_public_id,
+          resourceType: editRow.file_resource_type,
+          type: "private",
+        });
+      }
 
       await invalidateConferenceSubmissionCache(
         [editRow.primary_author, ...(editRow.co_authors || [])],
