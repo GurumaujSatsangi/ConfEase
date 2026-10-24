@@ -5206,6 +5206,12 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
     const oldMetaReviewer = oldTrackData.rows[0]?.meta_reviewer || null;
 
     // 3. Update the database
+    // session_date/start_time/end_time are now optional on the form (a
+    // chair can save a subject area's reviewers/panelists before its
+    // presentation slot is scheduled) - date/time-typed columns reject an
+    // empty string outright ("invalid input syntax for type date: \"\"")
+    // rather than treating it as absent, so blank fields need the same
+    // empty-string-to-null coercion vc_link already gets below.
     await pool.query(
       `UPDATE conference_tracks
        SET track_name = $1,
@@ -5220,9 +5226,9 @@ app.post("/chair/dashboard/update-track/:trackId", checkChairAuth, async (req, r
       [
         track_title,
         reviewersArray,
-        session_date,
-        start_time,
-        end_time,
+        String(session_date || "").trim() || null,
+        String(start_time || "").trim() || null,
+        String(end_time || "").trim() || null,
         panelistsArray,
         String(vc_link || "").trim() || null,
         metaReviewerEmail,

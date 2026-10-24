@@ -141,7 +141,7 @@
               class="form-control"
               name="reviewers"
               placeholder="Comma separated emails"
-              required
+              
             ><%= track.track_reviewers %></textarea><br>
 
             <p class="small">(DEI CMT follows Single-Blind Review Model. <a href="#" onclick="showSingleBlind()">Click Here</a> to Know More.)</p>          </td>
@@ -154,7 +154,7 @@
               class="form-control"
               name="session_date"
               value="<%= track.presentation_date || '' %>"
-              required
+              
             >
           </td>
 
@@ -164,7 +164,7 @@
               class="form-control"
               name="start_time"
               value="<%= track.presentation_start_time %>"
-              required
+              
             >
           </td>
 
@@ -174,7 +174,7 @@
               class="form-control"
               name="end_time"
               value="<%= track.presentation_end_time %>"
-              required
+              
             >
           </td>
 
@@ -183,7 +183,7 @@
               class="form-control"
               name="panelists"
               placeholder="Comma separated names"
-              required
+              
             ><%= track.panelists %></textarea>
           </td>
 
