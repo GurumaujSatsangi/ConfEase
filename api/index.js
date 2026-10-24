@@ -51,6 +51,8 @@ import events from 'events';
 events.defaultMaxListeners = 20;
 
 const app = express();
+
+app.set('trust proxy', 1);
 app.locals.sanitizeDescription = sanitizeDescription;
 
 
