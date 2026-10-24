@@ -4627,12 +4627,27 @@ app.post("/user-login", async (req, res) => {
 // always going to send one fixed response, it just didn't on every path.
 // Wrapped in try/catch too, so a database error can't leave the request
 // hanging either.
-app.post("/activation-check",async(req,res)=>{
+//
+// That SEC-004 fix overcorrected: the two queries below used to just read
+// and discard their results, so this route never actually regenerated a
+// code or sent an email for anyone - including the one case it exists to
+// serve (a still-"ACTIVATION PENDING" user who lost/never received their
+// original code). Users stuck in that state had no way back in, since
+// POST /user-registration also refuses to let an existing email register
+// again. Now it does the real work (same as /send-password-reset-link's
+// pattern) for an ACTIVATION PENDING user only, while still returning the
+// exact same message on every path.
+app.post("/activation-check", authRateLimitMemory, accountRateLimit((req) => req.body.email), async(req,res)=>{
   const message = "Account Activation Code has been sent to the requested Email ID";
   try {
     const {email} = req.body;
-    await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
-    await pool.query("select * from activation_requests where email=$1",[email]);
+    const userResult = await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
+    const user = userResult.rows[0];
+    if (user) {
+      const activation_code = crypto.randomUUID();
+      await pool.query("insert into activation_requests(email, activation_code, expires_at) values($1, $2, NOW() + INTERVAL '24 hours')",[email,activation_code]);
+      await sendMail(email, user.name+", Your DEI CMT Activation Code", null, greeting(user.name)+" <br><br>Greetings!<br><br>Visit https://cmt.gurumaujsatsangi.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code);
+    }
   } catch (err) {
     console.error("Error in /activation-check:", err);
   }
