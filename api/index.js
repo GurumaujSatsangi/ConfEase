@@ -5862,6 +5862,12 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
     const duplicateSubject = await pool.query("select 1 from conference_tracks where conference_id = $1 and track_name = $2 and group_id is not distinct from $3", [req.params.id, subjectName, trackGroupId]);
     if (duplicateSubject.rows.length) return res.redirect(manageTracksUrl(req.params.id, "A subject area with this name already exists in this track."));
 
+    // Only track_title is required (validated above) - session_date/
+    // session_start_time/session_end_time are optional on the form, but
+    // date/time-typed columns reject an empty string outright ("invalid
+    // input syntax for type date: \"\"") instead of treating it as absent,
+    // same gap already fixed on POST /chair/dashboard/update-track/:id -
+    // coerce blank strings to null here too.
     await pool.query(
       `INSERT INTO conference_tracks
        (track_name, track_reviewers, presentation_date, presentation_start_time, presentation_end_time, panelists, conference_id, meta_reviewer, group_id, vc_link)
@@ -5869,9 +5875,9 @@ app.post("/create-track/:id", checkChairAuth, async (req, res) => {
       [
         subjectName,
         reviewersArray,
-        session_date,
-        session_start_time,
-        session_end_time,
+        String(session_date || "").trim() || null,
+        String(session_start_time || "").trim() || null,
+        String(session_end_time || "").trim() || null,
         sessionChairsArray,
         req.params.id,
         metaReviewerEmail,

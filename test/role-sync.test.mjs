@@ -328,3 +328,29 @@ test("create-track saves vc_link on a brand-new subject area", async () => {
   const row = await pool.query("select vc_link from conference_tracks where conference_id = $1 order by track_id desc limit 1", [conferenceId]);
   assert.equal(row.rows[0].vc_link, "https://meet.example.com/new-track-room");
 });
+
+test("create-track: only track_title is required - a blank schedule saves instead of a Postgres date/time error", async () => {
+  const conferenceId = await createConference();
+  createdConferences.push(conferenceId);
+
+  const res = await post(`/create-track/${conferenceId}`, {
+    track_title: "Schedule-Optional Subject Area " + crypto.randomBytes(3).toString("hex"),
+    reviewers: "",
+    session_date: "",
+    session_start_time: "",
+    session_end_time: "",
+    session_chairs: "",
+    meta_reviewers: "",
+    vc_link: "",
+  });
+  assert.equal(res.status, 302);
+  assert.match(loc(res), /Track Added Succesfully/, "a blank schedule must not fail track creation");
+
+  const row = await pool.query(
+    "select presentation_date, presentation_start_time, presentation_end_time from conference_tracks where conference_id = $1 order by track_id desc limit 1",
+    [conferenceId]
+  );
+  assert.equal(row.rows[0].presentation_date, null);
+  assert.equal(row.rows[0].presentation_start_time, null);
+  assert.equal(row.rows[0].presentation_end_time, null);
+});
