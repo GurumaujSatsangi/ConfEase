@@ -722,8 +722,8 @@ CREATE TABLE public.users (
     password character varying,
     status text,
     contact_number character varying(50),
-    address text,
-    role character varying
+    role character varying,
+    affiliation text
 );
 
 
