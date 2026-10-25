@@ -799,15 +799,22 @@ if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PO
       port: process.env.REDIS_PORT,
       // REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): bounded,
       // explicit reconnection instead of relying on the client library's
-      // own default - capped exponential backoff (max 3s between
-      // attempts), and gives up for good after 10 attempts rather than
-      // retrying forever. Every call site already guards with
-      // `if (redisClient)` and its own try/catch (rate limiting, caching,
-      // cooldowns all fall back to safe defaults), so once reconnection is
-      // exhausted the app keeps running in that already-established
-      // degraded mode rather than hammering a Redis that may be gone for
-      // good.
-      reconnectStrategy: (retries) => (retries > 10 ? false : Math.min(retries * 300, 3000)),
+      // own default - capped exponential backoff (max 30s between
+      // attempts). Every call site already guards with `if (redisClient)`
+      // and its own try/catch (rate limiting, caching, cooldowns all fall
+      // back to safe defaults), so retrying forever costs nothing while
+      // disconnected - at most one connection attempt every 30s.
+      //
+      // This used to give up for good after 10 attempts (~17s total) -
+      // found in production after a transient DNS failure
+      // (getaddrinfo EAI_AGAIN for the Redis hostname, likely a brief
+      // network blip, not the instance actually being down) outlasted
+      // that window and left the app in degraded mode permanently, long
+      // after Redis itself had recovered, until a manual restart. A dead
+      // Redis doesn't need to be protected from retries that are this
+      // cheap and this infrequent - what actually needs protecting
+      // against is a transient outage becoming a permanent one.
+      reconnectStrategy: (retries) => Math.min(retries * 300, 30000),
     },
   });
 
