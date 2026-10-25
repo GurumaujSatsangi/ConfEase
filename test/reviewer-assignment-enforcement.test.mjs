@@ -125,9 +125,10 @@ after(async () => {
 test("GET review form: an on-track but unassigned reviewer is blocked once the track has per-paper assignments", async () => {
   const token = reviewerToken(unassignedReviewerEmail, conferenceId);
   const res = await get(`/reviewer/dashboard/review/${firstRoundPaperCode}`, token);
-  assert.equal(res.status, 200); // error.ejs renders with 200, not a redirect
-  const html = await res.text();
-  assert.match(html, /not assigned as a reviewer/i);
+  assert.equal(res.status, 302, "redirects to the reviewer dashboard with a SweetAlert message, instead of rendering a bare error page");
+  const location = decodeURIComponent(res.headers.get("location") || "");
+  assert.match(location, /\/reviewer\/dashboard/);
+  assert.match(location, /not assigned as a reviewer/i);
 });
 
 test("GET review form: the actually-assigned reviewer can open it normally", async () => {
@@ -162,9 +163,10 @@ test("POST /mark-as-reviewed: an unassigned reviewer cannot actually submit a re
 test("GET re-review form: an on-track but unassigned reviewer is blocked for a revised paper too", async () => {
   const token = reviewerToken(unassignedReviewerEmail, conferenceId);
   const res = await get(`/reviewer/dashboard/re-review/${revisedPaperCode}`, token);
-  assert.equal(res.status, 200);
-  const html = await res.text();
-  assert.match(html, /not assigned as a reviewer/i);
+  assert.equal(res.status, 302, "redirects to the reviewer dashboard with a SweetAlert message, instead of rendering a bare error page");
+  const location = decodeURIComponent(res.headers.get("location") || "");
+  assert.match(location, /\/reviewer\/dashboard/);
+  assert.match(location, /not assigned as a reviewer/i);
 });
 
 test("POST /mark-as-re-reviewed: an unassigned reviewer cannot submit a re-review for a paper assigned to someone else", async () => {

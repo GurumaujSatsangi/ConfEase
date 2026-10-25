@@ -1,19 +1,14 @@
-// SEC-004: POST /activation-check used to fall through with no response at
-// all when a user existed, was still ACTIVATION PENDING, but had no
-// activation_requests row (e.g. the code was already used). Every
-// supported path must now return the same enumeration-safe redirect.
+// POST /activation-check ("Did not receive Activation Code? Click Here")
+// history: SEC-004 made every path return one fixed, enumeration-safe
+// message, but its implementation (a later bug) never actually did the
+// work - no code was ever regenerated or emailed to anyone. a8bc7a3 fixed
+// the real work but kept the one fixed message.
 //
-// Found during a later audit (user report: "some users are not able to
-// create their accounts"): the SEC-004 fix overcorrected - it made the
-// route's two queries pure no-ops (results read and discarded), so it
-// never actually regenerated a code or sent an email for ANYONE, including
-// the one case this route exists to serve. A user whose original
-// activation email never arrived (or whose registration partially failed -
-// see POST /user-registration) had no way back in: POST /user-registration
-// refuses to let an existing email register again, and this "Did not
-// receive code?" flow silently did nothing. Tests below now assert the
-// real work actually happens for a still-pending user, not just that the
-// response looks the same.
+// Explicit product decision (overriding the enumeration-safety tradeoff):
+// tell the visitor plainly what happened - a fresh code was sent, the
+// account is already active, or no account exists for that email -
+// instead of always claiming success. Only a still-ACTIVATION-PENDING
+// account gets a new code and an email.
 
 import { test, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -38,6 +33,8 @@ const post = (body) =>
     body: new URLSearchParams(body),
   });
 
+const loc = (res) => decodeURIComponent(res.headers.get("location") || "");
+
 const createdEmails = [];
 after(async () => {
   for (const email of createdEmails) {
@@ -49,11 +46,11 @@ after(async () => {
   setImmediate(() => process.exit(0));
 });
 
-test("a non-existent email completes the request, and no email is actually sent", async () => {
+test("a non-existent email is told plainly that no account was found, and no email is sent", async () => {
   const res = await post({ email: "activation-check-test-nobody@example.com" });
   assert.equal(res.status, 302);
-  assert.match(decodeURIComponent(res.headers.get("location") || ""), /Account Activation Code has been sent/);
-  assert.equal(testSentEmails.length, 0, "an email must never be sent for an address with no account - that would be an enumeration/spam vector");
+  assert.match(loc(res), /No account was found/i);
+  assert.equal(testSentEmails.length, 0);
 });
 
 test("a pending user WITH an activation_requests row gets a genuinely new code emailed to them", async () => {
@@ -65,7 +62,7 @@ test("a pending user WITH an activation_requests row gets a genuinely new code e
 
   const res = await post({ email });
   assert.equal(res.status, 302);
-  assert.match(decodeURIComponent(res.headers.get("location") || ""), /Account Activation Code has been sent/);
+  assert.match(loc(res), /new activation code has been sent/i);
 
   assert.equal(testSentEmails.length, 1, "the resend must actually send an email, not silently do nothing");
   assert.equal(testSentEmails[0].to, email);
@@ -83,7 +80,7 @@ test("a pending user with NO activation_requests row (the original SEC-004 bug's
 
   const res = await post({ email });
   assert.equal(res.status, 302, "this exact path used to hang with no response at all");
-  assert.match(decodeURIComponent(res.headers.get("location") || ""), /Account Activation Code has been sent/);
+  assert.match(loc(res), /new activation code has been sent/i);
 
   assert.equal(testSentEmails.length, 1, "a user stuck ACTIVATION PENDING with no code at all must still be able to get back in");
   assert.equal(testSentEmails[0].to, email);
@@ -92,13 +89,13 @@ test("a pending user with NO activation_requests row (the original SEC-004 bug's
   assert.equal(rows.rows.length, 1, "exactly one fresh activation_requests row must now exist");
 });
 
-test("an already-activated user completes the request, and no email is sent (nothing to resend, and must not leak activation status)", async () => {
+test("an already-activated user is told their account is already active, and no email is sent", async () => {
   const email = "activation-check-test-already-active@example.com";
   createdEmails.push(email);
   await pool.query("insert into users (name, email, password, status) values ($1,$2,'x','ACCOUNT ACTIVATED')", ["Test", email]);
 
   const res = await post({ email });
   assert.equal(res.status, 302);
-  assert.match(decodeURIComponent(res.headers.get("location") || ""), /Account Activation Code has been sent/);
-  assert.equal(testSentEmails.length, 0, "an already-activated account has nothing to resend, and silently doing nothing here is what keeps this route enumeration-safe");
+  assert.match(loc(res), /already activated/i);
+  assert.equal(testSentEmails.length, 0, "an already-activated account has nothing to resend");
 });

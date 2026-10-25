@@ -547,7 +547,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the <b>${name}</b> Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been invited to serve as a <b>Reviewer</b> for ${name}.<br><br>` +
       `We highly value your academic expertise and experience, and we believe that your contribution to the review process will be instrumental in maintaining the quality and academic standards of the conference.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `We look forward to your valuable contribution to the conference and appreciate your willingness to support the academic review process.`,
   }),
   session_chair: (name) => ({
@@ -557,7 +557,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the ${name} Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been appointed as a <b>Session Chair</b> for ${name}.<br><br>` +
       `Your role will be important in ensuring the smooth and effective conduct of the assigned session, facilitating academic discussions, managing the presentation schedule, and encouraging meaningful interaction between presenters and participants.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `Further information regarding the session schedule, assigned presentations, and other responsibilities will be communicated to you through the conference portal or by the organizing team.<br><br>` +
       `We look forward to your valuable contribution to the successful conduct of the conference.`,
   }),
@@ -568,7 +568,7 @@ const ROLE_INVITATION_EMAILS = {
       `Greetings from the ${name} Organizing Committee.<br><br>` +
       `We are pleased to inform you that you have been appointed as the <b>Poster Presentation Coordinator</b> for ${name}.<br><br>` +
       `In this role, you will help coordinate the poster presentation sessions and facilitate the smooth conduct of poster presentations. Your responsibilities include communicating relevant instructions, managing presentation schedules and scoring the posters.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `Further details regarding the assigned sessions, schedules, and coordination responsibilities will be shared through the conference portal or by the organizing team.<br><br>` +
       `We look forward to your support and valuable contribution to the successful organization of the conference.`,
   }),
@@ -580,7 +580,7 @@ const ROLE_INVITATION_EMAILS = {
       `We are pleased to inform you that you have been invited to serve as a <b>Meta-Reviewer</b> for ${name}.<br><br>` +
       `We highly value your academic expertise and experience, and we believe that your contribution will be valuable in ensuring a fair, consistent, and high-quality paper evaluation process.<br><br>` +
       `As a Meta-Reviewer, you will be expected to review the feedback provided by the assigned reviewers, assess their recommendations, and provide an overall evaluation to assist the conference committee in making informed decisions regarding paper acceptance.<br><br>` +
-      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
+      `We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to create your account using this email address and access the reviewer facilities.<br><br>` +
       `We look forward to your valuable contribution to maintaining the academic quality and integrity of the conference.`,
   }),
 };
@@ -609,7 +609,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `This email is to confirm that your paper has been successfully submitted to ${conferenceName}. The details of your submission are provided below:<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode]]) +
       `<br><br>Please retain these details for future reference. The Paper ID can be used to identify your submission, while the Paper Code can be shared with your co-authors to enable them to join the paper through the DEI CMT portal.<br><br>` +
-      `You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view your submission details and track its progress.<br><br>` +
+      `You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view your submission details and track its progress.<br><br>` +
       `Please ensure that all the information provided in your submission is accurate and complete.<br><br>` +
       `We appreciate your interest in ${conferenceName} and look forward to your participation.`,
   }),
@@ -620,7 +620,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `This email is to inform you that your submission has been successfully updated on the DEI CMT portal.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Paper Code", paperCode], ["Last Updated On", updatedAt]]) +
-      `<br><br>The latest changes have been saved successfully. You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to review the updated submission details.<br><br>` +
+      `<br><br>The latest changes have been saved successfully. You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to review the updated submission details.<br><br>` +
       `Thank you for your continued engagement with ${conferenceName}.`,
   }),
   desk_review_decision: ({ conferenceName, authorName, title, paperId, decision, remarks }) => ({
@@ -630,7 +630,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We would like to inform you that the desk review of your submission has been completed. The decision and relevant details are provided below.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Desk Review Decision", decision], ["Remarks", remarks]]) +
-      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
       `If revisions are requested, we kindly ask you to follow the instructions provided and adhere to the specified deadline, if applicable.`,
   }),
   peer_review_decision: ({ conferenceName, authorName, title, paperId, decision, reviewerComments }) => ({
@@ -640,7 +640,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We are writing to inform you that the peer review process for your submission to ${conferenceName} has been completed. The decision regarding your paper is provided below.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Peer Review Decision", decision], ["Reviewer Comments", reviewerComments]]) +
-      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to view the complete decision, reviewer feedback, and any further instructions.<br><br>` +
+      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision, reviewer feedback, and any further instructions.<br><br>` +
       `If your paper has been accepted subject to revisions, please carefully review the comments and submit the revised manuscript within the specified deadline. If your paper has been accepted, further instructions regarding presentation and other conference requirements will be communicated through the portal, as applicable.<br><br>` +
       `We appreciate your contribution to ${conferenceName} and thank you for your interest in the conference.`,
   }),
@@ -651,7 +651,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We are pleased to inform you that your certificate for ${conferenceName} is now available for download through the DEI CMT portal.<br><br>` +
       submissionDetailsBlock("Certificate Details", [["Paper Title", title], ["Paper ID", paperId], ["Certificate Type", certificateType]]) +
-      `<br><br>You may log in to the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> and navigate to the relevant section to view and download your certificate.<br><br>` +
+      `<br><br>You may log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> and navigate to the relevant section to view and download your certificate.<br><br>` +
       `We appreciate your participation in ${conferenceName} and hope the conference has been a valuable academic experience for you.`,
   }),
 };
@@ -1878,7 +1878,7 @@ app.get("/invitee/dashboard", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Error loading invitee dashboard:", err);
-    return res.status(500).send("Server error loading dashboard.");
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Server error loading dashboard."));
   }
 });
 
@@ -2406,7 +2406,7 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
   } catch (err) {
     console.error("Reviewer Dashboard Error:", err);
-    return res.status(500).send("Error loading reviewer dashboard.");
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Error loading reviewer dashboard."));
   }
 });
 
@@ -2745,6 +2745,14 @@ app.get("/dashboard", checkAuth, async (req, res) => {
 
 app.get("/conference/:id",checkAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id = $1",[req.params.id]);
+  // A stale/bookmarked link, or a conference that's since been deleted,
+  // left this route rendering conference.ejs with conference.rows[0]
+  // undefined - the template then crashed immediately on
+  // `<%= conference.title %>` instead of this just being a clean "not
+  // found" redirect.
+  if (conference.rows.length === 0) {
+    return res.redirect("/dashboard?message=" + encodeURIComponent("That conference could not be found."));
+  }
   const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1 order by g.group_name nulls last, t.track_name",[req.params.id]);
   let submissions = [];
   const conferenceSubmissionsCacheKey = submissionsCacheKey(req.user.email, req.params.id);
@@ -3096,7 +3104,7 @@ app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) =
     const trackRaw = trackResult.rows[0];
 
     if (!trackRaw) {
-      return res.status(404).send("Subject area not found.");
+      return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Subject area not found."));
     }
 
     const track = {
@@ -3113,7 +3121,7 @@ app.get("/chair/dashboard/edit-sessions/:id", checkChairAuth, async (req, res) =
 
   } catch (err) {
     console.error("Error fetching track:", err);
-    return res.status(500).send("Error fetching sessions.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching sessions."));
   }
 });
 
@@ -3332,7 +3340,7 @@ app.get(
     try {
       const data = await loadOralSessionsDashboardData(req.params.id);
       if (!data) {
-        return res.status(404).send("Conference not found.");
+        return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Conference not found."));
       }
       res.render("chair/manage-sessions.ejs", {
         user: req.user,
@@ -3343,7 +3351,7 @@ app.get(
       });
     } catch (err) {
       console.error("manage-sessions error:", err);
-      res.status(500).send("Error fetching data");
+      res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching data"));
     }
   }
 );
@@ -3359,7 +3367,7 @@ app.get(
     try {
       const data = await loadOralSessionsDashboardData(req.params.id);
       if (!data) {
-        return res.status(404).send("Conference not found.");
+        return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Conference not found."));
       }
 
       const workbook = new ExcelJS.Workbook();
@@ -3421,7 +3429,7 @@ app.get(
       return res.end();
     } catch (err) {
       console.error("Error exporting oral sessions:", err);
-      return res.status(500).send("Error exporting data.");
+      return res.redirect(`/chair/dashboard/manage-sessions/${req.params.id}?message=` + encodeURIComponent("Error exporting data."));
     }
   }
 );
@@ -3545,7 +3553,7 @@ app.get("/chair/dashboard/manage-poster-sessions/:id", checkChairAuth, async (re
 
   } catch (err) {
     console.error("manage-poster-sessions error:", err);
-    res.status(500).send("Error fetching data.");
+    res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching data."));
   }
 });
 
@@ -3718,7 +3726,7 @@ app.post("/chair/dashboard/set-session/:id", checkChairAuth, async (req, res) =>
 
   } catch (err) {
     console.error("Error setting session:", err);
-    return res.status(500).send("Error setting up the session.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error setting up the session."));
   }
 });
 
@@ -3842,7 +3850,7 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Error in /panelist/active-session:", err);
-    return res.status(500).send("Internal Server Error");
+    return res.redirect("/panelist/dashboard?message=" + encodeURIComponent("Internal Server Error"));
   }
 });
 
@@ -3996,9 +4004,7 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
 
     // 2. Handle missing submission
     if (!submissionData) {
-      return res.render("error.ejs", {
-        message: "The submission you are trying to view does not exist.",
-      });
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The submission you are trying to view does not exist."));
     }
 
     //
@@ -4006,9 +4012,7 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
     // review it - and, once the chair has assigned specific papers on this
     // track, only the reviewer this specific paper was assigned to.
     if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
-      return res.render("error.ejs", {
-        message: "You are not assigned as a reviewer for this submission.",
-      });
+      return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
     }
 
     // 3. Check if it was already reviewed
@@ -4025,9 +4029,7 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
 
     // Peer-review deadline: once it has passed, a reviewer can no longer open this form
     if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
-      return res.render("error.ejs", {
-        message: "The peer-review deadline for this conference has passed. You can no longer review submissions.",
-      });
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The peer-review deadline for this conference has passed. You can no longer review submissions."));
     }
 
     // Helper function to format dates
@@ -4075,9 +4077,7 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Error fetching review page data:", err);
-    return res.render("error.ejs", {
-      message: "An unexpected error occurred while loading this submission.",
-    });
+    return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading this submission."));
   }
 });
 
@@ -4097,9 +4097,7 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
 
     // 2. Handle missing or failed fetch
     if (!submissionData) {
-      return res.render("error.ejs", {
-        message: "The submission you are trying to view does not exist.",
-      });
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The submission you are trying to view does not exist."));
     }
 
     //
@@ -4109,15 +4107,11 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
     // re-review it - and, once the chair has assigned specific papers on
     // this track, only the reviewer this specific paper was assigned to.
     if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
-      return res.render("error.ejs", {
-        message: "You are not assigned as a reviewer for this submission.",
-      });
+      return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
     }
 
     if (submissionData.submission_status !== "Submitted Revised Paper") {
-      return res.render("error.ejs", {
-        message: "This submission does not have a revised paper to review.",
-      });
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("This submission does not have a revised paper to review."));
     }
 
     // Helper function to format dates
@@ -4141,9 +4135,7 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
 
     // Peer-review deadline: once it has passed, a reviewer can no longer open this form
     if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
-      return res.render("error.ejs", {
-        message: "The peer-review deadline for this conference has passed. You can no longer review submissions.",
-      });
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The peer-review deadline for this conference has passed. You can no longer review submissions."));
     }
 
     const conferencedata = {
@@ -4181,9 +4173,7 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Re-review page load error:", err);
-    return res.render("error.ejs", {
-      message: "An unexpected error occurred while loading the re-review page.",
-    });
+    return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading the re-review page."));
   }
 });
 
@@ -4351,7 +4341,7 @@ app.post("/chair/dashboard/manage-sessions/:id", checkChairAuth, async (req, res
 
   } catch (err) {
     console.error("Error managing sessions:", err);
-    return res.status(500).send("Error managing sessions.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error managing sessions."));
   }
 });
 
@@ -4387,7 +4377,7 @@ if(result==true){
 
     const activation_code = crypto.randomUUID();
     await pool.query("insert into activation_requests(email, activation_code, expires_at) values($1, $2, NOW() + INTERVAL '24 hours')",[email,activation_code]);
-     await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Greetings!<br><br>We are pleased to inform you that your account has been successfully created on the DEI CMT portal.<br><br>Visit https://cmt.gurumaujsatsangi.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code).catch((mailErr) => console.error("Welcome email failed:", mailErr));
+     await sendMail(email,name+", Welcome to DEI CMT!",null,greeting(name)+" <br><br>Greetings!<br><br>We are pleased to inform you that your account has been successfully created on the DEI CMT portal.<br><br>Visit https://cmt.dei.ac.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code).catch((mailErr) => console.error("Welcome email failed:", mailErr));
 
     return res.redirect("/login/user?message=Your account has been created succesfully, please check your Email inbox for an Email with the subject 'Welcome to DEI CMT!' for the account activation code.");
 
@@ -4462,7 +4452,7 @@ app.post("/activate-account", authRateLimitMemory, async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    return res.status(500).send("Server Error");
+    return res.redirect("/login/user?message=" + encodeURIComponent("Server Error"));
   }
 });
 
@@ -4624,43 +4614,44 @@ app.post("/user-login", async (req, res) => {
 
     console.error(err);
 
-    return res.status(500).send("Server error");
+    return res.redirect("/login/user?message=" + encodeURIComponent("Server error"));
 
   }
 });
 
 
-// SEC-004 (security-audit/*): every branch below ends in the exact same
-// enumeration-safe redirect regardless of whether the email exists, is
-// already activated, or has no activation_requests row - so this was
-// always going to send one fixed response, it just didn't on every path.
-// Wrapped in try/catch too, so a database error can't leave the request
-// hanging either.
-//
-// That SEC-004 fix overcorrected: the two queries below used to just read
-// and discard their results, so this route never actually regenerated a
-// code or sent an email for anyone - including the one case it exists to
-// serve (a still-"ACTIVATION PENDING" user who lost/never received their
-// original code). Users stuck in that state had no way back in, since
-// POST /user-registration also refuses to let an existing email register
-// again. Now it does the real work (same as /send-password-reset-link's
-// pattern) for an ACTIVATION PENDING user only, while still returning the
-// exact same message on every path.
+// Was SEC-004's enumeration-safe design (one fixed message on every path),
+// then a real-work fix (a8bc7a3) that still kept that one fixed message.
+// Explicit product decision, overriding that enumeration-safety tradeoff:
+// tell the visitor plainly what happened - a code was actually sent, the
+// account is already active, or no account exists for that email - rather
+// than always claiming success. A still-ACTIVATION-PENDING user is the
+// only case that gets a fresh code and an email; an already-activated
+// account is told to log in instead; an unrecognized email is told so
+// too, same as the password-reset flow doesn't currently try to hide
+// that one either.
 app.post("/activation-check", authRateLimitMemory, accountRateLimit((req) => req.body.email), async(req,res)=>{
-  const message = "Account Activation Code has been sent to the requested Email ID";
   try {
     const {email} = req.body;
-    const userResult = await pool.query("select * from users where email=$1 and status=$2",[email,"ACTIVATION PENDING"]);
+    const userResult = await pool.query("select * from users where email=$1", [email]);
     const user = userResult.rows[0];
-    if (user) {
+
+    if (!user) {
+      return res.redirect(`/account-activation?message=${encodeURIComponent("No account was found for that email address.")}`);
+    }
+
+    if (user.status === "ACTIVATION PENDING") {
       const activation_code = crypto.randomUUID();
       await pool.query("insert into activation_requests(email, activation_code, expires_at) values($1, $2, NOW() + INTERVAL '24 hours')",[email,activation_code]);
-      await sendMail(email, user.name+", Your DEI CMT Activation Code", null, greeting(user.name)+" <br><br>Greetings!<br><br>Visit https://cmt.gurumaujsatsangi.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code);
+      await sendMail(email, user.name+", Your DEI CMT Activation Code", null, greeting(user.name)+" <br><br>Greetings!<br><br>Visit https://cmt.dei.ac.in/account-activation and enter the below given account activation code to activate your account.<br><br><b>Account Activation Code:</b> "+activation_code);
+      return res.redirect(`/account-activation?message=${encodeURIComponent("A new activation code has been sent to your email address.")}`);
     }
+
+    return res.redirect(`/account-activation?message=${encodeURIComponent("This account is already activated. Please log in instead.")}`);
   } catch (err) {
     console.error("Error in /activation-check:", err);
+    return res.redirect(`/account-activation?message=${encodeURIComponent("Something went wrong. Please try again later.")}`);
   }
-  return res.redirect(`/account-activation?message=${encodeURIComponent(message)}`);
 })
 
 
@@ -5065,7 +5056,7 @@ app.post("/chair-login", async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    return res.status(500).send("Server error");
+    return res.redirect("/login/user?message=" + encodeURIComponent("Server error"));
   }
 });
 
@@ -5486,7 +5477,7 @@ app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) =>
 
   } catch (err) {
     console.error("invited-talks error:", err);
-    res.status(500).send("Error fetching data.");
+    res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching data."));
   }
 });
 
@@ -5531,7 +5522,7 @@ app.post("/add-invitee", checkChairAuth,async (req, res) => {
       await ensureConferenceRole(conference_id, email, "invitee");
      await sendMail(email,invitedTalkEmailSubject,null,
       invitedTalkEmailIntro +
-      "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.gurumaujsatsangi.in'>https://cmt.gurumaujsatsangi.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
+      "We kindly request you to visit the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to log in and submit your paper/details under the Invited Talk category.<br><br>" +
       invitedTalkEmailOutro
      )
     return res.redirect("/chair/dashboard/invited-talks/"+conference_id+"?message=Succesfully Added Invitee. Invitee already has an account on CMT.");
@@ -6110,22 +6101,16 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
   const { paper_id, panelist_score, track_id } = req.body;
 
   if (!paper_id || !track_id) {
-    return res.render("error.ejs", {
-      message: "Missing required fields: paper_id or track_id",
-    });
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Missing required fields: paper_id or track_id"));
   }
 
   const scoreValue = panelist_score ? Number(panelist_score) : null;
   if (panelist_score && isNaN(scoreValue)) {
-    return res.render("error.ejs", {
-      message: "Invalid panelist score provided",
-    });
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid panelist score provided"));
   }
 
   if (!paper_id || typeof paper_id !== "string" || paper_id.trim() === "") {
-    return res.render("error.ejs", {
-      message: "Invalid paper ID provided",
-    });
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Invalid paper ID provided"));
   }
 
   try {
@@ -6136,9 +6121,7 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
     );
 
     if (submissionResult.rows.length === 0) {
-      return res.render("error.ejs", {
-        message: "Submission not found.",
-      });
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Submission not found."));
     }
 
     const conference_id = submissionResult.rows[0].conference_id;
@@ -6149,9 +6132,7 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
       [paper_id, req.user.email]
     );
     if (panelistCheck.rows.length === 0) {
-      return res.render("error.ejs", {
-        message: "You are not an assigned panelist for this submission.",
-      });
+      return res.redirect(`/panelist/active-session/${conference_id}?message=` + encodeURIComponent("You are not an assigned panelist for this submission."));
     }
 
     // Update submissions table
@@ -6181,10 +6162,7 @@ app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
     );
   } catch (err) {
     console.error("Error updating submission:", err);
-    return res.render("error.ejs", {
-      message:
-        "We are facing some issues in marking this submission as completed.",
-    });
+    return res.redirect("/dashboard?message=" + encodeURIComponent("We are facing some issues in marking this submission as completed."));
   }
 });
 
@@ -6278,7 +6256,7 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
   } catch (err) {
     await conferenceClient.query("ROLLBACK");
     console.error("Error deleting conference:", err);
-    res.status(500).send("Error deleting conference.");
+    res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error deleting conference."));
   } finally {
     conferenceClient.release();
   }
@@ -6767,7 +6745,7 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
       }
 
     if (!conferenceRaw) {
-      return res.status(404).send("Conference not found.");
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Conference not found."));
     }
 
     const conference = {
@@ -6788,7 +6766,7 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Error fetching conference:", err);
-    return res.status(500).send("Error fetching conference.");
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Error fetching conference."));
   }
 });
 
@@ -7223,6 +7201,12 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
 
     const conferenceRaw = conferenceResult.rows[0];
 
+    // Was previously below the deadline check, which dereferenced
+    // conferenceRaw.full_paper_submission first - an exception on a
+    // nonexistent conference_id, before this check ever got to run.
+    if (!conferenceRaw) {
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
 
      const currentDate = getCurrentDateIST();
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
@@ -7231,10 +7215,6 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
       if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
-
-    if (!conferenceRaw) {
-      return res.status(404).send("Conference not found.");
-    }
 
     const conference = {
       ...conferenceRaw,
@@ -7268,7 +7248,7 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Database error:", err);
-    return res.status(500).send("Error fetching data from database.");
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Error fetching data from database."));
   }
 });
 
@@ -7316,6 +7296,13 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
     );
     const conferenceRaw = conferenceResult.rows[0];
 
+    // Was previously below the deadline check, which dereferenced
+    // conferenceRaw.full_paper_submission first - an exception on a
+    // nonexistent conference_id, before this check ever got to run.
+    if (!conferenceRaw) {
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
+
      const currentDate = getCurrentDateIST();
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
 
@@ -7323,10 +7310,6 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
       if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
-
-    if (!conferenceRaw) {
-      return res.status(404).send("Conference not found.");
-    }
 
     const conference = {
       ...conferenceRaw,
@@ -7361,7 +7344,7 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
 
   } catch (err) {
     console.error("Error loading invited talk submission page:", err);
-    return res.status(500).send("Server error loading submission page.");
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Server error loading submission page."));
   }
 });
 
@@ -8078,7 +8061,7 @@ app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) 
     );
     const conferenceRaw = confResult.rows[0];
 
-    if (!conferenceRaw) return res.status(404).send("Conference not found.");
+    if (!conferenceRaw) return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Conference not found."));
 
     const conference = {
       ...conferenceRaw,
@@ -8107,7 +8090,7 @@ app.get("/chair/dashboard/edit-conference/:id", checkChairAuth,async (req, res) 
     });
   } catch (err) {
     console.error("Error:", err);
-    return res.status(500).send("Error fetching conference data.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching conference data."));
   }
 });
 
@@ -8170,7 +8153,7 @@ app.post("/chair/dashboard/update-conference/:id", checkChairAuth, async (req, r
 
   } catch (err) {
     console.error("Update conference error:", err);
-    return res.status(500).send("Error updating conference.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error updating conference."));
   }
 });
 
@@ -8388,7 +8371,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
     });
   } catch (err) {
     console.error("Error in chair view submissions:", err);
-    return res.status(500).send("Error fetching data.");
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Error fetching data."));
   }
 });
 
@@ -9267,7 +9250,7 @@ async function handleLogout(req, res) {
 
     console.error(err);
 
-    return res.status(500).send("Logout failed");
+    return res.redirect("/login/user?message=" + encodeURIComponent("Logout failed"));
 
   }
 
@@ -9288,7 +9271,17 @@ app.use((err, req, res, next) => {
     return next(err);
   }
 
-  return res.status(500).render("error.ejs");
+  // Every other error path in this app redirects to a known page with a
+  // SweetAlert message (via partials/header's `message` handling) rather
+  // than rendering a bare error page with no explanation - this was the
+  // one place that didn't, so a genuinely unhandled exception anywhere
+  // left the visitor on a static "Oops...Page Not Found!" page with no
+  // indication anything had actually gone wrong. res.locals.user is set
+  // by an early, ordinary (non-error) middleware - skipped entirely once
+  // something earlier in the chain throws - so it can't be relied on here
+  // to pick an authenticated vs. public destination; "/" is always safe
+  // and always renders regardless of auth state.
+  return res.redirect("/?message=" + encodeURIComponent("Something went wrong. Please try again later."));
 });
 
 // SKIP_AUTOLISTEN: test-only escape hatch. A test that needs the real Redis
