@@ -9336,7 +9336,12 @@ if (process.env.VERCEL !== "1" && process.env.SKIP_AUTOLISTEN !== "1") {
       } catch (poolErr) {
         console.error("Error while closing the database pool:", poolErr.message);
       }
-      if (redisClient) {
+      // Only attempt to close a connection that's actually open - quit()
+      // on a client that already dropped (e.g. mid-reconnect after an
+      // earlier outage) throws "The client is closed", which is harmless
+      // noise here (shutdown proceeds either way) but looked like a real
+      // failure in the logs.
+      if (redisClient && redisClient.isOpen) {
         try {
           await redisClient.quit();
         } catch (redisErr) {
