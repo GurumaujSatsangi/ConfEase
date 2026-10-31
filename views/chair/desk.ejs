@@ -31,9 +31,6 @@
                     <th>TITLE</th>
                     <th>ABSTRACT</th>
                     <th>VIEW PAPER</th>
-                    <% if (drillbitConfigured) { %>
-                    <th>AI / PLAGIARISM CHECK</th>
-                    <% } %>
                     <th>DECISION</th>
                     <th>ACTION</th>
                 </tr>
@@ -45,28 +42,6 @@
                 <td><%= submission.title %></td>
                 <td><a class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#exampleModal1">Read</a></td>
                 <td><a target="_blank" href="<%= submission.file_url %>" class="btn btn-primary btn-sm">View</a></td>
-                <% if (drillbitConfigured) { %>
-                <td>
-                  <% if (!submission.drillbit) { %>
-                    <span class="text-muted small">Not submitted</span>
-                  <% } else if (submission.drillbit.status === 'pending') { %>
-                    <span class="text-muted small"><i class="bi bi-hourglass-split"></i> Processing (usually 10-15 min)</span>
-                  <% } else if (submission.drillbit.status === 'failed') { %>
-                    <span class="text-danger small" title="<%= submission.drillbit.error_message || '' %>"><i class="bi bi-exclamation-circle"></i> Analysis failed</span>
-                  <% } else { %>
-                    <div class="small mb-1">Plagiarism: <strong><%= submission.drillbit.plagiarism_percent %>%</strong></div>
-                    <% if (submission.drillbit.ai_percent != null) { %>
-                      <div class="small mb-2">AI Content: <strong><%= submission.drillbit.ai_percent %>%</strong></div>
-                    <% } %>
-                    <% if (submission.drillbit.d_key) { %>
-                      <a class="btn btn-outline-secondary btn-sm mb-1" target="_blank" href="/chair/dashboard/desk/drillbit-report/<%= submission.submission_id %>/similarity">Similarity Report</a><br>
-                      <% if (submission.drillbit.ai_percent != null) { %>
-                        <a class="btn btn-outline-secondary btn-sm" target="_blank" href="/chair/dashboard/desk/drillbit-report/<%= submission.submission_id %>/ai">AI Report</a>
-                      <% } %>
-                    <% } %>
-                  <% } %>
-                </td>
-                <% } %>
                 <td>
 
     <div class="form-check">
