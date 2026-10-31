@@ -3863,8 +3863,15 @@ app.get("/reset-password/:token", async (req, res) => {
         return res.redirect("/login/user?message=This password reset link has expired. Please try again.");
     }
 
+    // The raw URL token - NOT result.rows[0].token, which is the SHA-256
+    // hash stored in the database. The view's hidden form field must carry
+    // the raw token (POST /update-password hashes it itself before
+    // comparing), or every single submission silently compares a
+    // hash-of-a-hash against the stored hash and never matches, no matter
+    // how fresh the link is.
     res.render("login/reset-password.ejs", {
       result: result.rows[0],
+      token,
       message,
     });
 });
