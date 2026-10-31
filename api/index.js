@@ -4621,14 +4621,14 @@ app.post("/activation-check", authRateLimitMemory, accountRateLimit((req) => req
 
 
 
-app.get("/admin",  async(req,res)=>{
+// app.get("/admin",  async(req,res)=>{
 
 
-const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
-const conferences = await pool.query("select conference_id, title, created_by from conferences");
-const canvaConnection = await canva.getConnectionInfo();
-res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null, canvaConnection});
-})
+// const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
+// const conferences = await pool.query("select conference_id, title, created_by from conferences");
+// const canvaConnection = await canva.getConnectionInfo();
+// res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null, canvaConnection});
+// })
 
 // Admin authorization: explicit allow-list in ADMIN_EMAILS (comma-separated). Fails closed when unset or empty.
 // Chair status, reviewer roles, and client-supplied fields never grant admin access.
