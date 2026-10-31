@@ -75,3 +75,14 @@ test("an invalid/unknown activation code is rejected", async () => {
   const res = await post("/activate-account", { activation_code: crypto.randomUUID() });
   assert.match(loc(res), /Invalid or expired activation code/);
 });
+
+// activation_requests.activation_code is uuid-typed - a malformed, non-UUID
+// string (e.g. a password-reset token's 64-char hex shape, pasted into the
+// wrong field) previously fell into the route's generic catch block and
+// showed "Server Error", with a raw Postgres uuid-cast error in the logs.
+test("a malformed (non-UUID-shaped) activation code gets a clear, specific message instead of a generic server error", async () => {
+  const res = await post("/activate-account", { activation_code: "not-a-valid-uuid-at-all" });
+  assert.equal(res.status, 302);
+  assert.match(loc(res), /Invalid activation code/);
+  assert.doesNotMatch(loc(res), /Server Error/);
+});

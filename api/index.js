@@ -4400,6 +4400,15 @@ app.post("/activate-account", authRateLimitMemory, async (req, res) => {
     );
 
   } catch (error) {
+    // activation_requests.activation_code is uuid-typed - anything typed
+    // into the activation-code field that isn't valid UUID shape (a stray
+    // paste, a copied password-reset token, etc.) throws Postgres code
+    // 22P02 (invalid_text_representation) rather than just finding no
+    // rows. Give a clear, specific message for that case instead of
+    // folding it into the generic "Server Error" everything else gets.
+    if (error.code === "22P02") {
+      return res.redirect("/login/user?message=" + encodeURIComponent("Invalid activation code."));
+    }
     console.error(error);
     return res.redirect("/login/user?message=" + encodeURIComponent("Server Error"));
   }
