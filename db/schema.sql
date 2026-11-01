@@ -550,7 +550,19 @@ CREATE TABLE public.poster_session (
     start_time time without time zone,
     end_time time without time zone,
     coodinators text[],
-    vc_link text
+    vc_link text,
+    instructions text
+);
+
+
+--
+-- Name: poster_session_booth_details; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.poster_session_booth_details (
+    submission_id uuid NOT NULL,
+    booth integer NOT NULL,
+    allotted_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -990,6 +1002,14 @@ ALTER TABLE ONLY public.poster_session
 
 
 --
+-- Name: poster_session_booth_details poster_session_booth_details_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.poster_session_booth_details
+    ADD CONSTRAINT poster_session_booth_details_pkey PRIMARY KEY (submission_id);
+
+
+--
 -- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1385,6 +1405,14 @@ ALTER TABLE ONLY public.poster_presentation_scores
 
 ALTER TABLE ONLY public.poster_session
     ADD CONSTRAINT poster_session_conference_id_fkey FOREIGN KEY (conference_id) REFERENCES public.conferences(conference_id) ON DELETE CASCADE;
+
+
+--
+-- Name: poster_session_booth_details poster_session_booth_details_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.poster_session_booth_details
+    ADD CONSTRAINT poster_session_booth_details_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(submission_id) ON DELETE CASCADE;
 
 
 --

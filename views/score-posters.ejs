@@ -43,13 +43,32 @@
             <td><%= posterSession.coodinators %></td>
                                <td><a href="<%= posterSession.vc_link %>">Join</a></td>
 
-            
+
           </tr>
         </tbody>
       </table>
       </div>
           <p class="small">(Changes in the schedule can be done only by the conference chairs. Reach out to the chair at <a href="mailto:<%= conference.created_by %>"><%= conference.created_by %></a>)</p>
     <% } %>
+
+    <!-- Instructions for Participants -->
+    <p class="mb-2"><strong>Instructions regarding Poster Presentation</strong> <span class="text-muted small">(shown to registered participants under their submission's Registration Details)</span></p>
+    <form action="/score-posters/<%= conference.conference_id %>/set-instructions" method="POST" class="mb-4">
+      <div class="mb-2">
+        <textarea class="form-control" name="instructions" rows="3" placeholder="Enter instructions for participants presenting a poster"><%= (posterSession && posterSession.instructions) || '' %></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Save Instructions</button>
+    </form>
+
+    <!-- Allot Poster Display Board Numbers -->
+    <div class="mb-4">
+      <button type="button" class="btn btn-warning btn-sm" onclick="confirmAllotBoothNumbers()">
+        Allot Poster Display Board number to participants
+      </button>
+      <form id="allotBoothNumbersForm" action="/score-posters/<%= conference.conference_id %>/allot-booth-numbers" method="POST" class="d-none"></form>
+    </div>
+
+          
 
     <!-- Leaderboard Accordion -->
     <div class="accordion mb-4" id="leaderboardAccordion">
@@ -182,6 +201,23 @@
 </div>
 
     <%- include('partials/footer') %>
+
+    <script>
+      function confirmAllotBoothNumbers() {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Are you sure?',
+          text: "This will allot the poster display board number to the participants and this action can't be undone. The system allots the board numbers on the basis of paper id (in ascending order, so paper id 0001 gets board number 1).",
+          showCancelButton: true,
+          confirmButtonText: 'Yes',
+          cancelButtonText: 'Cancel',
+        }).then(function (result) {
+          if (result.isConfirmed) {
+            document.getElementById('allotBoothNumbersForm').submit();
+          }
+        });
+      }
+    </script>
 
 </body>
 </html>

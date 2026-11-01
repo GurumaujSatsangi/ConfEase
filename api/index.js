@@ -629,8 +629,7 @@ const SUBMISSION_LIFECYCLE_EMAILS = {
       `Greetings from the ${conferenceName} Organizing Committee.<br><br>` +
       `We would like to inform you that the desk review of your submission has been completed. The decision and relevant details are provided below.<br><br>` +
       submissionDetailsBlock("Submission Details", [["Paper Title", title], ["Paper ID", paperId], ["Desk Review Decision", decision], ["Remarks", remarks]]) +
-      `<br><br>Please log in to the DEI CMT portal at <a href='https://cmt.dei.ac.in'>https://cmt.dei.ac.in</a> to view the complete decision and any instructions or actions required from your end.<br><br>` +
-      `If revisions are requested, we kindly ask you to follow the instructions provided and adhere to the specified deadline, if applicable.`,
+      `<br><br>Please note, DESK ACCEPT means that your submission will be sent to the reviewers for Peer Review Process and DESK REJECT means that you submission will not be sent to the reviewers for Peer Review Process. The AI & Plagiariam report for your report may be available on your dashboard under the 'My Submissions' section.<br><br>`,
   }),
   peer_review_decision: ({ conferenceName, authorName, title, paperId, decision, reviewerComments }) => ({
     subject: `Peer Review Decision – ${paperId} | ${conferenceName}`,
@@ -2222,6 +2221,94 @@ res.render("score-posters.ejs",{
 
 })
 
+// Lets the poster coordinator set/update the instructions shown to a
+// registered author once their submission has "Submitted Final Camera
+// Ready Paper for Poster Presentation" status - see the "Instructions
+// regarding Poster Presentation" accordion in conference.ejs.
+app.post("/score-posters/:id/set-instructions", checkAuth, async (req, res) => {
+  if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
+    return res.redirect("/dashboard?message=You are not authorized to manage this conference.");
+  }
+  const instructions = String(req.body.instructions || "").trim() || null;
+  // poster_session has no unique constraint on conference_id (ON CONFLICT
+  // isn't available) - a row normally already exists by the time a
+  // coordinator can reach this page (checkPosterCoordinatorAccess usually
+  // matches via poster_session.coodinators), but access can also come via
+  // conference_tracks.panelists, where no poster_session row exists yet.
+  const updated = await pool.query(
+    "update poster_session set instructions = $1 where conference_id = $2",
+    [instructions, req.params.id]
+  );
+  if (updated.rowCount === 0) {
+    await pool.query(
+      "insert into poster_session (conference_id, instructions) values ($1, $2)",
+      [req.params.id, instructions]
+    );
+  }
+  return res.redirect(`/score-posters/${req.params.id}?message=${encodeURIComponent("Instructions saved.")}`);
+});
+
+// One-time, irreversible allotment of poster display board numbers:
+// every registered submission with "Submitted Final Camera Ready Paper
+// for Poster Presentation" status gets a board number, assigned in
+// ascending paper_number order (paper 0001 -> board 1, and so on). Blocks
+// re-running once any board number exists for this conference's poster
+// submissions, matching the SweetAlert confirmation's "can't be undone".
+app.post("/score-posters/:id/allot-booth-numbers", checkAuth, async (req, res) => {
+  const conferenceId = req.params.id;
+  if (!(await checkPosterCoordinatorAccess(conferenceId, req.user.email))) {
+    return res.redirect("/dashboard?message=You are not authorized to manage this conference.");
+  }
+
+  try {
+    const eligible = await pool.query(
+      `select s.submission_id
+       from submissions s
+       join registration r on r.submission_id = s.submission_id
+       where s.conference_id = $1
+         and s.submission_status = 'Submitted Final Camera Ready Paper for Poster Presentation'
+       order by s.paper_number asc nulls last`,
+      [conferenceId]
+    );
+
+    if (eligible.rows.length === 0) {
+      return res.redirect(`/score-posters/${conferenceId}?message=${encodeURIComponent("No registered poster submissions to allot board numbers for.")}`);
+    }
+
+    const alreadyAllotted = await pool.query(
+      `select 1 from poster_session_booth_details where submission_id = ANY($1) limit 1`,
+      [eligible.rows.map((r) => r.submission_id)]
+    );
+    if (alreadyAllotted.rows.length > 0) {
+      return res.redirect(`/score-posters/${conferenceId}?message=${encodeURIComponent("Poster display board numbers have already been allotted for this conference.")}`);
+    }
+
+    const allotClient = await pool.connect();
+    try {
+      await allotClient.query("BEGIN");
+      let booth = 1;
+      for (const row of eligible.rows) {
+        await allotClient.query(
+          "insert into poster_session_booth_details (submission_id, booth) values ($1, $2)",
+          [row.submission_id, booth]
+        );
+        booth++;
+      }
+      await allotClient.query("COMMIT");
+    } catch (txErr) {
+      await allotClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      allotClient.release();
+    }
+
+    return res.redirect(`/score-posters/${conferenceId}?message=${encodeURIComponent(`Poster display board numbers allotted to ${eligible.rows.length} participant(s).`)}`);
+  } catch (err) {
+    console.error("Error allotting poster display board numbers:", err);
+    return res.redirect(`/score-posters/${conferenceId}?message=${encodeURIComponent("Error allotting poster display board numbers.")}`);
+  }
+});
+
 app.get("/score-posters/:id/export", checkAuth, conferenceOperationCooldown("score-posters-export", 10), async (req, res) => {
   if (!(await checkPosterCoordinatorAccess(req.params.id, req.user.email))) {
     return res.redirect("/dashboard?message=You are not authorized to view this page.");
@@ -2753,7 +2840,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   let posterSchedule = null;
   if (submissions.some((s) => s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")) {
     const posterResult = await pool.query(
-      "select date, start_time, end_time, vc_link from poster_session where conference_id = $1",
+      "select date, start_time, end_time, vc_link, instructions from poster_session where conference_id = $1",
       [req.params.id]
     );
     posterSchedule = posterResult.rows[0] || null;
@@ -2804,6 +2891,21 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     certificatesResult.rows.forEach((c) => generatedCertificateSubmissionIds.add(c.submission_id));
   }
 
+  // Poster display board number, shown once the poster coordinator has run
+  // the (one-time) board-number allotment. Live lookup, same reasoning as
+  // schedule/registration/certificate above.
+  const posterSubmissionIds = submissions
+    .filter((s) => s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation")
+    .map((s) => s.submission_id);
+  const boothBySubmission = {};
+  if (posterSubmissionIds.length > 0) {
+    const boothResult = await pool.query(
+      "select submission_id, booth from poster_session_booth_details where submission_id = ANY($1)",
+      [posterSubmissionIds]
+    );
+    boothResult.rows.forEach((b) => { boothBySubmission[b.submission_id] = b.booth; });
+  }
+
   submissions = submissions.map((s) => {
     let scheduleText = null;
     let onlineVcLink = null;
@@ -2821,6 +2923,8 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       onlineVcLink,
       registration: registrationBySubmission[s.submission_id] || null,
       certificateGenerated: generatedCertificateSubmissionIds.has(s.submission_id),
+      posterInstructions: s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation" ? (posterSchedule?.instructions || null) : null,
+      posterBoothNumber: boothBySubmission[s.submission_id] ?? null,
     };
   });
 

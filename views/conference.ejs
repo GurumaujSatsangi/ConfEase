@@ -256,6 +256,40 @@
                                   </div>
                                 </div>
                               </div>
+                              <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
+                              <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#posterInstructions-<%= submission.submission_id %>">
+                                    Instructions regarding Poster Presentation
+                                  </button>
+                                </h2>
+                                <div id="posterInstructions-<%= submission.submission_id %>" class="accordion-collapse collapse" data-bs-parent="#registrationAccordion-<%= submission.submission_id %>">
+                                  <div class="accordion-body">
+                                    <% if (submission.posterInstructions) { %>
+                                      <p class="mb-0"><%= submission.posterInstructions %></p>
+                                    <% } else { %>
+                                      <p class="mb-0 text-muted">No instructions have been posted yet.</p>
+                                    <% } %>
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#posterBoothNumber-<%= submission.submission_id %>">
+                                    Poster Display Board Number
+                                  </button>
+                                </h2>
+                                <div id="posterBoothNumber-<%= submission.submission_id %>" class="accordion-collapse collapse" data-bs-parent="#registrationAccordion-<%= submission.submission_id %>">
+                                  <div class="accordion-body">
+                                    <% if (submission.posterBoothNumber != null) { %>
+                                      <p class="mb-0"><%= submission.posterBoothNumber %></p>
+                                    <% } else { %>
+                                      <p class="mb-0 text-muted">Not yet allotted.</p>
+                                    <% } %>
+                                  </div>
+                                </div>
+                              </div>
+                              <% } %>
                             </div>
                         <% } else if (submission.isPrimaryAuthor) { %>
                             <a href="/submission/register/<%= submission.submission_id %>" class="btn btn-success btn-sm">Register</a>
