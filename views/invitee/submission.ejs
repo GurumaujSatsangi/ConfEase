@@ -72,7 +72,7 @@
             <% if (tracks && tracks.length > 0) { %> <%
             tracks.forEach(function(track) { %>
             <option value="<%= track.track_id %>">
-              <%= track.track_name %>
+              <%= track.group_name ? track.group_name + ': ' + track.track_name : track.track_name %>
             </option>
             <% }); %> <% } %>
           </select>

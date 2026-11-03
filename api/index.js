@@ -7295,8 +7295,17 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
     };
 
     // 2. Fetch tracks for this conference
+    // Submission itself still stores/compares by track_id only (unique
+    // regardless of which Track/group it sits under) - group_name is
+    // fetched purely so the frontend can label each option
+    // "Track Name: Subject Area Name" and disambiguate same-named subject
+    // areas that live under different Tracks. Same join/order already
+    // used by the chair's own manage-tracks/edit-sessions queries.
     const tracksResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1;`,
+      `SELECT t.*, g.group_name FROM conference_tracks t
+       LEFT JOIN conference_groups g ON g.group_id = t.group_id
+       WHERE t.conference_id = $1
+       ORDER BY g.group_name NULLS LAST, t.track_name;`,
       [req.params.id]
     );
 
@@ -7392,8 +7401,17 @@ app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
     //
     // Fetch tracks for this conference
     //
+    // Submission itself still stores/compares by track_id only (unique
+    // regardless of which Track/group it sits under) - group_name is
+    // fetched purely so the frontend can label each option
+    // "Track Name: Subject Area Name" and disambiguate same-named subject
+    // areas that live under different Tracks. Same join/order already
+    // used by the chair's own manage-tracks/edit-sessions queries.
     const tracksResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1`,
+      `SELECT t.*, g.group_name FROM conference_tracks t
+       LEFT JOIN conference_groups g ON g.group_id = t.group_id
+       WHERE t.conference_id = $1
+       ORDER BY g.group_name NULLS LAST, t.track_name`,
       [conferenceId]
     );
     const tracks = tracksResult.rows.map(track => ({
