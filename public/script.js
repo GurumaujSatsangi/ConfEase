@@ -64,7 +64,16 @@ document.addEventListener("DOMContentLoaded", function () {
   const loadingModal = new bootstrap.Modal(loadingModalEl);
 
   forms.forEach(form => {
-    form.addEventListener("submit", function () {
+    form.addEventListener("submit", function (event) {
+      // If some other submit handler on this form already called
+      // preventDefault() (e.g. client-side validation rejecting the
+      // submission), the page is never actually going to navigate away -
+      // nothing will ever call loadingModal.hide() in that case, since
+      // that only happens on the next page load/back-navigation. Showing
+      // an undismissable "Please Wait" modal (static backdrop, no close
+      // button, no Escape) for a submission that was never going to
+      // happen traps the user behind it until they reload the page.
+      if (event.defaultPrevented) return;
       // Small delay so the browser initiates the form POST before Bootstrap locks the body
       setTimeout(function () {
         try { loadingModal.show(); } catch (e) { /* ignore */ }

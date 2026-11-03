@@ -258,6 +258,11 @@
       const checked = form.querySelectorAll('input[type="checkbox"]:checked');
       if (checked.length === 0) {
         e.preventDefault();
+        // Also stops /script.js's own global submit listener (added after
+        // this one, so it would otherwise still run) from showing its
+        // undismissable loading modal for a submission that was just
+        // blocked and is never actually going to happen.
+        e.stopImmediatePropagation();
         alert('At least one decision option must stay enabled for a Track.');
       }
     });
