@@ -2906,6 +2906,17 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
     boothResult.rows.forEach((b) => { boothBySubmission[b.submission_id] = b.booth; });
   }
 
+  // "Track Name: Subject Area Name" for the My Submissions modal - same
+  // label format as the submission-form dropdown (GET
+  // /submission/primary-author/:id), built from the conference_tracks
+  // query already run above rather than a second lookup. Falls back to
+  // just the subject area name for one with no Track ("directly under
+  // the conference"), and to null for a submission with no track_id at
+  // all (e.g. an invited talk submitted with no subject area chosen).
+  const trackLabelById = Object.fromEntries(
+    conference_tracks.rows.map((t) => [t.track_id, t.group_name ? `${t.group_name}: ${t.track_name}` : t.track_name])
+  );
+
   submissions = submissions.map((s) => {
     let scheduleText = null;
     let onlineVcLink = null;
@@ -2925,6 +2936,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       certificateGenerated: generatedCertificateSubmissionIds.has(s.submission_id),
       posterInstructions: s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation" ? (posterSchedule?.instructions || null) : null,
       posterBoothNumber: boothBySubmission[s.submission_id] ?? null,
+      subjectAreaLabel: trackLabelById[s.track_id] || null,
     };
   });
 
