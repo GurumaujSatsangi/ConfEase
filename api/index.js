@@ -6816,6 +6816,13 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
 
     const conferenceRaw = conferenceResult.rows[0];
 
+    // Was previously below the deadline check, which dereferenced
+    // conferenceRaw.full_paper_submission first - an exception on a
+    // nonexistent conference_id, before this check ever got to run. Same
+    // bug already fixed on the other two "new submission" routes.
+    if (!conferenceRaw) {
+      return res.redirect("/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
 
     const currentDate = getCurrentDateIST();
       const deadline = formatDateISO(conferenceRaw.full_paper_submission);
@@ -6824,10 +6831,6 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
       if (!deadline || currentDate > deadline) {
         return res.redirect("/dashboard?message=The full paper submission deadline has passed.");
       }
-
-    if (!conferenceRaw) {
-      return res.redirect("/dashboard?message=" + encodeURIComponent("Conference not found."));
-    }
 
     const conference = {
       ...conferenceRaw,
@@ -6851,6 +6854,42 @@ app.get("/submission/co-author/:id", checkAuth, async (req, res) => {
   }
 });
 
+
+// Looks up a paper by code before the actual join request, purely so the
+// frontend can show the real paper title and primary author in the
+// SweetAlert confirmation ("are you sure you want to join THIS specific
+// submission") - a co-author typing a wrong digit shouldn't find out only
+// after a request has already been sent and emailed to a stranger. Same
+// auth/rate-limit as the real join, and deliberately only returns what
+// the confirmation needs - the full eligibility checks (already a
+// co-author, wrong status, duplicate pending request, etc.) stay exactly
+// where they already are, in POST /join, as the one place that enforces
+// them.
+app.get("/join/lookup", checkAuth, authRateLimitMemory, async (req, res) => {
+  const { paper_code, id } = req.query;
+  if (!paper_code || !id) {
+    return res.status(400).json({ ok: false, message: "Missing paper code." });
+  }
+
+  const submissionResult = await pool.query(
+    `SELECT title, primary_author FROM submissions
+     WHERE paper_code = $1 AND conference_id = $2
+     LIMIT 1;`,
+    [paper_code, id]
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission) {
+    return res.status(404).json({ ok: false, message: "Invalid Paper Code. Please try again." });
+  }
+
+  const primaryAuthorName = await getUserDisplayName(submission.primary_author);
+  return res.json({
+    ok: true,
+    title: submission.title,
+    primaryAuthorName: primaryAuthorName || submission.primary_author,
+    primaryAuthorEmail: submission.primary_author,
+  });
+});
 
 app.post("/join", checkAuth, authRateLimitMemory, async (req, res) => {
  

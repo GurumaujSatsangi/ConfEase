@@ -23,16 +23,68 @@
           >
         </h6>
         <hr />
-<form action="/join" method="POST">
+<form action="/join" method="POST" id="joinPaperForm">
     <div class="form-group">
-    <input type="text" readonly hidden value="<%=conferences.conference_id %>" name="id" class="form-control"  id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
+    <input type="text" readonly hidden value="<%=conferences.conference_id %>" name="id" id="joinConferenceId" class="form-control" aria-describedby="emailHelp" placeholder="">
   </div>
   <div class="form-group">
-    <label for="exampleInputEmail1">Enter the Paper Code</label>
-    <input type="text" class="form-control" name="paper_code" id="exampleInputEmail1" aria-describedby="emailHelp" placeholder="">
+    <label for="joinPaperCode">Enter the Paper Code</label>
+    <input type="text" class="form-control" name="paper_code" id="joinPaperCode" aria-describedby="emailHelp" placeholder="">
   </div><br>
-  
+
 <input type="submit" class="btn btn-outline-primary" value="Join"></form>
+<script>
+  (function () {
+    const form = document.getElementById('joinPaperForm');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const paperCode = document.getElementById('joinPaperCode').value.trim();
+      const conferenceId = document.getElementById('joinConferenceId').value;
+      if (!paperCode) return;
+
+      fetch('/join/lookup?paper_code=' + encodeURIComponent(paperCode) + '&id=' + encodeURIComponent(conferenceId))
+        .then(function (res) { return res.json().then(function (data) { return { status: res.status, data: data }; }); })
+        .then(function (result) {
+          if (!result.data.ok) {
+            Swal.fire({ icon: 'error', title: 'Paper Not Found', text: result.data.message || 'Invalid Paper Code. Please try again.' });
+            return;
+          }
+          const d = result.data;
+          Swal.fire({
+            icon: 'question',
+            title: 'Are you sure?',
+            html:
+              'Are you sure you want to join the following submission as a Co-Author?<br><br>' +
+              '<b>Paper Title:</b> ' + escapeHtmlForAlert(d.title) + '<br><br>' +
+              '<b>Primary Author:</b> ' + escapeHtmlForAlert(d.primaryAuthorName) + ' (' + escapeHtmlForAlert(d.primaryAuthorEmail) + ')',
+            showCancelButton: true,
+            confirmButtonText: 'Yes',
+            cancelButtonText: 'Cancel',
+          }).then(function (confirmResult) {
+            if (confirmResult.isConfirmed) {
+              form.submit();
+            }
+          });
+        })
+        .catch(function () {
+          Swal.fire({ icon: 'error', title: 'Something went wrong', text: 'Could not look up this paper code. Please try again.' });
+        });
+    });
+
+    // SweetAlert's `html` option renders raw HTML - escape the server-
+    // supplied title/name/email before interpolating them into it, so a
+    // paper titled e.g. "<img src=x onerror=alert(1)>" can't execute
+    // script in another co-author's browser.
+    function escapeHtmlForAlert(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+  })();
+</script>
         <div class="container px-5 my-5"></div>
         <script src="https://cdn.startbootstrap.com/sb-forms-latest.js"></script>
 
