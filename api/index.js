@@ -2106,6 +2106,37 @@ async function isAuthorizedReviewerForSubmission(email, trackId, submissionId) {
   return !track_has_assignments || is_assigned_to_this_reviewer;
 }
 
+// Which final decisions a reviewer/meta-reviewer may choose for a
+// submission under this Subject Area, set per-Track by the chair (see
+// POST /chair/dashboard/update-group-decisions/:groupId). A subject area
+// with no Track ("directly under the conference") has nothing to
+// restrict it, so both stay allowed - only an actual Track's own row can
+// turn one off, and conference_groups_at_least_one_decision_check
+// guarantees at least one is always true for a Track that has one.
+async function getAllowedDecisionsForTrack(trackId) {
+  const result = await pool.query(
+    `select
+       coalesce(g.allow_oral_decision, true) as allow_oral,
+       coalesce(g.allow_poster_decision, true) as allow_poster
+     from conference_tracks t
+     left join conference_groups g on g.group_id = t.group_id
+     where t.track_id = $1`,
+    [trackId]
+  );
+  return result.rows[0] || { allow_oral: true, allow_poster: true };
+}
+
+// Revision Required and Rejected are never restricted - only the two
+// acceptance outcomes are gated by the Track's settings. Shared by
+// POST /mark-as-reviewed, POST /mark-as-re-reviewed, and
+// POST /submit-meta-reviewer-decision/:id so a disallowed option can't be
+// chosen by posting directly, not just hidden from the dropdown.
+function isDecisionAllowed(status, allowedDecisions) {
+  if (status === "Accepted for Oral Presentation") return allowedDecisions.allow_oral;
+  if (status === "Accepted for Poster Presentation") return allowedDecisions.allow_poster;
+  return true;
+}
+
 // True once every reviewer assigned to a submission's Subject Area has
 // submitted a review (peer_review) or re-review (revised_submissions) for
 // it - not as soon as the first one has. Used to gate the Meta-Reviewer's
@@ -4136,6 +4167,8 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
       presentation_date: formatDate(trackRaw.presentation_date)
     };
 
+    const allowedDecisions = await getAllowedDecisionsForTrack(submissionData.track_id);
+
     //
     // 6. Render review page
     //
@@ -4145,6 +4178,8 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
       conferencedata: conferencedata || null,
       trackdata: trackdata || null,
       message: req.query.message || null,
+      allowOral: allowedDecisions.allow_oral,
+      allowPoster: allowedDecisions.allow_poster,
     });
 
   } catch (err) {
@@ -4232,6 +4267,8 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
       presentation_date: formatDate(trackRaw.presentation_date)
     };
 
+    const allowedDecisions = await getAllowedDecisionsForTrack(submissionData.track_id);
+
     //
     // 6. Render Page
     //
@@ -4241,6 +4278,8 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
       conferencedata,
       trackdata,
       message: req.query.message || null,
+      allowOral: allowedDecisions.allow_oral,
+      allowPoster: allowedDecisions.allow_poster,
     });
 
   } catch (err) {
@@ -4283,6 +4322,14 @@ app.post("/mark-as-re-reviewed", checkAuth, async (req, res) => {
       // this track, only the reviewer this specific paper was assigned to.
       if (!(await isAuthorizedReviewerForSubmission(req.user.email, submissionData.track_id, submissionData.submission_id))) {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
+      }
+
+      // The dropdown already hides whichever acceptance option the Track
+      // doesn't allow - this is the actual enforcement, not just the UI
+      // hint, same as every other access rule in this app being checked
+      // on the route itself, not only on what the form happens to show.
+      if (!isDecisionAllowed(status, await getAllowedDecisionsForTrack(submissionData.track_id))) {
+        return res.redirect("/reviewer/dashboard?message=That decision is not available for this subject area's Track.");
       }
 
       // Peer-review deadline: once it has passed, no new re-review can be submitted
@@ -5781,6 +5828,14 @@ app.post("/mark-as-reviewed", checkAuth, async (req, res) => {
         return res.redirect("/reviewer/dashboard?message=You are not assigned as a reviewer for this submission.");
       }
 
+      // The dropdown already hides whichever acceptance option the Track
+      // doesn't allow - this is the actual enforcement, not just the UI
+      // hint, same as every other access rule in this app being checked
+      // on the route itself, not only on what the form happens to show.
+      if (!isDecisionAllowed(status, await getAllowedDecisionsForTrack(submissionData.track_id))) {
+        return res.redirect("/reviewer/dashboard?message=That decision is not available for this subject area's Track.");
+      }
+
       // Peer-review deadline: once it has passed, no new review can be submitted
       const reviewDeadlineCheck = await pool.query("select deadline_peer_review from conferences where conference_id = $1", [submissionData.conference_id]);
       if (deadlineClosed(reviewDeadlineCheck.rows[0]?.deadline_peer_review)) {
@@ -5888,6 +5943,34 @@ app.post("/chair/dashboard/update-group/:groupId", checkChairAuth, async (req, r
   if (dup.rows.length) return res.redirect(manageTracksUrl(conferenceId, "A track with this name already exists in this conference."));
   await pool.query("update conference_groups set group_name = $1 where group_id = $2", [groupName, req.params.groupId]);
   return res.redirect(manageTracksUrl(conferenceId, "Track updated."));
+});
+
+// Which final decisions reviewers/meta-reviewers may choose, for every
+// subject area under this Track - see getAllowedDecisionsForTrack.
+// Revision Required and Rejected are never configurable here; only the
+// two acceptance outcomes are, and at least one must stay checked
+// (conference_groups_at_least_one_decision_check is the DB-level
+// backstop - this is the friendlier, same-page error for the normal
+// case of someone unchecking both).
+app.post("/chair/dashboard/update-group-decisions/:groupId", checkChairAuth, async (req, res) => {
+  const owner = await pool.query("select conference_id from conference_groups where group_id = $1", [req.params.groupId]);
+  if (!owner.rows[0] || !(await chairOwnsConference(req.user.email, owner.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
+  }
+  const conferenceId = owner.rows[0].conference_id;
+
+  // Checkboxes only appear in req.body when checked.
+  const allowOral = req.body.allow_oral_decision === "on";
+  const allowPoster = req.body.allow_poster_decision === "on";
+  if (!allowOral && !allowPoster) {
+    return res.redirect(manageTracksUrl(conferenceId, "At least one decision option must stay enabled for a Track."));
+  }
+
+  await pool.query(
+    "update conference_groups set allow_oral_decision = $1, allow_poster_decision = $2 where group_id = $3",
+    [allowOral, allowPoster, req.params.groupId]
+  );
+  return res.redirect(manageTracksUrl(conferenceId, "Allowed decisions updated."));
 });
 
 app.post("/chair/dashboard/delete-group/:groupId", checkChairAuth, async (req, res) => {
@@ -6084,12 +6167,21 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
     return res.redirect("/dashboard?message=Not every reviewer has submitted their review for this submission yet.");
   }
 
-  const submissionResult = await pool.query("select title, paper_number, file_url, file_public_id, file_resource_type, file_format from submissions where submission_id = $1", [submission_id]);
+  const submissionResult = await pool.query("select title, paper_number, track_id, file_url, file_public_id, file_resource_type, file_format from submissions where submission_id = $1", [submission_id]);
   const peer_review = isRevised
     ? await pool.query("select * from revised_submissions where submission_id = $1", [submission_id])
     : await pool.query("select * from peer_review where submission_id = $1", [submission_id]);
 
-  return res.render("meta-reviewer-form.ejs",{peer_review:peer_review.rows,submission_id, isRevised, submission: withSignedPaperUrl(submissionResult.rows[0])});
+  const allowedDecisions = await getAllowedDecisionsForTrack(submissionResult.rows[0]?.track_id);
+
+  return res.render("meta-reviewer-form.ejs",{
+    peer_review:peer_review.rows,
+    submission_id,
+    isRevised,
+    submission: withSignedPaperUrl(submissionResult.rows[0]),
+    allowOral: allowedDecisions.allow_oral,
+    allowPoster: allowedDecisions.allow_poster,
+  });
 
 })
 
@@ -6097,7 +6189,7 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
   // Authorization: only the meta-reviewer assigned to this submission's track may submit a decision
   const metaCheck = await pool.query(
-    "select s.submission_status from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
+    "select s.submission_status, t.track_id from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
     [req.params.id, req.user.email]
   );
   if (metaCheck.rows.length === 0) {
@@ -6113,6 +6205,14 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
   }
 
   const {status, remarks} = req.body;
+
+  // The dropdown already hides whichever acceptance option the Track
+  // doesn't allow - this is the actual enforcement, not just the UI
+  // hint, same as every other access rule in this app being checked on
+  // the route itself, not only on what the form happens to show.
+  if (!isDecisionAllowed(status, await getAllowedDecisionsForTrack(metaCheck.rows[0].track_id))) {
+    return res.redirect("/dashboard?message=That decision is not available for this subject area's Track.");
+  }
 
   // Deliberately NOT applied to submissions.submission_status here. The
   // chair must not be able to see (or have the effect of) a meta-reviewer's
@@ -6256,7 +6356,7 @@ app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
   const tracks = await pool.query("select * from conference_tracks where conference_id = $1",[req.params.id]);
   
 
-  const groups = await pool.query("select group_id, group_name from conference_groups where conference_id = $1 order by group_name", [req.params.id]);
+  const groups = await pool.query("select group_id, group_name, allow_oral_decision, allow_poster_decision from conference_groups where conference_id = $1 order by group_name", [req.params.id]);
   return res.render("chair/manage-tracks",{tracks:tracks.rows,groups:groups.rows,conference:conference.rows[0]});
 
 

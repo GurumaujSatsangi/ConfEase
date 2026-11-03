@@ -25,6 +25,7 @@
       <tr>
         <th>Track</th>
         <th>Subject Areas</th>
+        <th>Allowed Decisions</th>
         <th>Action</th>
       </tr>
       <% groups.forEach(function(g) { %>
@@ -36,6 +37,19 @@
             </form>
           </td>
           <td><%= tracks.filter(function(s) { return s.group_id === g.group_id; }).length %></td>
+          <td>
+            <form method="post" action="/chair/dashboard/update-group-decisions/<%= g.group_id %>" class="decisions-form">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="allow_oral_decision" id="allowOral-<%= g.group_id %>" <%= g.allow_oral_decision ? 'checked' : '' %>>
+                <label class="form-check-label" for="allowOral-<%= g.group_id %>">Accepted for Oral Presentation</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="allow_poster_decision" id="allowPoster-<%= g.group_id %>" <%= g.allow_poster_decision ? 'checked' : '' %>>
+                <label class="form-check-label" for="allowPoster-<%= g.group_id %>">Accepted for Poster Presentation</label>
+              </div>
+              <button type="submit" class="btn btn-warning btn-sm mt-1">Save</button>
+            </form>
+          </td>
           <td>
             <form method="post" action="/chair/dashboard/delete-group/<%= g.group_id %>">
               <button type="submit" class="btn btn-danger">Delete</button>
@@ -234,6 +248,21 @@
 
     <%-include('../partials/footer') %>
 
+<script>
+  // Immediate feedback for "at least one must stay checked" - the real
+  // enforcement is server-side (POST /chair/dashboard/update-group-decisions,
+  // and the DB's own conference_groups_at_least_one_decision_check as the
+  // last-resort backstop), this just avoids a round trip for the common case.
+  document.querySelectorAll('.decisions-form').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      const checked = form.querySelectorAll('input[type="checkbox"]:checked');
+      if (checked.length === 0) {
+        e.preventDefault();
+        alert('At least one decision option must stay enabled for a Track.');
+      }
+    });
+  });
+</script>
 </body>
 <script src="/script.js"></script>
 </html>

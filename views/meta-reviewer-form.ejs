@@ -62,8 +62,8 @@
 
           <select class="form-select" name="status" aria-label="Default select example" required>
                                     <option value="" disabled selected>Select Decision...</option>
-                                    <option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option>
-                                    <option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option>
+                                    <% if (typeof allowOral === 'undefined' || allowOral) { %><option value="Accepted for Oral Presentation">Accepted for Oral Presentation</option><% } %>
+                                    <% if (typeof allowPoster === 'undefined' || allowPoster) { %><option value="Accepted for Poster Presentation">Accepted for Poster Presentation</option><% } %>
                                     <option value="Revision Required">Revision Required</option>
                                     <option value="Rejected">Rejected</option>
         </select>

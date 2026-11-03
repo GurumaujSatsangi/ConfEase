@@ -228,7 +228,10 @@ CREATE TABLE public.conference_groups (
     conference_id uuid NOT NULL,
     group_name text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT conference_groups_group_name_check CHECK ((length(btrim(group_name)) > 0))
+    allow_oral_decision boolean DEFAULT true NOT NULL,
+    allow_poster_decision boolean DEFAULT true NOT NULL,
+    CONSTRAINT conference_groups_group_name_check CHECK ((length(btrim(group_name)) > 0)),
+    CONSTRAINT conference_groups_at_least_one_decision_check CHECK ((allow_oral_decision OR allow_poster_decision))
 );
 
 
