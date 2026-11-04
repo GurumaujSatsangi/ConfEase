@@ -5569,8 +5569,10 @@ app.get("/chair/dashboard/assign-papers/:id", checkChairAuth, async (req, res) =
 
     const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [track.conference_id]);
 
+    // A desk-rejected submission never goes to peer review, so it has no
+    // business being assignable to a reviewer here.
     const submissionsResult = await pool.query(
-      "select submission_id, paper_number, title from submissions where track_id = $1 order by paper_number nulls last, created_at",
+      "select submission_id, paper_number, title from submissions where track_id = $1 and submission_status != 'DESK REJECT' order by paper_number nulls last, created_at",
       [trackId]
     );
 

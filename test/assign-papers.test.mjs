@@ -47,6 +47,7 @@ let trackId; // reviewers: A, B - assignments will be used here
 let sub1, sub2, sub3;
 let trackId2; // reviewers: C - never assigned, must keep the old "sees everything" behavior
 let sub4, sub5;
+let deskRejectedSub;
 
 before(async () => {
   const conf = await pool.query(
@@ -80,6 +81,9 @@ before(async () => {
   sub3 = await makeSubmission(trackId, 3, "ap-author-3@example.com");
   sub4 = await makeSubmission(trackId2, 4, "ap-author-4@example.com");
   sub5 = await makeSubmission(trackId2, 5, "ap-author-5@example.com");
+
+  deskRejectedSub = await makeSubmission(trackId, 6, "ap-author-6@example.com");
+  await pool.query("update submissions set submission_status = 'DESK REJECT' where submission_id = $1", [deskRejectedSub]);
 });
 
 after(async () => {
@@ -103,6 +107,13 @@ test("GET assign-papers renders every paper on the track and both reviewers as d
   assert.match(html, /0003/);
   assert.match(html, new RegExp(reviewerAEmail));
   assert.match(html, new RegExp(reviewerBEmail));
+});
+
+test("GET assign-papers excludes a DESK REJECT submission - it never goes to peer review", async () => {
+  const res = await get(`/chair/dashboard/assign-papers/${trackId}`, chairToken);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.doesNotMatch(html, /0006/, "a desk-rejected paper must not be assignable to a reviewer");
 });
 
 test("a chair who does not own this conference is blocked", async () => {
