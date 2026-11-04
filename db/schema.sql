@@ -709,9 +709,9 @@ CREATE TABLE public.sessions (
 
 CREATE TABLE public.submissions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    conference_id uuid,
-    primary_author character varying,
-    title text,
+    conference_id uuid NOT NULL,
+    primary_author character varying NOT NULL,
+    title text NOT NULL,
     abstract text,
     track_id uuid,
     file_url character varying,
@@ -734,7 +734,7 @@ CREATE TABLE public.submissions (
 CREATE TABLE public.users (
     id bigint NOT NULL,
     name text,
-    email character varying,
+    email character varying NOT NULL,
     password character varying,
     status text,
     contact_number character varying(50),
@@ -1046,6 +1046,14 @@ ALTER TABLE ONLY public.revised_submissions
 
 
 --
+-- Name: reviewers_assigned_papers reviewers_assigned_papers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reviewers_assigned_papers
+    ADD CONSTRAINT reviewers_assigned_papers_pkey PRIMARY KEY (submission_id);
+
+
+--
 -- Name: role_certificates role_certificates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1130,6 +1138,13 @@ CREATE INDEX idx_conference_roles_conference_email ON public.conference_roles US
 
 
 --
+-- Name: idx_desk_review_paper_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_desk_review_paper_id ON public.desk_review USING btree (paper_id);
+
+
+--
 -- Name: idx_peer_review_conference_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1141,6 +1156,13 @@ CREATE INDEX idx_peer_review_conference_id ON public.peer_review USING btree (co
 --
 
 CREATE INDEX idx_peer_review_submission_id ON public.peer_review USING btree (submission_id);
+
+
+--
+-- Name: idx_poster_session_conference_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_poster_session_conference_id ON public.poster_session USING btree (conference_id);
 
 
 --
@@ -1162,6 +1184,20 @@ CREATE INDEX idx_refresh_tokens_user_email ON public.refresh_tokens USING btree 
 --
 
 CREATE INDEX idx_registration_conference_id ON public.registration USING btree (conference_id);
+
+
+--
+-- Name: idx_reviewers_assigned_papers_track; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviewers_assigned_papers_track ON public.reviewers_assigned_papers USING btree (track);
+
+
+--
+-- Name: idx_revised_submissions_submission_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_revised_submissions_submission_id ON public.revised_submissions USING btree (submission_id);
 
 
 --
@@ -1200,6 +1236,13 @@ CREATE INDEX idx_submissions_primary_author ON public.submissions USING btree (p
 
 
 --
+-- Name: idx_submissions_track_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_submissions_track_id ON public.submissions USING btree (track_id);
+
+
+--
 -- Name: uniq_co_author_requests_pending; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1218,13 +1261,6 @@ CREATE UNIQUE INDEX uniq_conference_roles_conference_email_role ON public.confer
 --
 
 CREATE UNIQUE INDEX uniq_peer_review_submission_reviewer ON public.peer_review USING btree (submission_id, reviewer);
-
-
---
--- Name: uniq_reviewers_assigned_papers_submission; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uniq_reviewers_assigned_papers_submission ON public.reviewers_assigned_papers USING btree (submission_id);
 
 
 --

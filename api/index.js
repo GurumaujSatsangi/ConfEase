@@ -1663,9 +1663,14 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
 
     let submissiondata = [];
     if (trackIds.length > 0) {
-      const placeholders = trackIds.map((_, i) => `$${i + 1}`).join(",");
-      const submissionQuery = `SELECT * FROM submissions WHERE track_id IN (${placeholders})`;
-      const submissionResult = await pool.query(submissionQuery, trackIds);
+      // DBA-013 (security-audit): hand-built IN ($1,$2,...) placeholders
+      // instead of = ANY($1), the pattern used everywhere else in this
+      // file for an array parameter - not a bug (parameters already line
+      // up correctly here), just a more error-prone pattern to maintain.
+      const submissionResult = await pool.query(
+        "SELECT * FROM submissions WHERE track_id = ANY($1)",
+        [trackIds]
+      );
       submissiondata = submissionResult.rows;
     }
 
@@ -1707,9 +1712,10 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
     // Fetch revised submissions for these tracks
     let revisedSubmissions = [];
     if (trackIds.length > 0) {
-      const placeholders = trackIds.map((_, i) => `$${i + 1}`).join(",");
-      const revisedQuery = `SELECT * FROM submissions WHERE track_id IN (${placeholders}) AND submission_status = $${trackIds.length + 1}`;
-      const revisedResult = await pool.query(revisedQuery, [...trackIds, "Submitted Revised Paper"]);
+      const revisedResult = await pool.query(
+        "SELECT * FROM submissions WHERE track_id = ANY($1) AND submission_status = $2",
+        [trackIds, "Submitted Revised Paper"]
+      );
       revisedSubmissions = filterSubmissionsByAssignment(revisedResult.rows);
     }
 
@@ -1724,9 +1730,10 @@ app.get("/reviewer/dashboard", checkAuth, async (req, res) => {
     const conferenceIds = [...new Set(reviewerTracks.map(track => track.conference_id))];
     let conferences = [];
     if (conferenceIds.length > 0) {
-      const confPlaceholders = conferenceIds.map((_, i) => `$${i + 1}`).join(",");
-      const confQuery = `SELECT * FROM conferences WHERE conference_id IN (${confPlaceholders})`;
-      const confResult = await pool.query(confQuery, conferenceIds);
+      const confResult = await pool.query(
+        "SELECT * FROM conferences WHERE conference_id = ANY($1)",
+        [conferenceIds]
+      );
       conferences = confResult.rows.map(conference => ({
         ...conference,
         conference_start_date: formatDate(conference.conference_start_date),
@@ -2063,8 +2070,13 @@ async function invalidateConferenceSubmissionCache(emails, conferenceId) {
 
 // Ownership helpers (use existing data: conferences.created_by, track_reviewers, panelists)
 async function chairOwnsConference(email, conferenceId) {
+  // DBA-025 (security-audit): compared case-sensitively, unlike nearly
+  // every other email comparison in this file (isTrackReviewer, role
+  // checks, etc.), which all use lower()=lower() for exactly this reason.
+  // No live bug was confirmed - both sides read from the same JWT claim
+  // today - but this closes the inconsistency before it could become one.
   const result = await pool.query(
-    "select 1 from conferences where conference_id = $1 and created_by = $2",
+    "select 1 from conferences where conference_id = $1 and lower(created_by) = lower($2)",
     [conferenceId, email]
   );
   return result.rows.length > 0;
@@ -2402,21 +2414,40 @@ app.post("/submit-poster-score/:conference_id/:submission_id",checkAuth, async(r
     return res.redirect("/score-posters/" + conference_id + "?message=Invalid score value.");
   }
 
-  await pool.query(
-    "update submissions set submission_status=$1 where conference_id=$2 and submission_id=$3",
-    ["Poster Scored", conference_id, submission_id]
-  );
-  const scoredPaper = await pool.query("select primary_author, co_authors from submissions where submission_id=$1", [submission_id]);
-  await invalidateConferenceSubmissionCache([scoredPaper.rows[0]?.primary_author, ...(scoredPaper.rows[0]?.co_authors || [])], conference_id);
-  await pool.query(
-    "update final_camera_ready_submissions set panelist_score = $2 where submission_id=$1",
-    [submission_id, score]
-  );
+  // DBA-004/DBA-026 (security-audit): these two updates used to run as two
+  // independent pool.query() calls with no transaction and no try/catch -
+  // a failure between them (or any thrown error at all) left the
+  // submission marked "Poster Scored" with no actual score recorded, and
+  // crashed the request instead of redirecting cleanly. Also, the cache
+  // was invalidated between the two writes, before the second one had
+  // even committed - a failure there would invalidate the cache for a
+  // change that was never fully applied. Now wrapped in one transaction,
+  // matching this file's own established pattern, with the cache
+  // invalidated only after a successful COMMIT.
+  const scoreClient = await pool.connect();
+  try {
+    await scoreClient.query("BEGIN");
+    await scoreClient.query(
+      "update submissions set submission_status=$1 where conference_id=$2 and submission_id=$3",
+      ["Poster Scored", conference_id, submission_id]
+    );
+    await scoreClient.query(
+      "update final_camera_ready_submissions set panelist_score = $2 where submission_id=$1",
+      [submission_id, score]
+    );
+    const scoredPaper = await scoreClient.query("select primary_author, co_authors from submissions where submission_id=$1", [submission_id]);
+    await scoreClient.query("COMMIT");
 
-  return res.redirect("/score-posters/"+conference_id+"?message=Poster has been scored succesfully!");
+    await invalidateConferenceSubmissionCache([scoredPaper.rows[0]?.primary_author, ...(scoredPaper.rows[0]?.co_authors || [])], conference_id);
 
-
-
+    return res.redirect("/score-posters/"+conference_id+"?message=Poster has been scored succesfully!");
+  } catch (err) {
+    await scoreClient.query("ROLLBACK");
+    console.error("Error submitting poster score:", err);
+    return res.redirect("/score-posters/" + conference_id + "?message=An unexpected error occurred while scoring this poster.");
+  } finally {
+    scoreClient.release();
+  }
 });
 
 
@@ -3166,7 +3197,11 @@ try {
   return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=" + encodeURIComponent(`Acceptance Notification Published!${failureNote}`));
 } catch (err) {
   console.error("Error publishing review results:", err);
-  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=" + encodeURIComponent("An unexpected error occurred while publishing review results: " + err.message));
+  // DBA-014 (security-audit): this used to append the raw err.message
+  // (which can include internal DB error text - constraint names, query
+  // fragments) into a user-facing redirect URL. Full detail is already
+  // logged server-side above; the chair only needs a generic message.
+  return res.redirect("/chair/dashboard/view-submissions/"+conference_id+"?message=" + encodeURIComponent("An unexpected error occurred while publishing review results. Please try again or contact support."));
 }
 });
 
@@ -3796,6 +3831,18 @@ app.post("/chair/dashboard/set-session/:id", checkChairAuth, async (req, res) =>
     const { session_date, start_time, end_time, panelists, conference_id } = req.body;
     const trackId = req.params.id;
 
+    // DBA-001 (security-audit): this route updated conference_tracks by
+    // track_id alone with no ownership check at all - any authenticated
+    // chair (of any conference) could overwrite another chair's track
+    // schedule/panelists. Derive the track's actual conference_id (never
+    // trust req.body.conference_id for authorization - it's only used
+    // below for the redirect) and check it the same way every sibling
+    // route does, e.g. update-track just above.
+    const trackOwner = await pool.query("select conference_id from conference_tracks where track_id = $1", [trackId]);
+    if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to manage this subject area.");
+    }
+
     // Convert panelists input → cleaned array
     const panelistArray = panelists
       ? panelists.split(",").map(p => p.trim()).filter(p => p !== "")
@@ -3892,30 +3939,46 @@ app.get("/panelist/active-session/:id", checkAuth, async (req, res) => {
 
     const formatNameEmail = (email) => usersMap[email] ? `${usersMap[email]} (${email})` : email;
 
-    // 4. For each submission, fetch reviewer mean score and panelist score
+    // 4. For each submission, fetch reviewer mean score and panelist score.
+    // DBA-005 (security-audit): this used to run 2 queries PER submission
+    // in the loop below (one for peer_review, one for
+    // final_camera_ready_submissions) - batched here into 2 queries total
+    // for the whole session instead, using = ANY($1), the same pattern
+    // buildLeaderboardAndFcrpByTrack already uses for the same kind of
+    // per-submission score lookup.
+    const sessionSubmissionIds = session.map((s) => s.submission_id);
+    let reviewScoresBySubmission = {};
+    let panelistScoresBySubmission = {};
+    if (sessionSubmissionIds.length > 0) {
+      const [reviewScoresResult, panelistScoresResult] = await Promise.all([
+        pool.query(
+          `SELECT submission_id, mean_score FROM peer_review WHERE submission_id = ANY($1)`,
+          [sessionSubmissionIds]
+        ),
+        pool.query(
+          `SELECT submission_id, panelist_score, status FROM final_camera_ready_submissions WHERE submission_id = ANY($1)`,
+          [sessionSubmissionIds]
+        ),
+      ]);
+      reviewScoresResult.rows.forEach((r) => {
+        if (!reviewScoresBySubmission[r.submission_id]) reviewScoresBySubmission[r.submission_id] = [];
+        reviewScoresBySubmission[r.submission_id].push(r.mean_score);
+      });
+      panelistScoresResult.rows.forEach((r) => (panelistScoresBySubmission[r.submission_id] = r));
+    }
+
     for (const paper of session) {
       // Reviewer scores
-      const revResult = await pool.query(
-        `SELECT mean_score FROM peer_review WHERE submission_id = $1`,
-        [paper.submission_id]
-      );
-      if (revResult.rows.length > 0) {
-        const avg =
-          revResult.rows.reduce((sum, r) => sum + (r.mean_score || 0), 0) /
-          revResult.rows.length;
+      const reviewScores = reviewScoresBySubmission[paper.submission_id] || [];
+      if (reviewScores.length > 0) {
+        const avg = reviewScores.reduce((sum, s) => sum + (s || 0), 0) / reviewScores.length;
         paper.mean_score = avg.toFixed(2);
       } else {
         paper.mean_score = null;
       }
 
       // Panelist scores
-      const panelResult = await pool.query(
-        `SELECT panelist_score, status
-         FROM final_camera_ready_submissions
-         WHERE submission_id = $1`,
-        [paper.submission_id]
-      );
-      const finalRow = panelResult.rows[0];
+      const finalRow = panelistScoresBySubmission[paper.submission_id];
       paper.panelist_score = finalRow?.panelist_score ?? null;
       paper.presentation_status = finalRow?.status || null;
 
@@ -6400,6 +6463,14 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
       await conferenceClient.query(`DELETE FROM meta_reviewer_decision WHERE submission_id = ANY($1);`, [submissionIds]);
       await conferenceClient.query(`DELETE FROM desk_review WHERE paper_id = ANY($1);`, [submissionIds]);
     }
+    // DBA-003 (security-audit): reviewers_assigned_papers was added later
+    // than every table above (migrations 026/032) and was missed when this
+    // route was fixed for DB-02 - it has no FK, so a deleted conference's
+    // per-paper reviewer assignments were silently left behind with no
+    // error. conference_id here is text (not uuid, see DBA-003's larger
+    // structural note), but still an exact-match string, so this is a
+    // plain equality delete like every other conference_id-scoped row above.
+    await conferenceClient.query(`DELETE FROM reviewers_assigned_papers WHERE conference_id = $1;`, [req.params.id]);
     await conferenceClient.query(`DELETE FROM co_author_requests WHERE conference_id = $1;`, [req.params.id]);
     await conferenceClient.query(`DELETE FROM peer_review WHERE conference_id = $1;`, [req.params.id]);
     await conferenceClient.query(`DELETE FROM final_camera_ready_submissions WHERE conference_id = $1;`, [req.params.id]);
@@ -6471,7 +6542,13 @@ async function generateCertificateAndUpload(templateId, fields, publicId) {
 // normal conditions, short enough that a genuinely crashed/failed attempt
 // doesn't block a retry for long. Shared by both the role-certificate and
 // author-certificate reservation queries below.
-const CERTIFICATE_RESERVATION_STALE_AFTER = "5 minutes";
+// DBA-018 (security-audit): kept as a value bound via a parameterized
+// make_interval() call below, not interpolated into the SQL text - this
+// value is a hardcoded server-side constant (never request input, so
+// never an actual injection risk), but parameterizing it removes the one
+// place in this file that built a query string by interpolation, in case
+// this constant is ever sourced from configurable input later.
+const CERTIFICATE_RESERVATION_STALE_AFTER_MINUTES = 5;
 
 async function generateAndEmailRoleCertificate({ conferenceId, role, email, contextId, templateId, conferenceTitle, roleLabel, paperTitle }) {
   if (!email) return "skipped";
@@ -6488,9 +6565,9 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
        on conflict (conference_id, role, email, context_id) do update
          set status = 'GENERATING', reserved_at = now()
          where role_certificates.status is distinct from 'GENERATED'
-           and (role_certificates.reserved_at is null or role_certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
+           and (role_certificates.reserved_at is null or role_certificates.reserved_at < now() - make_interval(mins => $5))
        returning *`,
-      [conferenceId, role, email, contextId]
+      [conferenceId, role, email, contextId, CERTIFICATE_RESERVATION_STALE_AFTER_MINUTES]
     );
     if (reservation.rows.length === 0) return "skipped";
 
@@ -6540,7 +6617,7 @@ async function generateAndEmailRoleCertificate({ conferenceId, role, email, cont
     // existing "no partial writes on failure" guarantee. A row only
     // survives past this point if the process crashes before reaching this
     // catch block at all, in which case the reservation's staleness check
-    // (CERTIFICATE_RESERVATION_STALE_AFTER) lets a later retry reclaim it.
+    // (CERTIFICATE_RESERVATION_STALE_AFTER_MINUTES) lets a later retry reclaim it.
     await pool.query(
       `delete from role_certificates where conference_id = $1 and role = $2 and lower(email) = lower($3) and context_id = $4 and status = 'GENERATING'`,
       [conferenceId, role, email, contextId]
@@ -6588,9 +6665,9 @@ async function generateAndEmailAuthorCertificate(conferenceId, conferenceTitle, 
        on conflict (submission_id) do update
          set status = 'GENERATING', reserved_at = now(), error_message = null
          where certificates.status is distinct from 'GENERATED'
-           and (certificates.status = 'FAILED' or certificates.reserved_at is null or certificates.reserved_at < now() - interval '${CERTIFICATE_RESERVATION_STALE_AFTER}')
+           and (certificates.status = 'FAILED' or certificates.reserved_at is null or certificates.reserved_at < now() - make_interval(mins => $3))
        returning *`,
-      [conferenceId, submission.submission_id]
+      [conferenceId, submission.submission_id, CERTIFICATE_RESERVATION_STALE_AFTER_MINUTES]
     );
     if (reservation.rows.length === 0) return "skipped";
 
@@ -7481,14 +7558,14 @@ app.get("/submission/primary-author/:id", checkAuth, async (req, res) => {
   }
 });
 
-app.post("/delete/invited-submission/:id", checkAuth, async(req,res)=>{
-
-  const {submission_id} = req.params.id;
-
-  await pool.query("delete from invited_talk_submissions where submission_id = $1",[submission_id]);
-
-  return res.redirect("/dashboard?message=Submission deleted succesfully!");
-})
+// DBA-002 (security-audit): removed /delete/invited-submission/:id - dead,
+// unreferenced (grepped: no view/script links to it), and broken on every
+// call (`const { submission_id } = req.params.id` destructures a string,
+// always undefined; invited_talk_submissions has no submission_id column
+// at all - its key is paper_id). It also had no ownership check, unlike
+// its correct, working, already-existing replacement below
+// (POST /submission/delete/invitee/:id), which scopes the delete to
+// paper_id = $1 AND invitee_email = $2.
 
 app.get("/submission/invited-talk/:id", checkAuth, async (req, res) => {
 
@@ -8503,43 +8580,34 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
         : (sub.co_authors ? formatNameEmail(sub.co_authors) : "None")
     }));
 
-    // Fetch all review details for each submission
-    for (let s of submissionsWithTracks) {
-      const reviewResult = await pool.query(
-        `SELECT reviewer, mean_score, remarks 
-         FROM peer_review 
-         WHERE submission_id = $1;`,
-        [s.submission_id]
-      );
-
-      // Initialize an array to hold all reviews for this submission
-      s.reviews = [];
-
-      if (reviewResult.rows.length > 0) {
-        // Map through all returned review rows
-        for (let r of reviewResult.rows) {
-          let reviewerName = r.reviewer;
-
-          // Fetch the name for each specific reviewer
-          if (r.reviewer) {
-            const reviewerNameResult = await pool.query(
-              `SELECT name FROM users WHERE email = $1 LIMIT 1;`,
-              [r.reviewer]
-            );
-            if (reviewerNameResult.rows.length > 0) {
-              reviewerName = reviewerNameResult.rows[0].name;
-            }
-          }
-
-          // Push the formatted review object into the array
-          s.reviews.push({
-            email: r.reviewer,
-            name: reviewerName,
-            mean_score: r.mean_score !== null ? parseFloat(r.mean_score).toFixed(2) : null,
-            remarks: r.remarks
-          });
-        }
-      }
+    // Fetch all review details for each submission.
+    // DBA-006 (security-audit): this used to run one peer_review query PER
+    // submission, then one more users query PER review row returned (an
+    // N+1, really N×M) - batched here into 2 queries total for the whole
+    // conference instead, the same technique already used a few lines
+    // below for desk_review/revised_submissions/meta_reviewer_decision.
+    const submissionIdsForReviews = submissionsWithTracks.map((s) => s.submission_id);
+    let reviewsBySubmission = {};
+    if (submissionIdsForReviews.length > 0) {
+      const reviewRows = (await pool.query(
+        `SELECT pr.submission_id, pr.reviewer, pr.mean_score, pr.remarks, u.name AS reviewer_name
+         FROM peer_review pr
+         LEFT JOIN users u ON u.email = pr.reviewer
+         WHERE pr.submission_id = ANY($1);`,
+        [submissionIdsForReviews]
+      )).rows;
+      reviewRows.forEach((r) => {
+        if (!reviewsBySubmission[r.submission_id]) reviewsBySubmission[r.submission_id] = [];
+        reviewsBySubmission[r.submission_id].push({
+          email: r.reviewer,
+          name: r.reviewer_name || r.reviewer,
+          mean_score: r.mean_score !== null ? parseFloat(r.mean_score).toFixed(2) : null,
+          remarks: r.remarks,
+        });
+      });
+    }
+    for (const s of submissionsWithTracks) {
+      s.reviews = reviewsBySubmission[s.submission_id] || [];
     }
 
     // Desk review decision, re-review (revised_submissions), and any
@@ -8843,6 +8911,12 @@ async function deleteSubmissionCascade(client, submissionId) {
   await client.query("DELETE FROM meta_reviewer_decision WHERE submission_id = $1", [submissionId]);
   await client.query("DELETE FROM poster_presentation_scores WHERE submission_id = $1", [submissionId]);
   await client.query("DELETE FROM desk_review WHERE paper_id = $1", [submissionId]);
+  // DBA-003 (security-audit): reviewers_assigned_papers (migrations
+  // 026/032, added after this helper was written) has no FK, so a deleted
+  // submission's per-paper reviewer assignment row was silently left
+  // behind with no error - same gap as the conference-delete route, fixed
+  // there too.
+  await client.query("DELETE FROM reviewers_assigned_papers WHERE submission_id = $1", [submissionId]);
 }
 
 app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, res) => {
