@@ -28,14 +28,6 @@
         </tr>
       </table>
 
-      <div class="alert alert-warning">
-        <ol class="mb-0">
-          <li><strong>Change in Presentation Mode:</strong> Requests to change the mode of presentation will not be entertained under any circumstances. Please select your preferred mode carefully, based on your convenience.</li>
-          <li><strong>Junior Student Poster/Oral Sessions:</strong> Certain special sessions may be organized for junior students. Please ensure that the student's name, and not their parent's name, is entered as the Primary Author or Co-Author. If you wish to request a name change, please <a href="mailto:cmt@dei.ac.in?subject=Name%20Change%20Request%20-%20Paper%20<%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : submission.submission_id %>">click here</a>. All name changes are subject to the approval of the Conference Chair.</li>
-          <li><strong>Issuance of Certificates:</strong> Certificates will be issued only in the names of authors registered as Primary Authors or Co-Authors on the DEI CMT portal. Please ensure that all author details are entered correctly.</li>
-        </ol>
-      </div>
-
       <form id="registrationForm" action="/submission/register/<%= submission.submission_id %>" method="POST">
         <div class="mb-3">
           <label class="form-label d-block">Mode of Presentation <span class="text-danger">*</span></label>
@@ -60,6 +52,12 @@
           <small class="form-text text-muted">Google Drive Link to a video presenting your paper/poster. Ensure the file has open access.</small>
         </div>
 
+        <div class="mb-3">
+          <label for="pptLink" class="form-label">Link to PPT</label>
+          <input type="url" class="form-control" name="ppt_link" id="pptLink">
+          <small class="form-text text-muted">Google Drive Link to your presentation in <strong>.pptx</strong> format. Ensure the file has open access. <strong>Mandatory for Oral Presentation.</strong></small>
+        </div>
+
         <button type="submit" class="btn btn-primary">Submit</button>
       </form>
     </div>
@@ -69,8 +67,19 @@
     <script>
       (function () {
         const form = document.getElementById('registrationForm');
+        const isOralPresentation = <%- submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' ? 'true' : 'false' %>;
         form.addEventListener('submit', function (e) {
           e.preventDefault();
+
+          if (isOralPresentation && !document.getElementById('pptLink').value.trim()) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'PPT Link Required',
+              text: 'The Link to PPT is mandatory for Oral Presentation.',
+            });
+            return;
+          }
+
           Swal.fire({
             icon: 'question',
             title: 'Confirm Submission',

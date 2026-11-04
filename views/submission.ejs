@@ -124,5 +124,44 @@
 
     <script src="/script.js"></script>
     <%- include('partials/footer') %>
+    <script>
+      (function () {
+        const CLOSE_DELAY_SECONDS = 15;
+        let remaining = CLOSE_DELAY_SECONDS;
+
+        Swal.fire({
+          title: "Important Instructions",
+          html:
+            '<ol style="text-align: justify;">' +
+            '<li>Certain tracks may be specifically designated for Undergraduate and School students. Authors are requested to carefully review the available tracks and select the appropriate one during submission. For school students, if parents are submitting the paper on their behalf, it is recommended that the account be created using the student\'s name. For any queries or clarification, please contact the Conference Chairs.</li>' +
+            '<li>The Conference Chairs reserve the right to change the track assigned to any submission, if deemed necessary. Authors will be notified via email if any changes are made to the track of their submission.</li>' +
+            '<li>Authors may request or make changes to the selected track until the Full Paper Submission Deadline. Once the deadline has passed, no further changes to the track will be permitted. Authors are therefore advised to review their track selection carefully before submitting their papers.</li>' +
+            '</ol>',
+          icon: "info",
+          confirmButtonText: `Close (${remaining})`,
+          showConfirmButton: true,
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          didOpen: () => {
+            Swal.getConfirmButton().disabled = true;
+            const timer = setInterval(() => {
+              remaining -= 1;
+              const btn = Swal.getConfirmButton();
+              if (!btn) {
+                clearInterval(timer);
+                return;
+              }
+              if (remaining <= 0) {
+                btn.disabled = false;
+                btn.textContent = "Close";
+                clearInterval(timer);
+              } else {
+                btn.textContent = `Close (${remaining})`;
+              }
+            }, 1000);
+          },
+        });
+      })();
+    </script>
   </body>
 </html>
