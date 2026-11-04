@@ -3339,9 +3339,20 @@ async function loadOralSessionsDashboardData(conferenceId) {
     ),
   };
 
-  // ---------- tracks ----------
+  // ---------- tracks (subject areas) ----------
+  // A Track whose chair-set Allowed Decisions (conference_groups) only
+  // permits "Accepted for Poster Presentation" - i.e. allow_oral_decision
+  // is false - can never have a submission reach an oral decision at all,
+  // so none of its subject areas belong on this page. An ungrouped subject
+  // area (no Track) has nothing to restrict it and always stays, same
+  // reasoning as getAllowedDecisionsForTrack elsewhere in this file.
   const tracksResult = await pool.query(
-    `SELECT * FROM conference_tracks WHERE conference_id = $1`,
+    `SELECT t.*, g.group_name
+     FROM conference_tracks t
+     LEFT JOIN conference_groups g ON g.group_id = t.group_id
+     WHERE t.conference_id = $1
+       AND COALESCE(g.allow_oral_decision, true)
+     ORDER BY g.group_name NULLS LAST, t.track_name`,
     [conferenceId]
   );
 
@@ -3387,7 +3398,26 @@ async function loadOralSessionsDashboardData(conferenceId) {
     finalCameraReadyPapers: data.fcrpByTrack[track.track_id] || [],
   }));
 
-  return { conference, tracks: tracksWithData, count };
+  // Group subject areas by their Track for the page's Track-accordion-
+  // of-Subject-Area-accordions layout. An ungrouped subject area (no
+  // Track - "directly under the conference") gets its own synthetic
+  // group so it's never silently dropped. Order matches the tracks
+  // query's own ORDER BY (group_name, then track_name within it).
+  const groupsById = new Map();
+  for (const track of tracksWithData) {
+    const key = track.group_id || "__ungrouped__";
+    if (!groupsById.has(key)) {
+      groupsById.set(key, {
+        groupId: track.group_id || null,
+        groupName: track.group_name || null,
+        subjectAreas: [],
+      });
+    }
+    groupsById.get(key).subjectAreas.push(track);
+  }
+  const groups = [...groupsById.values()];
+
+  return { conference, tracks: tracksWithData, groups, count };
 }
 
 // DB-08 (security-audit/COMPLETE_FINDINGS_REGISTER.md): shared by the oral
@@ -3525,6 +3555,7 @@ app.get(
       res.render("chair/manage-sessions.ejs", {
         user: req.user,
         tracks: data.tracks,
+        groups: data.groups,
         conference: data.conference,
         count: data.count,
         message: req.query.message || null,
@@ -3568,7 +3599,7 @@ app.get(
       for (const track of data.tracks) {
         for (const sub of track.leaderboard) {
           leaderboardSheet.addRow({
-            trackName: track.track_name,
+            trackName: track.group_name ? `${track.group_name}: ${track.track_name}` : track.track_name,
             rank: sub.rank ?? "N/A",
             paperId: sub.paperId,
             title: sub.title,
@@ -3593,7 +3624,7 @@ app.get(
       for (const track of data.tracks) {
         for (const paper of track.finalCameraReadyPapers) {
           fcrpSheet.addRow({
-            trackName: track.track_name,
+            trackName: track.group_name ? `${track.group_name}: ${track.track_name}` : track.track_name,
             paperId: paper.paperId,
             title: paper.title,
             primaryAuthor: paper.primary_author_formatted,

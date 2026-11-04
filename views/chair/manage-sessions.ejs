@@ -8,217 +8,238 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    
+
     <%-include('../partials/dashboard/header') %>
 
       <div class="container">
-        
+
         <h4>Manage Oral Presentation Sessions</h4>
         <h6>Conference: <%= conference.title %></h6>
         <a href="/chair/dashboard/manage-sessions/<%= conference.conference_id %>/export" class="btn btn-outline-success btn-sm">
           <i class="bi bi-file-earmark-excel"></i> Export as Excel
         </a>
+        <p class="small text-muted mt-2 mb-0">A Track whose Allowed Decisions (Manage Tracks) only permit Poster Presentation is not shown here - it never has an oral session to schedule. See the Poster Presentation page instead.</p>
         <hr />
-        
-          <% if (tracks && tracks.length > 0) { %> <%
-          tracks.forEach(function(track, idx) { // Find the count for this track
-          var trackCount = 0; if (count && count.length > 0) { var found =
-          count.find(function(tc) { return tc.track_id === track.track_id; }); if
-          (found) trackCount = found.count; } %>
-          <div class="card mb-4">
-            <div class="card-body p-4">
-              <div class="d-flex justify-content-between align-items-start mb-3">
-                <div class="flex-grow-1">
-                  <h3 style="color:blue" class="card-title mb-0"><%= track.track_name %></h3>
-                </div>
-                <span class="badge bg-info text-dark ms-2">
-                  <i class="bi bi-file-earmark me-1"></i><%= trackCount %> Submissions
-                </span>
-              </div>
-              
-              <div class="table-responsive">
-                <table class="table table-sm table-hover mb-0">
-                  <thead class="table-light">
-                    <tr>
-                      <th scope="col">Reviewers</th>
-                      <th scope="col">Session Date</th>
-                      <th scope="col">Start Time</th>
-                      <th scope="col">End Time</th>
-                      <th scope="col">Session Chair</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><% if (Array.isArray(track.track_reviewers)) { %><%= track.track_reviewers.join(", ") %><% } else { %><%= track.track_reviewers %><% } %></td>
-                      <td><%= track.presentation_date %></td>
-                      <td><%= track.presentation_start_time %></td>
-                      <td><%= track.presentation_end_time %></td>
-                      <td><%= track.panelists %></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
 
-              <!-- Leaderboard Accordion -->
-              <div class="accordion mt-4" id="accordion-<%= idx %>">
-                <div class="accordion-item">
-                  <h2 class="accordion-header" id="heading-<%= idx %>">
-                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= idx %>" aria-expanded="false" aria-controls="collapse-<%= idx %>">
-                      <i class="bi bi-trophy me-2"></i>View Leaderboard
-                    </button>
-                  </h2>
-                  <div id="collapse-<%= idx %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= idx %>" data-bs-parent="#accordion-<%= idx %>">
-                    <div class="accordion-body p-0">
-                      <% if (track.leaderboard && track.leaderboard.length > 0) { %>
-                        <div class="table-responsive">
-                          <table class="table table-striped table-sm table-hover mb-0 leaderboard-table">
-                            <thead class="table-light">
-                              <tr>
-                                <th style="min-width: 60px;">Rank</th>
-                                <th style="min-width: 100px;">Paper ID</th>
-                                <th style="min-width: 150px;">Paper Title</th>
-                                <th style="min-width: 120px;">Primary Author</th>
-                                <th style="min-width: 120px;">Co-Authors</th>
-                                <th style="min-width: 90px;">Reviewer</th>
-                                <th style="min-width: 90px;">Panelist</th>
-                                <th style="min-width: 90px;">Average</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <% track.leaderboard.forEach(function(submission) { %>
-                                <tr>
-                                  <td style="white-space: nowrap;">
-                                    <% if (submission.rank) { %>
-                                      <% if (submission.rank === 1) { %>
-                                         <i class="bi bi-1-circle-fill"></i>
-                                      <% } else if (submission.rank === 2) { %>
-                                         <i class="bi bi-2-circle-fill"></i>
-                                      <% } else if (submission.rank === 3) { %>
-                                         <i class="bi bi-3-circle-fill"></i>
-                                      <% } else { %>
-                                        #<%= submission.rank %>
-                                      <% } %>
+          <% if (groups && groups.length > 0) { %>
+          <div class="accordion" id="tracksAccordion">
+            <% groups.forEach(function(group, groupIdx) { %>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="track-heading-<%= groupIdx %>">
+                  <button class="accordion-button <%= groupIdx === 0 ? '' : 'collapsed' %>" type="button" data-bs-toggle="collapse" data-bs-target="#track-collapse-<%= groupIdx %>" aria-expanded="<%= groupIdx === 0 ? 'true' : 'false' %>" aria-controls="track-collapse-<%= groupIdx %>">
+                    <i class="bi bi-diagram-3 me-2"></i>
+                    <%= group.groupName ? ('Track: ' + group.groupName) : 'Subject Areas (No Track)' %>
+                    <span class="badge bg-secondary ms-2"><%= group.subjectAreas.length %> Subject Area<%= group.subjectAreas.length === 1 ? '' : 's' %></span>
+                  </button>
+                </h2>
+                <div id="track-collapse-<%= groupIdx %>" class="accordion-collapse collapse <%= groupIdx === 0 ? 'show' : '' %>" aria-labelledby="track-heading-<%= groupIdx %>">
+                  <div class="accordion-body">
+
+                    <div class="accordion" id="subjectAreaAccordion-<%= groupIdx %>">
+                      <% group.subjectAreas.forEach(function(track, saIdx) {
+                        var trackCount = 0;
+                        if (count && count.length > 0) {
+                          var found = count.find(function(tc) { return tc.track_id === track.track_id; });
+                          if (found) trackCount = found.count;
+                        }
+                        var idx = groupIdx + '-' + saIdx;
+                      %>
+                      <div class="accordion-item">
+                        <h2 class="accordion-header" id="sa-heading-<%= idx %>">
+                          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sa-collapse-<%= idx %>" aria-expanded="false" aria-controls="sa-collapse-<%= idx %>">
+                            <%= track.track_name %>
+                            <span class="badge bg-info text-dark ms-2">
+                              <i class="bi bi-file-earmark me-1"></i><%= trackCount %> Submissions
+                            </span>
+                          </button>
+                        </h2>
+                        <div id="sa-collapse-<%= idx %>" class="accordion-collapse collapse" aria-labelledby="sa-heading-<%= idx %>" data-bs-parent="#subjectAreaAccordion-<%= groupIdx %>">
+                          <div class="accordion-body">
+
+                            <div class="table-responsive">
+                              <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                  <tr>
+                                    <th scope="col">Reviewers</th>
+                                    <th scope="col">Session Date</th>
+                                    <th scope="col">Start Time</th>
+                                    <th scope="col">End Time</th>
+                                    <th scope="col">Session Chair</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr>
+                                    <td><% if (Array.isArray(track.track_reviewers)) { %><%= track.track_reviewers.join(", ") %><% } else { %><%= track.track_reviewers %><% } %></td>
+                                    <td><%= track.presentation_date %></td>
+                                    <td><%= track.presentation_start_time %></td>
+                                    <td><%= track.presentation_end_time %></td>
+                                    <td><%= track.panelists %></td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <!-- Leaderboard Accordion -->
+                            <div class="accordion mt-4" id="accordion-<%= idx %>">
+                              <div class="accordion-item">
+                                <h2 class="accordion-header" id="heading-<%= idx %>">
+                                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-<%= idx %>" aria-expanded="false" aria-controls="collapse-<%= idx %>">
+                                    <i class="bi bi-trophy me-2"></i>View Leaderboard
+                                  </button>
+                                </h2>
+                                <div id="collapse-<%= idx %>" class="accordion-collapse collapse" aria-labelledby="heading-<%= idx %>" data-bs-parent="#accordion-<%= idx %>">
+                                  <div class="accordion-body p-0">
+                                    <% if (track.leaderboard && track.leaderboard.length > 0) { %>
+                                      <div class="table-responsive">
+                                        <table class="table table-striped table-sm table-hover mb-0 leaderboard-table">
+                                          <thead class="table-light">
+                                            <tr>
+                                              <th style="min-width: 60px;">Rank</th>
+                                              <th style="min-width: 100px;">Paper ID</th>
+                                              <th style="min-width: 150px;">Paper Title</th>
+                                              <th style="min-width: 120px;">Primary Author</th>
+                                              <th style="min-width: 120px;">Co-Authors</th>
+                                              <th style="min-width: 90px;">Reviewer</th>
+                                              <th style="min-width: 90px;">Panelist</th>
+                                              <th style="min-width: 90px;">Average</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            <% track.leaderboard.forEach(function(submission) { %>
+                                              <tr>
+                                                <td style="white-space: nowrap;">
+                                                  <% if (submission.rank) { %>
+                                                    <% if (submission.rank === 1) { %>
+                                                       <i class="bi bi-1-circle-fill"></i>
+                                                    <% } else if (submission.rank === 2) { %>
+                                                       <i class="bi bi-2-circle-fill"></i>
+                                                    <% } else if (submission.rank === 3) { %>
+                                                       <i class="bi bi-3-circle-fill"></i>
+                                                    <% } else { %>
+                                                      #<%= submission.rank %>
+                                                    <% } %>
+                                                  <% } else { %>
+                                                    <span class="text-muted">N/A</span>
+                                                  <% } %>
+                                                </td>
+                                                <td><%= submission.paperId %></td>
+                                                <td>
+                                                  <div class="fw-bold"><%= submission.title %></div>
+                                                  <small class="text-muted">Status: <%= submission.submission_status %></small>
+                                                </td>
+                                                <td><%= submission.primary_author_formatted %></td>
+                                                <td><%= submission.co_authors_formatted %></td>
+                                               <td style="text-align: center;">
+      <% if (submission.reviewerScore !== null) { %>
+        <span class="badge bg-primary"><%= submission.reviewerScore %>/5</span>
+        <div class="mt-1">
+          <small class="text-muted" style="font-size: 0.75rem;">
+            (<%= submission.scoreLabel %>)
+          </small>
+        </div>
+      <% } else { %>
+        <span class="badge bg-secondary">N/A</span>
+      <% } %>
+    </td>
+                                                <td style="text-align: center;">
+                                                  <% if (submission.panelistScore !== null) { %>
+                                                    <span class="badge bg-success"><%= submission.panelistScore %>/5</span>
+                                                  <% } else { %>
+                                                    <span class="badge bg-secondary">N/A</span>
+                                                  <% } %>
+                                                </td>
+                                                <td style="text-align: center;">
+                                                  <% if (submission.averageScore !== null) { %>
+                                                    <span class="badge bg-<%= submission.averageScore >= 4 ? 'success' : submission.averageScore >= 3 ? 'warning' : 'danger' %> fs-6">
+                                                      <%= submission.averageScore %>/5
+                                                    </span>
+                                                  <% } else { %>
+                                                    <span class="badge bg-secondary">N/A</span>
+                                                  <% } %>
+                                                </td>
+                                              </tr>
+                                            <% }); %>
+                                          </tbody>
+                                        </table>
+                                      </div>
                                     <% } else { %>
-                                      <span class="text-muted">N/A</span>
+                                      <div class="text-center text-muted p-4">
+                                        <i class="bi bi-inbox display-4"></i>
+                                        <p class="mt-2"><b>No submissions have been marked as "Completed"!</b></p>
+                                      </div>
                                     <% } %>
-                                  </td>
-                                  <td><%= submission.paperId %></td>
-                                  <td>
-                                    <div class="fw-bold"><%= submission.title %></div>
-                                    <small class="text-muted">Status: <%= submission.submission_status %></small>
-                                  </td>
-                                  <td><%= submission.primary_author_formatted %></td>
-                                  <td><%= submission.co_authors_formatted %></td>
-                                 <td style="text-align: center;">
-  <% if (submission.reviewerScore !== null) { %>
-    <span class="badge bg-primary"><%= submission.reviewerScore %>/5</span>
-    <div class="mt-1">
-      <small class="text-muted" style="font-size: 0.75rem;">
-        (<%= submission.scoreLabel %>)
-      </small>
-    </div>
-  <% } else { %>
-    <span class="badge bg-secondary">N/A</span>
-  <% } %>
-</td>
-                                  <td style="text-align: center;">
-                                    <% if (submission.panelistScore !== null) { %>
-                                      <span class="badge bg-success"><%= submission.panelistScore %>/5</span>
-                                    <% } else { %>
-                                      <span class="badge bg-secondary">N/A</span>
-                                    <% } %>
-                                  </td>
-                                  <td style="text-align: center;">
-                                    <% if (submission.averageScore !== null) { %>
-                                      <span class="badge bg-<%= submission.averageScore >= 4 ? 'success' : submission.averageScore >= 3 ? 'warning' : 'danger' %> fs-6">
-                                        <%= submission.averageScore %>/5
-                                      </span>
-                                    <% } else { %>
-                                      <span class="badge bg-secondary">N/A</span>
-                                    <% } %>
-                                  </td>
-                                </tr>
-                              <% }); %>
-                            </tbody>
-                          </table>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div class="mt-4">
+                              <h5>Final Camera Ready Papers (Accepted for Oral Presentation)</h5>
+                              <hr />
+
+                              <% if (track.finalCameraReadyPapers && track.finalCameraReadyPapers.length > 0) { %>
+                                <div class="table-responsive">
+                                  <table class="table table-sm table-hover">
+                                    <thead class="table-light">
+                                      <tr>
+                                        <th>Paper ID</th>
+                                        <th>Title</th>
+                                        <th>Primary Author</th>
+                                        <th>Co-Authors</th>
+                                        <th>View Paper</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <% track.finalCameraReadyPapers.forEach(function(paper) { %>
+                                        <tr>
+                                          <td><%= paper.paperId %></td>
+                                          <td class="fw-bold"><%= paper.title %></td>
+                                          <td><%= paper.primary_author_formatted %></td>
+                                          <td>
+                                            <% if (paper.co_authors_formatted) { %>
+                                              <%= paper.co_authors_formatted %>
+                                            <% } else { %>
+                                              <span class="text-muted">—</span>
+                                            <% } %>
+                                          </td>
+
+                                          <td>
+                                            <% if (paper.file_url) { %>
+                                              <a href="<%= paper.file_url %>" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                View
+                                              </a>
+                                            <% } else { %>
+                                              <span class="text-muted">Not uploaded</span>
+                                            <% } %>
+                                          </td>
+                                        </tr>
+                                      <% }); %>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              <% } else { %>
+                              <h6>      <i class="bi bi-emoji-frown-fill me-1"></i>
+                                    No Final Camera Ready Papers have been submitted!
+                              </h6><hr style="height: 20px;">
+                              <% } %>
+                            </div>
+
+                          </div>
                         </div>
-                      <% } else { %>
-                        <div class="text-center text-muted p-4">
-                          <i class="bi bi-inbox display-4"></i>
-                          <p class="mt-2"><b>No submissions have been marked as "Completed"!</b></p>
-                        </div>
-                      <% } %>
+                      </div>
+                      <% }); %>
                     </div>
+
                   </div>
                 </div>
               </div>
-
-            <div class="mt-4">
-  <h5>Final Camera Ready Papers (Accepted for Oral Presentation)</h5>
-  <hr />
-
-  <% if (track.finalCameraReadyPapers && track.finalCameraReadyPapers.length > 0) { %>
-    <div class="table-responsive">
-      <table class="table table-sm table-hover">
-        <thead class="table-light">
-          <tr>
-            <th>Paper ID</th>
-            <th>Title</th>
-            <th>Primary Author</th>
-            <th>Co-Authors</th>
-            <th>View Paper</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% track.finalCameraReadyPapers.forEach(function(paper) { %>
-            <tr>
-              <td><%= paper.paperId %></td>
-              <td class="fw-bold"><%= paper.title %></td>
-              <td><%= paper.primary_author_formatted %></td>
-              <td>
-                <% if (paper.co_authors_formatted) { %>
-                  <%= paper.co_authors_formatted %>
-                <% } else { %>
-                  <span class="text-muted">—</span>
-                <% } %>
-              </td>
-            
-              <td>
-                <% if (paper.file_url) { %>
-                  <a href="<%= paper.file_url %>" target="_blank" class="btn btn-sm btn-outline-primary">
-                    View
-                  </a>
-                <% } else { %>
-                  <span class="text-muted">Not uploaded</span>
-                <% } %>
-              </td>
-            </tr>
-          <% }); %>
-        </tbody>
-      </table>
-    </div>
-  <% } else { %>
-<h6>      <i class="bi bi-emoji-frown-fill me-1"></i>
-      No Final Camera Ready Papers have been submitted!
-</h6><hr style="height: 20px;">
-  <% } %>
-</div>
-            
-            </div>
+            <% }); %>
           </div>
-
-    <!-- Final Camera Ready Papers -->
-
-
-
-          <% }); %> <% } else { %>
+          <% } else { %>
           <h6><i class="bi bi-emoji-frown-fill"></i> No subject areas have been added for this conference, please go back to the dashboard and click on 'Manage Tracks' to add subject areas!</h6>
           <% } %>
           <br />
-          
-       
 
-       
       </div>
     <div
       class="modal fade"
