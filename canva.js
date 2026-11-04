@@ -54,15 +54,35 @@ export function buildAuthorizeUrl({ codeChallenge, state, redirectUri }) {
   return `${CANVA_AUTHORIZE_URL}?${params.toString()}`;
 }
 
+// STAB-002 (SERVER_STABILITY_AUDIT_REPORT.md): fetch() has no default
+// timeout - a Canva endpoint that accepts the connection but never
+// responds previously hung this call (and every caller awaiting it)
+// indefinitely. AbortSignal.timeout() is the runtime's own cancellation
+// mechanism (no manual setTimeout/clearTimeout to leak), bounding the
+// network operation itself, not just the surrounding function. Not
+// retried here (token requests are already called from a context - the
+// one-time OAuth exchange, and getValidAccessToken's refresh - where a
+// blind retry on an ambiguous token-grant failure risks consuming a
+// single-use refresh token twice); the caller sees a clear, labeled error.
+const CANVA_TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 async function tokenRequest(body) {
-  const res = await fetch(CANVA_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: basicAuthHeader(),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams(body).toString(),
-  });
+  let res;
+  try {
+    res = await fetch(CANVA_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthHeader(),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams(body).toString(),
+      signal: AbortSignal.timeout(CANVA_TOKEN_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      throw new Error(`Canva token request timed out after ${CANVA_TOKEN_REQUEST_TIMEOUT_MS}ms.`);
+    }
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(`Canva token request failed (${res.status}): ${data.error || "unknown"} ${data.error_description || ""}`.trim());
@@ -149,18 +169,43 @@ function parseRetryAfterMs(headerValue) {
 // "fail fast"). A genuine 4xx that isn't 429 (bad request, template not
 // found, etc.) is never retried - retrying it would just fail identically
 // every time.
+// STAB-002 (SERVER_STABILITY_AUDIT_REPORT.md): every Canva API call now
+// carries its own network-level timeout, same reasoning as
+// CANVA_TOKEN_REQUEST_TIMEOUT_MS above - without it, a hung response left
+// the whole certificate-generation request (and the retry loop around
+// this call) waiting indefinitely. A fresh AbortSignal.timeout() is
+// created on every attempt (it's inside the function retryWithBackoff
+// re-invokes), so a retry after one timeout gets its own full timeout
+// window, not whatever was left of a shared one. A timed-out attempt is
+// marked isTimeout so it's retried the same as a 429/5xx below - the
+// existing 6-retry cap and exponential/Retry-After backoff already bound
+// this, and the alternative (never retrying a timeout) would make a
+// single slow response fail the whole batch outright instead of just
+// this one attempt.
+const CANVA_API_REQUEST_TIMEOUT_MS = 20_000;
 async function canvaApiRequest(path, { method = "GET", body } = {}) {
   return retryWithBackoff(
     async () => {
       const token = await getValidAccessToken();
-      const res = await fetch(`${CANVA_API_BASE}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(body ? { "Content-Type": "application/json" } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let res;
+      try {
+        res = await fetch(`${CANVA_API_BASE}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(body ? { "Content-Type": "application/json" } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(CANVA_API_REQUEST_TIMEOUT_MS),
+        });
+      } catch (fetchErr) {
+        if (fetchErr.name === "TimeoutError" || fetchErr.name === "AbortError") {
+          const err = new Error(`Canva API ${method} ${path} timed out after ${CANVA_API_REQUEST_TIMEOUT_MS}ms.`);
+          err.isTimeout = true;
+          throw err;
+        }
+        throw fetchErr;
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = new Error(`Canva API ${method} ${path} failed (${res.status}): ${JSON.stringify(data)}`);
@@ -173,9 +218,9 @@ async function canvaApiRequest(path, { method = "GET", body } = {}) {
     {
       retries: 6,
       baseDelayMs: 1000,
-      isRetryable: (err) => err.status === 429 || (err.status >= 500 && err.status < 600),
+      isRetryable: (err) => err.isTimeout || err.status === 429 || (err.status >= 500 && err.status < 600),
       getDelayMs: (err, attempt, baseDelayMs) => err.retryAfterMs ?? Math.min(baseDelayMs * 2 ** (attempt - 1), 60_000),
-      onRetry: (err, attempt) => console.warn(`Canva API retry ${attempt}/6 for ${method} ${path} after HTTP ${err.status}`),
+      onRetry: (err, attempt) => console.warn(`Canva API retry ${attempt}/6 for ${method} ${path} after ${err.isTimeout ? "timeout" : `HTTP ${err.status}`}`),
     }
   );
 }

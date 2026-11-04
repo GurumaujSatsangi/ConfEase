@@ -137,6 +137,25 @@ const upload = multer({
 // the rare occasion it's hit anyway.
 const CERTIFICATE_BATCH_PACING_MS = 400;
 
+// STAB-004 (SERVER_STABILITY_AUDIT_REPORT.md): /chair/dashboard/
+// enable-pdf-download/:id used to attempt every eligible recipient
+// (authors + reviewers + session chairs + invited speakers) in one HTTP
+// request, with no bound - for a large conference this could run for many
+// minutes, far past a typical browser/reverse-proxy timeout, with the
+// chair unable to tell "still working" from "stuck." Capping how many
+// recipients one request attempts, and letting the chair re-click to
+// continue, is a deliberately small, incremental fix rather than a
+// background-job rewrite: it's safe specifically because every recipient
+// was already covered by its own atomic reservation (see
+// generateAndEmailRoleCertificate/generateAndEmailAuthorCertificate's own
+// "insert ... on conflict ... where status is distinct from 'GENERATED'"
+// pattern) - re-running this same route only ever (re)attempts whatever
+// isn't already GENERATED, so a second click naturally resumes instead of
+// duplicating anything, and conferenceOperationCooldown (30s, already on
+// this route) already prevents two overlapping clicks for the same
+// conference from racing each other.
+const CERTIFICATE_BATCH_REQUEST_LIMIT = 20;
+
 function uploadBufferToCloudinary(buffer, options) {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(options, (error, result) => {
@@ -813,7 +832,30 @@ if (process.env.VERCEL !== "1" && process.env.REDIS_HOST && process.env.REDIS_PO
       // cheap and this infrequent - what actually needs protecting
       // against is a transient outage becoming a permanent one.
       reconnectStrategy: (retries) => Math.min(retries * 300, 30000),
+      // STAB-003 (SERVER_STABILITY_AUDIT_REPORT.md): the initial
+      // `await client.connect()` below runs before app.listen() - with no
+      // bound here, a host that accepts the TCP connection but never
+      // completes the handshake (a silently-dropping firewall, a stale/
+      // misrouted DNS entry) could hang that await forever, meaning the
+      // server never starts serving ANY request at all. This is a
+      // library-native option (not a manual Promise.race, which wouldn't
+      // actually cancel the underlying connection attempt) - connect()
+      // rejects once this elapses, which the existing try/catch below
+      // already turns into the normal degraded-mode fallback.
+      connectTimeout: 5000,
     },
+    // STAB-006 (SERVER_STABILITY_AUDIT_REPORT.md): applies to every
+    // command issued through this client (rate limiting, login lockout,
+    // dashboard caching, cooldowns) without touching each of their call
+    // sites individually. A connected-but-wedged Redis (not disconnected -
+    // still holding the TCP connection open, just unresponsive) previously
+    // had no bound at all here, so a command could hang indefinitely
+    // instead of hitting the in-memory fallback those call sites already
+    // have ready for the rejection case. This is the client library's own
+    // command-timeout mechanism (CommandOptions.timeout), which cancels
+    // the pending command cleanly - not a Promise.race that would leave
+    // the original command dangling in the queue.
+    commandOptions: { timeout: 3000 },
   });
 
   client.on("error", (err) => console.log("Redis Client Error", err));
@@ -2573,6 +2615,13 @@ app.post("/update-profile", checkAuth, async(req,res)=>{
 
 app.get("/my-profile",checkAuth,async(req,res)=>{
   const user_data = await pool.query("select id, name, email, contact_number, affiliation from users where email=$1",[req.user.email]);
+  // STAB-008 (SERVER_STABILITY_AUDIT_REPORT.md): user_data.rows[0].id was
+  // read without checking a row existed - a still-valid access token for
+  // an account deleted since it was issued would throw here instead of
+  // redirecting cleanly.
+  if (!user_data.rows[0]) {
+    return res.redirect("/login/user?message=" + encodeURIComponent("Your account could not be found. Please log in again."));
+  }
   const session_history = await pool.query("select created_at, ip_address, user_agent from sessions where user_id=$1",[user_data.rows[0].id]);
   return res.render("my-profile.ejs",{user_data: user_data.rows[0],session_history: session_history.rows, message: req.query.message || null});
 })
@@ -3042,8 +3091,14 @@ app.post("/publish-announcement",checkChairAuth,async(req,res)=>{
 
   const result = await pool.query("insert into announcements values($1,$2,$3)",[title,body,user.email]);
   if(result.rowCount){
-    res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
+    return res.redirect("/chair/dashboard?message=Announcement Posted Succesfully!");
   }
+  // STAB-009 (SERVER_STABILITY_AUDIT_REPORT.md): this INSERT has no
+  // ON CONFLICT clause, so rowCount === 0 without a thrown error isn't
+  // reachable today - but with no else branch, a future change that made
+  // it possible (e.g. an ON CONFLICT DO NOTHING added later) would leave
+  // the request hanging with no response ever sent.
+  return res.redirect("/chair/dashboard?message=" + encodeURIComponent("The announcement could not be posted. Please try again."));
 })
 
 
@@ -4011,52 +4066,57 @@ app.post("/send-password-reset-link", authRateLimitMemory, accountRateLimit((req
 
   const {email} = req.body;
 
-  const userResult = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
-    );
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB or SMTP failure here fell through to Express 5's
+  // auto-forwarded generic error page instead of this file's usual
+  // friendly redirect-with-message. No change to the deliberate
+  // same-response-either-way anti-enumeration behavior below.
+  try {
+    const userResult = await pool.query(
+        "SELECT * FROM users WHERE email = $1",
+        [email]
+      );
 
 
 
-    const user = userResult.rows[0];
+      const user = userResult.rows[0];
 
-    if(!user){
-      res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.");
-    }
-    else {
-          const token = crypto.randomBytes(32).toString("hex");
+      if(!user){
+        res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.");
+      }
+      else {
+            const token = crypto.randomBytes(32).toString("hex");
 
-    // Fail closed when the public base URL is not configured (never build links from defaults)
-    if (!getAppUrl()) {
-      console.error("APP_URL is missing or not HTTPS in production; password reset email not sent.");
-      return res.redirect("/login/user?message=Password reset is temporarily unavailable. Please try again later.");
-    }
+      // Fail closed when the public base URL is not configured (never build links from defaults)
+      if (!getAppUrl()) {
+        console.error("APP_URL is missing or not HTTPS in production; password reset email not sent.");
+        return res.redirect("/login/user?message=Password reset is temporarily unavailable. Please try again later.");
+      }
 
-    // Was 15 minutes - unusually tight next to every other time-limited
-    // link in this app (account activation and invited-user setup both
-    // give 24 hours). A 15-minute window leaves almost no slack for
-    // ordinary SMTP delivery delay plus the time it takes someone to
-    // actually open their inbox, which looks indistinguishable from a
-    // bug ("the link I just got says it's already expired").
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60);
+      // Was 15 minutes - unusually tight next to every other time-limited
+      // link in this app (account activation and invited-user setup both
+      // give 24 hours). A 15-minute window leaves almost no slack for
+      // ordinary SMTP delivery delay plus the time it takes someone to
+      // actually open their inbox, which looks indistinguishable from a
+      // bug ("the link I just got says it's already expired").
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 60);
 
-    await pool.query(
-        `INSERT INTO password_resets (email, token, expires_at)
-         VALUES ($1, $2, $3)`,
-        [email, hashToken(token), expiresAt]
-    );
+      await pool.query(
+          `INSERT INTO password_resets (email, token, expires_at)
+           VALUES ($1, $2, $3)`,
+          [email, hashToken(token), expiresAt]
+      );
 
-    const resetLink = `${getAppUrl()}/reset-password/${token}`;
+      const resetLink = `${getAppUrl()}/reset-password/${token}`;
 
-    await sendMail(email,"Password Reset Link",null,greeting(user.name)+" <br><br>Greetings!<br><br>We have received a request to reset the password associated with your account on the DEI CMT portal.<br><br>To reset your password, please click the link provided below:<br><br><b>Password Reset Link:</b> "+resetLink+" <br><br>For security reasons, this link is valid only for a limited period. If the link expires, you may request a new password reset link through the portal.<br><br>If you did not request a password reset, you may safely ignore this email. Your password will remain unchanged unless the reset process is completed.")
-    return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
+      await sendMail(email,"Password Reset Link",null,greeting(user.name)+" <br><br>Greetings!<br><br>We have received a request to reset the password associated with your account on the DEI CMT portal.<br><br>To reset your password, please click the link provided below:<br><br><b>Password Reset Link:</b> "+resetLink+" <br><br>For security reasons, this link is valid only for a limited period. If the link expires, you may request a new password reset link through the portal.<br><br>If you did not request a password reset, you may safely ignore this email. Your password will remain unchanged unless the reset process is completed.")
+      return res.redirect("/login/user?message=Password Reset Link has been sent to your Email ID. Kindly reset your password using that link and login using the updated credentials.")
 
-    }
-
-    
-
-
-
+      }
+  } catch (err) {
+    console.error("Error sending password reset link:", err);
+    return res.redirect("/login/user?message=" + encodeURIComponent("An unexpected error occurred. Please try again."));
+  }
 })
 
 app.get("/reset-password/:token", async (req, res) => {
@@ -4192,9 +4252,18 @@ app.get("/reviewer/dashboard/review/:id", checkAuth, async (req, res) => {
       [submissionData.conference_id]
     );
     const conferenceRaw = conferenceResult.rows[0];
+    // STAB-008 (SERVER_STABILITY_AUDIT_REPORT.md): submissions.conference_id
+    // has an ON DELETE CASCADE FK to conferences, so this is only reachable
+    // via a narrow delete-between-these-two-queries race, not a normal
+    // "deleted conference" case - but the sibling route for a first-round
+    // review (a few hundred lines below) already guards the identical
+    // shape, so this matches that for consistency/defense-in-depth.
+    if (!conferenceRaw) {
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
 
     // Peer-review deadline: once it has passed, a reviewer can no longer open this form
-    if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
+    if (deadlineClosed(conferenceRaw.deadline_peer_review)) {
       return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The peer-review deadline for this conference has passed. You can no longer review submissions."));
     }
 
@@ -4302,9 +4371,16 @@ app.get("/reviewer/dashboard/re-review/:id", checkAuth, async (req, res) => {
       [submissionData.conference_id]
     );
     const conferenceRaw = conferenceResult.rows[0];
+    // STAB-008 (SERVER_STABILITY_AUDIT_REPORT.md): same reasoning as the
+    // first-round review route above - only reachable via a narrow
+    // delete-between-queries race (submissions.conference_id is FK'd to
+    // conferences with ON DELETE CASCADE), guarded here for consistency.
+    if (!conferenceRaw) {
+      return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
 
     // Peer-review deadline: once it has passed, a reviewer can no longer open this form
-    if (deadlineClosed(conferenceRaw?.deadline_peer_review)) {
+    if (deadlineClosed(conferenceRaw.deadline_peer_review)) {
       return res.redirect("/reviewer/dashboard?message=" + encodeURIComponent("The peer-review deadline for this conference has passed. You can no longer review submissions."));
     }
 
@@ -5607,6 +5683,15 @@ app.get("/chair/dashboard/invited-talks/:id", checkChairAuth,async (req, res) =>
       [req.params.id]
     );
     const conferenceRaw = conf.rows[0];
+    // STAB-008 (SERVER_STABILITY_AUDIT_REPORT.md): conferenceRaw was
+    // spread/used below without checking it exists - a conference deleted
+    // in another tab while this one still references its id would throw
+    // here instead of showing the specific "not found" message this file
+    // already uses for the same situation elsewhere (e.g.
+    // loadPosterSessionsDashboardData).
+    if (!conferenceRaw) {
+      return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Conference not found."));
+    }
     const conference = {
       ...conferenceRaw,
       conference_start_date: formatDate(conferenceRaw.conference_start_date),
@@ -6150,6 +6235,10 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
     return res.redirect("/dashboard?message=Meta-Reviewer role not found in your current session for this conference. If a chair has just assigned you, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
   }
 
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
   const assigned_tracks = await pool.query("select * from conference_tracks where lower(meta_reviewer) = lower($1) and conference_id = $2",[req.user.email,conference_id]);
 
   // One row per SUBMISSION (not per review) across all of this meta-reviewer's
@@ -6201,13 +6290,20 @@ app.get("/meta-reviewer/dashboard/:id",checkAuth,async(req,res)=>{
     : { rows: [] };
 
   return res.render("meta-reviewer.ejs",{peer_review: peer_review.rows,assigned_tracks:assigned_tracks.rows});
-
+  } catch (err) {
+    console.error("Error loading meta-reviewer dashboard:", err);
+    return res.redirect("/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading your dashboard."));
+  }
 })
 
 app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async(req,res)=>{
 
   const submission_id = req.params.id;
 
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
   // Authorization: only the meta-reviewer assigned to this submission's track may open this form
   const metaCheck = await pool.query(
     "select s.submission_status from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
@@ -6245,11 +6341,18 @@ app.get("/meta-reviewer/dashboard/recommendation-submission/:id",checkAuth,async
     allowOral: allowedDecisions.allow_oral,
     allowPoster: allowedDecisions.allow_poster,
   });
-
+  } catch (err) {
+    console.error("Error loading meta-reviewer recommendation form:", err);
+    return res.redirect("/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading this submission."));
+  }
 })
 
 app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
 
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
   // Authorization: only the meta-reviewer assigned to this submission's track may submit a decision
   const metaCheck = await pool.query(
     "select s.submission_status, t.track_id from submissions s join conference_tracks t on t.track_id = s.track_id where s.submission_id = $1 and lower(t.meta_reviewer) = lower($2) limit 1",
@@ -6293,10 +6396,17 @@ app.post("/submit-meta-reviewer-decision/:id",checkAuth,async(req,res)=>{
   );
 
   return res.redirect("/dashboard?message=Meta-Reviewer recommendation successfully saved!");
-
+  } catch (err) {
+    console.error("Error submitting meta-reviewer decision:", err);
+    return res.redirect("/dashboard?message=" + encodeURIComponent("An unexpected error occurred while saving your recommendation."));
+  }
 })
 
 app.post("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
   const trackOwner = await pool.query("select conference_id from conference_tracks where track_id = $1", [req.params.id]);
   if (!trackOwner.rows[0] || !(await chairOwnsConference(req.user.email, trackOwner.rows[0].conference_id))) {
     return res.redirect("/chair/dashboard?message=You are not authorized to delete this track.");
@@ -6339,6 +6449,10 @@ app.post("/chair/dashboard/delete-track/:id", checkChairAuth,async(req,res)=>{
   }
 
   return res.redirect("/chair/dashboard?message=Track Deleted Succesfully!");
+  } catch (err) {
+    console.error("Error deleting track:", err);
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred while deleting this subject area."));
+  }
 })
 
 app.post("/mark-presentation-as-complete", checkAuth, async (req, res) => {
@@ -6415,22 +6529,35 @@ app.get("/chair/dashboard/manage-tracks/:id",checkChairAuth, async(req,res)=>{
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
   }
 
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
   const conference = await fetchConference(req.params.id);
   const tracks = await pool.query("select * from conference_tracks where conference_id = $1",[req.params.id]);
-  
+
 
   const groups = await pool.query("select group_id, group_name, allow_oral_decision, allow_poster_decision from conference_groups where conference_id = $1 order by group_name", [req.params.id]);
   return res.render("chair/manage-tracks",{tracks:tracks.rows,groups:groups.rows,conference:conference.rows[0]});
-
-
+  } catch (err) {
+    console.error("Error loading manage-tracks:", err);
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading subject areas."));
+  }
 })
 
 app.post("/send-email-alert", checkChairAuth, async(req,res)=>{
 
-  const data = await pool.query("SELECT email FROM users WHERE email NOT IN ( SELECT primary_author FROM submissions);");
-  console.log(data.rows[0]);
-  return res.sendStatus(204);
-
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of a clean response.
+  try {
+    const data = await pool.query("SELECT email FROM users WHERE email NOT IN ( SELECT primary_author FROM submissions);");
+    console.log(data.rows[0]);
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error in send-email-alert:", err);
+    return res.sendStatus(500);
+  }
 })
 
 
@@ -6519,7 +6646,23 @@ app.post("/chair/dashboard/delete-conference/:id", checkChairAuth,async (req, re
 // URL. Shared by every certificate category below.
 async function generateCertificateAndUpload(templateId, fields, publicId) {
   const canvaPdfUrl = await canva.generateCertificatePdfUrl(templateId, fields);
-  const pdfResponse = await fetch(canvaPdfUrl);
+  // STAB-002 (SERVER_STABILITY_AUDIT_REPORT.md): same reasoning as
+  // canva.js's own API calls - fetch() has no default timeout, so a
+  // Canva download URL that accepts the connection but never responds
+  // previously hung this (and the whole enable-pdf-download/
+  // regenerate-certificate request) indefinitely. A failure here already
+  // surfaces through the existing reservation/FAILED-status mechanism
+  // (see the two callers below), which the chair can retry via
+  // "Regenerate" - no separate retry loop needed for a single download.
+  let pdfResponse;
+  try {
+    pdfResponse = await fetch(canvaPdfUrl, { signal: AbortSignal.timeout(30_000) });
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      throw new Error("Timed out downloading the generated PDF from Canva.");
+    }
+    throw err;
+  }
   if (!pdfResponse.ok) throw new Error(`Could not download the generated PDF from Canva (HTTP ${pdfResponse.status})`);
   const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
   const uploadResult = await uploadBufferToCloudinary(pdfBuffer, {
@@ -6736,6 +6879,10 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
   const conferenceId = req.params.id;
   const counts = { authors: 0, reviewers: 0, sessionChairs: 0, invitedSpeakers: 0 };
   const failures = [];
+  // STAB-004: bounds how many recipients this one request will attempt -
+  // see CERTIFICATE_BATCH_REQUEST_LIMIT's own comment above.
+  let attemptsThisRequest = 0;
+  let limitReached = false;
 
   try {
     const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [conferenceId]);
@@ -6753,6 +6900,8 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     );
 
     for (const submission of eligibleSubmissions.rows) {
+      if (attemptsThisRequest >= CERTIFICATE_BATCH_REQUEST_LIMIT) { limitReached = true; break; }
+      attemptsThisRequest++;
       const outcome = await generateAndEmailAuthorCertificate(conferenceId, conferenceTitle, submission);
       if (outcome === "generated") counts.authors++;
       if (outcome === "failed") failures.push(`submission ${submission.submission_id}`);
@@ -6763,12 +6912,15 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     }
 
     // --- Reviewers and Session Chairs: one certificate per (Subject Area, person) ---
-    if (CANVA_TEMPLATE_IDS.reviewer || CANVA_TEMPLATE_IDS.session_chair) {
+    if (!limitReached && (CANVA_TEMPLATE_IDS.reviewer || CANVA_TEMPLATE_IDS.session_chair)) {
       const tracks = await pool.query("select track_id, track_reviewers, panelists from conference_tracks where conference_id = $1", [conferenceId]);
 
+      outerTrackLoop:
       for (const track of tracks.rows) {
         if (CANVA_TEMPLATE_IDS.reviewer) {
           for (const email of track.track_reviewers || []) {
+            if (attemptsThisRequest >= CERTIFICATE_BATCH_REQUEST_LIMIT) { limitReached = true; break outerTrackLoop; }
+            attemptsThisRequest++;
             const outcome = await generateAndEmailRoleCertificate({
               conferenceId,
               role: "reviewer",
@@ -6785,6 +6937,8 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
         }
         if (CANVA_TEMPLATE_IDS.session_chair) {
           for (const email of track.panelists || []) {
+            if (attemptsThisRequest >= CERTIFICATE_BATCH_REQUEST_LIMIT) { limitReached = true; break outerTrackLoop; }
+            attemptsThisRequest++;
             const outcome = await generateAndEmailRoleCertificate({
               conferenceId,
               role: "session_chair",
@@ -6803,12 +6957,14 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     }
 
     // --- Invited Speakers: one certificate per invited talk submission ---
-    if (CANVA_TEMPLATE_IDS.invited_speaker) {
+    if (!limitReached && CANVA_TEMPLATE_IDS.invited_speaker) {
       const invitedTalks = await pool.query(
         "select paper_id, invitee_email, title from invited_talk_submissions where conference_id = $1",
         [conferenceId]
       );
       for (const talk of invitedTalks.rows) {
+        if (attemptsThisRequest >= CERTIFICATE_BATCH_REQUEST_LIMIT) { limitReached = true; break; }
+        attemptsThisRequest++;
         const outcome = await generateAndEmailRoleCertificate({
           conferenceId,
           role: "invited_speaker",
@@ -6832,7 +6988,15 @@ app.post("/chair/dashboard/enable-pdf-download/:id", checkChairAuth, conferenceO
     if (counts.invitedSpeakers) parts.push(`${counts.invitedSpeakers} invited speaker(s)`);
     const summary = parts.length ? parts.join(", ") : "0 recipients";
     const failureNote = failures.length ? ` (${failures.length} failed - see the status column below for details)` : "";
-    res.redirect(`/chair/dashboard/manage-certificates/${conferenceId}?message=${encodeURIComponent(`Certificates generated for ${summary}${failureNote}.`)}`);
+    // STAB-004: tell the chair there's more to do, rather than silently
+    // stopping partway through with a message that implies the batch is
+    // complete - clicking "Enable PDF Download" again resumes (every
+    // already-GENERATED recipient is skipped, per the reservation logic
+    // noted above), it does not restart from scratch or duplicate anything.
+    const resumeNote = limitReached
+      ? ` This request processed ${attemptsThisRequest} recipient(s) (its per-request limit) - click "Enable PDF Download" again to continue with the rest.`
+      : "";
+    res.redirect(`/chair/dashboard/manage-certificates/${conferenceId}?message=${encodeURIComponent(`Certificates generated for ${summary}${failureNote}.${resumeNote}`)}`);
   } catch (err) {
     console.error("Error enabling PDF download:", err);
     res.redirect(`/chair/dashboard/manage-certificates/${conferenceId}?message=` + encodeURIComponent("An unexpected error occurred: " + err.message));
@@ -6850,42 +7014,50 @@ app.get("/chair/dashboard/manage-certificates/:id", checkChairAuth, async (req, 
   }
 
   const conferenceId = req.params.id;
-  const conferenceResult = await pool.query("select * from conferences where conference_id = $1", [conferenceId]);
-  const conference = conferenceResult.rows[0];
-  if (!conference) {
-    return res.redirect("/chair/dashboard?message=Conference not found.");
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): no local try/catch
+  // previously - a DB error fell through to Express 5's generic error
+  // page instead of this file's usual friendly redirect-with-message.
+  try {
+    const conferenceResult = await pool.query("select * from conferences where conference_id = $1", [conferenceId]);
+    const conference = conferenceResult.rows[0];
+    if (!conference) {
+      return res.redirect("/chair/dashboard?message=Conference not found.");
+    }
+
+    const rowsResult = await pool.query(
+      `select s.submission_id, s.paper_number, s.title, s.submission_status, c.status as certificate_status, c.error_message
+       from submissions s
+       left join certificates c on c.submission_id = s.submission_id
+       where s.conference_id = $1 and s.submission_status in ('Poster Scored', 'Presentation Completed')
+       order by s.paper_number`,
+      [conferenceId]
+    );
+
+    const certificates = rowsResult.rows.map((r) => {
+      const statusLabel =
+        r.certificate_status === "GENERATED" ? "Generated" :
+        r.certificate_status === "GENERATING" ? "Generating…" :
+        r.certificate_status === "FAILED" ? `Failed: ${r.error_message || "Unknown error"}` :
+        "Not Yet Generated";
+      return {
+        submissionId: r.submission_id,
+        paperId: formatPaperId(r.paper_number) || "—",
+        title: r.title,
+        statusLabel,
+        canRegenerate: r.certificate_status === "FAILED",
+      };
+    });
+
+    res.render("chair/manage-certificates.ejs", {
+      user: req.user,
+      conference,
+      certificates,
+      message: req.query.message || null,
+    });
+  } catch (err) {
+    console.error("Error loading manage-certificates:", err);
+    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("An unexpected error occurred while loading certificates."));
   }
-
-  const rowsResult = await pool.query(
-    `select s.submission_id, s.paper_number, s.title, s.submission_status, c.status as certificate_status, c.error_message
-     from submissions s
-     left join certificates c on c.submission_id = s.submission_id
-     where s.conference_id = $1 and s.submission_status in ('Poster Scored', 'Presentation Completed')
-     order by s.paper_number`,
-    [conferenceId]
-  );
-
-  const certificates = rowsResult.rows.map((r) => {
-    const statusLabel =
-      r.certificate_status === "GENERATED" ? "Generated" :
-      r.certificate_status === "GENERATING" ? "Generating…" :
-      r.certificate_status === "FAILED" ? `Failed: ${r.error_message || "Unknown error"}` :
-      "Not Yet Generated";
-    return {
-      submissionId: r.submission_id,
-      paperId: formatPaperId(r.paper_number) || "—",
-      title: r.title,
-      statusLabel,
-      canRegenerate: r.certificate_status === "FAILED",
-    };
-  });
-
-  res.render("chair/manage-certificates.ejs", {
-    user: req.user,
-    conference,
-    certificates,
-    message: req.query.message || null,
-  });
 });
 
 // Re-runs certificate generation (Canva + Cloudinary + the author email)
@@ -6898,22 +7070,30 @@ app.post("/chair/dashboard/regenerate-certificate/:id", checkChairAuth, conferen
   // which here is the submission_id (not a conference_id) - that's fine,
   // it still rate-limits repeated regenerate clicks per chair account,
   // just scoped per-submission rather than per-conference.
-  const submissionResult = await pool.query(
-    "select submission_id, conference_id, title, primary_author, co_authors, submission_status from submissions where submission_id = $1",
-    [req.params.id]
-  );
-  const submission = submissionResult.rows[0];
-  if (!submission) {
-    return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Submission not found."));
-  }
-  if (!(await chairOwnsConference(req.user.email, submission.conference_id))) {
-    return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
-  }
-  if (!["Poster Scored", "Presentation Completed"].includes(submission.submission_status)) {
-    return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=` + encodeURIComponent("This submission is not yet eligible for a certificate."));
-  }
-
+  //
+  // STAB-007 (SERVER_STABILITY_AUDIT_REPORT.md): the initial submission
+  // lookup below used to sit outside this try block entirely - a DB error
+  // there fell through to Express 5's generic error page instead of this
+  // route's own friendly redirect. `submission` is declared outside the
+  // try so the catch block below can redirect to the right place whether
+  // the failure happened before or after it was loaded.
+  let submission;
   try {
+    const submissionResult = await pool.query(
+      "select submission_id, conference_id, title, primary_author, co_authors, submission_status from submissions where submission_id = $1",
+      [req.params.id]
+    );
+    submission = submissionResult.rows[0];
+    if (!submission) {
+      return res.redirect("/chair/dashboard?message=" + encodeURIComponent("Submission not found."));
+    }
+    if (!(await chairOwnsConference(req.user.email, submission.conference_id))) {
+      return res.redirect("/chair/dashboard?message=You are not authorized to manage this conference.");
+    }
+    if (!["Poster Scored", "Presentation Completed"].includes(submission.submission_status)) {
+      return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=` + encodeURIComponent("This submission is not yet eligible for a certificate."));
+    }
+
     const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [submission.conference_id]);
     const conferenceTitle = conferenceResult.rows[0]?.title || "";
 
@@ -6925,7 +7105,10 @@ app.post("/chair/dashboard/regenerate-certificate/:id", checkChairAuth, conferen
     return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=${encodeURIComponent(message)}`);
   } catch (err) {
     console.error("Error regenerating certificate:", err);
-    return res.redirect(`/chair/dashboard/manage-certificates/${submission.conference_id}?message=` + encodeURIComponent("An unexpected error occurred: " + err.message));
+    const fallback = submission?.conference_id
+      ? `/chair/dashboard/manage-certificates/${submission.conference_id}`
+      : "/chair/dashboard";
+    return res.redirect(`${fallback}?message=` + encodeURIComponent("An unexpected error occurred: " + err.message));
   }
 });
 
@@ -9661,6 +9844,29 @@ app.use((err, req, res, next) => {
 // itself and close that one in `after`. Unset in every other environment,
 // so normal/dev/production startup is unchanged.
 if (process.env.VERCEL !== "1" && process.env.SKIP_AUTOLISTEN !== "1") {
+  // STAB-005 (SERVER_STABILITY_AUDIT_REPORT.md): validateRequiredEnv()
+  // above only checks that DB_* env vars are PRESENT, never that they
+  // actually work - a deploy with a wrong DB_PASSWORD or an unreachable
+  // DB_HOST previously still bound the port and logged "Server running",
+  // while every DB-touching route (nearly all of them) failed per-request
+  // behind a generic error message. A naive health check (is the port
+  // listening?) would report this as healthy. One read-only query, bound
+  // by the pool's own existing connectionTimeoutMillis (config/db.js) -
+  // no extra timeout/retry logic needed, and no retry-forever risk since
+  // this runs exactly once at startup, not in a loop. Mirrors
+  // validateRequiredEnv()'s own production-only fail-fast philosophy;
+  // Redis stays optional and deliberately isn't checked here.
+  try {
+    await pool.query("select 1");
+  } catch (err) {
+    console.error(`FATAL: could not connect to the database at startup (${err.code || ""} ${err.message}).`);
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1);
+    } else {
+      console.warn("Continuing to start in non-production mode despite the failed database connectivity check.");
+    }
+  }
+
   const server = app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });

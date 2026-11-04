@@ -37,6 +37,28 @@ const pool = new Pool({
   connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT_MS) || 5000,
 });
 
+// STAB-001 (SERVER_STABILITY_AUDIT_REPORT.md): `pg.Pool` is an
+// EventEmitter and emits 'error' when a client sitting IDLE in the pool
+// (not actively running a query) hits a connection-level problem -
+// Postgres restarting, a network blip severing an idle connection, an
+// admin/failover forcibly closing one. That's different from a query-time
+// error, which already rejects that specific pool.query() call and is
+// caught at its own call site. With no listener here, Node's default
+// behavior for an EventEmitter's unhandled 'error' event is to throw it
+// as an uncaught exception - which this app's own last-resort
+// process.on('uncaughtException') handler then treats as "state may be
+// corrupted" and exits the ENTIRE process, dropping every concurrent
+// request for an event that affected exactly one idle connection and
+// never needed to be fatal. The pool itself already removes the bad
+// client and creates a fresh one on the next query - this handler's only
+// job is to stop that from reaching the process-level handler at all.
+// Deliberately logs only the message/code, not the full error object (it
+// can carry connection-string-shaped detail on some failure types) and
+// never logs the pool's own config (user/host/database/password).
+pool.on("error", (err) => {
+  console.error("Unexpected error on an idle Postgres client:", err?.code || "", err?.message || err);
+});
+
 // REL-04 (security-audit/PRODUCTION_RELIABILITY.md, "R4"): a brief
 // Postgres restart or network blip previously failed every in-flight
 // query outright, with no retry at any level. Wrapping pool.query() here
