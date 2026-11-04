@@ -76,12 +76,15 @@ test("full registration flow: form renders, submits, saves, and then disables it
   assert.ok(formHtml.includes('name="mode_of_presentation"'));
   assert.ok(formHtml.includes('name="attending_offline"'));
   assert.ok(formHtml.includes('name="link_to_video"'));
+  assert.ok(formHtml.includes('name="ppt_link"'));
+  assert.ok(formHtml.includes("Mandatory for Oral Presentation"));
   assert.ok(formHtml.includes("Are you sure you want to submit the entered details?"), "confirmation prompt text");
 
   const submitRes = await post(`/submission/register/${submissionId}`, {
     mode_of_presentation: "Offline",
     attending_offline: "2",
     link_to_video: "https://drive.google.com/file/d/abc123",
+    ppt_link: "https://drive.google.com/file/d/ppt123",
   });
   assert.equal(submitRes.status, 302);
   assert.equal(loc(submitRes), `/conference/${conferenceId}?message=Registration submitted successfully!`);
@@ -90,6 +93,7 @@ test("full registration flow: form renders, submits, saves, and then disables it
   assert.equal(row.mode_of_presentation, "Offline");
   assert.equal(row.attending_offline, 2);
   assert.equal(row.link_to_video, "https://drive.google.com/file/d/abc123");
+  assert.equal(row.ppt_link, "https://drive.google.com/file/d/ppt123");
 
   // The route is now disabled for this submission - both GET and POST.
   const getAfter = await get(`/submission/register/${submissionId}`);
@@ -99,6 +103,7 @@ test("full registration flow: form renders, submits, saves, and then disables it
     mode_of_presentation: "Online",
     attending_offline: "0",
     link_to_video: "https://drive.google.com/file/d/xyz",
+    ppt_link: "https://drive.google.com/file/d/ppt-xyz",
   });
   assert.match(loc(postAfter), /already been registered/);
 
@@ -111,6 +116,35 @@ test("full registration flow: form renders, submits, saves, and then disables it
   assert.ok(confHtml.includes("Mode of Presentation:</strong> Offline"));
   assert.ok(confHtml.includes("Number of Authors attending Offline:</strong> 2"));
   assert.ok(confHtml.includes("https://drive.google.com/file/d/abc123"));
+  assert.ok(confHtml.includes("https://drive.google.com/file/d/ppt123"), "the PPT link should also be shown");
+});
+
+test("POST rejects registering an Oral Presentation submission with no PPT link, without writing a row", async () => {
+  const { submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Oral Presentation");
+
+  const res = await post(`/submission/register/${submissionId}`, {
+    mode_of_presentation: "Online",
+    attending_offline: "0",
+    link_to_video: "https://drive.google.com/file/d/no-ppt",
+  });
+  assert.match(loc(res), /PPT.*mandatory for Oral Presentation/);
+
+  const row = await pool.query("select 1 from registration where submission_id = $1", [submissionId]);
+  assert.equal(row.rows.length, 0);
+});
+
+test("a Poster Presentation submission can register with no PPT link", async () => {
+  const { submissionId } = await createConferenceWithSubmission("Submitted Final Camera Ready Paper for Poster Presentation");
+
+  const res = await post(`/submission/register/${submissionId}`, {
+    mode_of_presentation: "Online",
+    attending_offline: "0",
+    link_to_video: "https://drive.google.com/file/d/no-ppt-poster",
+  });
+  assert.doesNotMatch(loc(res), /PPT/);
+
+  const row = await pool.query("select ppt_link from registration where submission_id = $1", [submissionId]);
+  assert.equal(row.rows[0].ppt_link, null);
 });
 
 test("My Submissions shows the Link for Online Attendees for online poster/oral registrations (from poster_session/conference_tracks respectively), not for offline ones", async () => {
@@ -160,6 +194,7 @@ test("My Submissions shows the Link for Online Attendees for online poster/oral 
     mode_of_presentation: "Online",
     attending_offline: "0",
     link_to_video: "https://drive.google.com/file/d/online-oral",
+    ppt_link: "https://drive.google.com/file/d/ppt-online-oral",
   });
   const oralHtml = await (await get(`/conference/${onlineOral.conferenceId}`)).text();
   assert.ok(oralHtml.includes("Link for Online Attendees"), "an online oral registration must show its subject area's vc_link");
@@ -176,6 +211,7 @@ test("My Submissions shows the Link for Online Attendees for online poster/oral 
     mode_of_presentation: "Offline",
     attending_offline: "2",
     link_to_video: "https://drive.google.com/file/d/offline-oral",
+    ppt_link: "https://drive.google.com/file/d/ppt-offline-oral",
   });
   const offlineOralHtml = await (await get(`/conference/${offlineOral.conferenceId}`)).text();
   assert.ok(!offlineOralHtml.includes("Link for Online Attendees"), "an offline oral registration must not show the vc_link even though the track has one");

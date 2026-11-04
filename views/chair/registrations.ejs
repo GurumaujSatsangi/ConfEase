@@ -109,7 +109,10 @@
                             <div class="accordion-body bg-white">
                               <p class="mb-1"><strong>Mode of Presentation:</strong> <%= row.modeOfPresentation %></p>
                               <p class="mb-1"><strong>Number of Authors Attending Offline:</strong> <%= row.attendingOffline %></p>
-                              <p class="mb-0"><strong>Link to Video:</strong> <a href="<%= row.linkToVideo %>" target="_blank" rel="noopener"><%= row.linkToVideo %></a></p>
+                              <p class="<%= row.pptLink ? 'mb-1' : 'mb-0' %>"><strong>Link to Video:</strong> <a href="<%= row.linkToVideo %>" target="_blank" rel="noopener"><%= row.linkToVideo %></a></p>
+                              <% if (row.pptLink) { %>
+                              <p class="mb-0"><strong>Link to PPT:</strong> <a href="<%= row.pptLink %>" target="_blank" rel="noopener"><%= row.pptLink %></a></p>
+                              <% } %>
                             </div>
                           </div>
                         </div>

@@ -254,7 +254,10 @@
                                   <div class="accordion-body">
                                     <p class="mb-1"><strong>Mode of Presentation:</strong> <%= submission.registration.mode_of_presentation %></p>
                                     <p class="mb-1"><strong>Number of Authors attending Offline:</strong> <%= submission.registration.attending_offline %></p>
-                                    <p class="mb-0"><strong>Link to Video:</strong> <a href="<%= submission.registration.link_to_video %>" target="_blank" rel="noopener"><%= submission.registration.link_to_video %></a></p>
+                                    <p class="<%= submission.registration.ppt_link ? 'mb-1' : 'mb-0' %>"><strong>Link to Video:</strong> <a href="<%= submission.registration.link_to_video %>" target="_blank" rel="noopener"><%= submission.registration.link_to_video %></a></p>
+                                    <% if (submission.registration.ppt_link) { %>
+                                    <p class="mb-0"><strong>Link to PPT:</strong> <a href="<%= submission.registration.ppt_link %>" target="_blank" rel="noopener"><%= submission.registration.ppt_link %></a></p>
+                                    <% } %>
                                   </div>
                                 </div>
                               </div>

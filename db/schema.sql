@@ -611,7 +611,8 @@ CREATE TABLE public.registration (
     submission_id uuid NOT NULL,
     mode_of_presentation text,
     link_to_video text,
-    attending_offline integer
+    attending_offline integer,
+    ppt_link text
 );
 
 
