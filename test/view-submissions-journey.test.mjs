@@ -1,10 +1,14 @@
 // Regression tests for two related chair/dashboard/view-submissions changes:
-// 1. The "Review Details" modal now shows a six-stage journey timeline
+// 1. The "Review Details" modal shows a six-stage journey timeline
 //    (Submitted -> Desk Review -> Peer Review -> Meta-Reviewer Review ->
 //    Decision Published -> Submitted Final Paper) plus peer-review,
-//    re-review, and meta-reviewer score/remarks tables - gated by the same
-//    pre-existing "has this been published yet" condition the page already
-//    used for the old accordion (unchanged).
+//    re-review, and meta-reviewer score/remarks tables - visible to the
+//    chair as soon as a reviewer/meta-reviewer submits, regardless of
+//    whether /publish/review-results has run yet (that gate used to hide
+//    this entire modal; it was removed because the modal is chair-only -
+//    see change-submission-track.test.mjs's sibling,
+//    unpublished-review-visibility.test.mjs, for the "author never sees
+//    this" half of that guarantee).
 // 2. Helmet's own default CSP directive (script-src-attr 'none') was
 //    silently overriding this app's documented 'unsafe-inline' intent for
 //    inline onclick/onsubmit handlers, breaking them site-wide (including
@@ -105,7 +109,7 @@ after(async () => {
   setImmediate(() => process.exit(0));
 });
 
-test("view-submissions: a pending submission's journey marks only 'Submitted' reached, and review details stay hidden", async () => {
+test("view-submissions: a pending submission's journey marks only 'Submitted' reached, and shows 'No reviews yet' (nothing has been submitted for it)", async () => {
   const res = await get(`/chair/dashboard/view-submissions/${conferenceId}`);
   assert.equal(res.status, 200);
   const html = await res.text();
@@ -117,7 +121,7 @@ test("view-submissions: a pending submission's journey marks only 'Submitted' re
   assert.ok(reviewModalHtml, "the review modal for the pending submission must be present");
 
   assert.match(reviewModalHtml, /journey-step current">[\s\S]*?Submitted</, "the 'Submitted' stage must be the current one");
-  assert.match(reviewModalHtml, /Review details are hidden until results are published/, "a still-pending submission must not reveal review details yet");
+  assert.match(reviewModalHtml, /No reviews yet/, "a submission with no reviews/decision at all shows the empty state, not a hidden-until-published message");
 });
 
 test("view-submissions: a desk-rejected submission's journey is a dead end after Desk Review", async () => {
@@ -143,7 +147,7 @@ test("view-submissions: a decided, published submission shows its peer review an
   assert.match(reviewModalHtml, /journey-step current">[\s\S]*?Decision Published</, "a decided-but-not-yet-FCRP submission's current stage must be Decision Published");
   assert.match(reviewModalHtml, />Peer Review</, "the peer review table must be shown once published");
   assert.match(reviewModalHtml, /Well written\./, "the reviewer's remarks must appear");
-  assert.match(reviewModalHtml, />Meta-Reviewer Decision</, "the meta-reviewer's final decision must be shown once published");
+  assert.match(reviewModalHtml, />\s*Meta-Reviewer Decision/, "the meta-reviewer's final decision must be shown once published");
   assert.match(reviewModalHtml, /Strong paper, accept\./, "the meta-reviewer's remarks must appear");
 });
 

@@ -8542,14 +8542,21 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
       }
     }
 
-    // Desk review decision, re-review (revised_submissions), and whether a
-    // meta-reviewer recommendation is sitting unpublished - all used to
+    // Desk review decision, re-review (revised_submissions), and any
+    // meta-reviewer recommendation still sitting unpublished - all used to
     // build each submission's "Review Details" modal (journey timeline +
-    // score/remarks tables) below.
+    // score/remarks tables) below. This modal is chair-only (never reached
+    // by an author - see views/conference.ejs, which never queries or
+    // renders peer_review/revised_submissions/meta_reviewer_decision), so
+    // showing it here as soon as a reviewer/meta-reviewer saves their own
+    // submission does not expose anything to the author - the author only
+    // ever learns a decision once /publish/review-results runs (the email
+    // it sends, and submissions.submission_status, which nothing
+    // author-facing reads before that point).
     const allSubmissionIds = submissionsWithTracks.map((s) => s.submission_id);
     let deskReviewBySubmission = {};
     let revisedReviewsBySubmission = {};
-    let pendingMetaDecisionIds = new Set();
+    let pendingMetaBySubmission = {};
 
     if (allSubmissionIds.length > 0) {
       const [deskReviewResult, revisedReviewsResult, pendingMetaResult] = await Promise.all([
@@ -8565,7 +8572,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
           [allSubmissionIds]
         ),
         pool.query(
-          `SELECT submission_id FROM meta_reviewer_decision WHERE submission_id = ANY($1);`,
+          `SELECT submission_id, status, remarks FROM meta_reviewer_decision WHERE submission_id = ANY($1);`,
           [allSubmissionIds]
         ),
       ]);
@@ -8580,19 +8587,32 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
           remarks: r.remarks,
         });
       });
-      pendingMetaResult.rows.forEach((d) => pendingMetaDecisionIds.add(d.submission_id));
+      pendingMetaResult.rows.forEach((d) => (pendingMetaBySubmission[d.submission_id] = d));
     }
 
-    // Same gate the "Review Details" column has always used - unchanged -
-    // now also controls the re-review table and the meta-reviewer's final
-    // score/remarks inside the new modal, so nothing is revealed any
-    // earlier than it already was.
     for (const s of submissionsWithTracks) {
       s.deskReview = deskReviewBySubmission[s.submission_id] || null;
       s.revisedReviews = revisedReviewsBySubmission[s.submission_id] || [];
-      s.canShowReviewDetails = !['Submitted for Review', 'Reviewed'].includes(s.submission_status);
-      s.journey = buildSubmissionJourney(s.submission_status, pendingMetaDecisionIds.has(s.submission_id));
-      s.metaDecisionLabel = decisionLabelForStatus(s.submission_status);
+      s.journey = buildSubmissionJourney(s.submission_status, !!pendingMetaBySubmission[s.submission_id]);
+
+      // The meta-reviewer's decision lives in one of two places depending on
+      // whether /publish/review-results has run yet for it: still in
+      // meta_reviewer_decision (unpublished - the chair-only, not-yet-
+      // visible-to-the-author case this modal exists for) or already copied
+      // onto submissions.status/remarks (published). Prefer the unpublished
+      // one when both would otherwise apply, since a later publish always
+      // overwrites submissions.remarks with whatever meta_reviewer_decision
+      // currently holds - so that row, while it still exists, is the
+      // up-to-date value.
+      const pendingMeta = pendingMetaBySubmission[s.submission_id];
+      if (pendingMeta) {
+        s.metaDecisionLabel = decisionLabelForStatus(pendingMeta.status);
+        s.remarks = pendingMeta.remarks;
+        s.metaDecisionPublished = false;
+      } else {
+        s.metaDecisionLabel = decisionLabelForStatus(s.submission_status);
+        s.metaDecisionPublished = !!s.remarks;
+      }
     }
 
     const uniqueStatuses = [...new Set(submissions.map(sub => sub.submission_status))];

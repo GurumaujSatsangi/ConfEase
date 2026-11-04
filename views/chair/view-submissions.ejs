@@ -318,65 +318,68 @@
 
                       <hr>
 
-                      <% if (!submission.canShowReviewDetails) { %>
-                        <div class="text-center text-muted my-3">
-                          <i class="bi bi-eye-slash-fill"></i> Review details are hidden until results are published.
-                        </div>
-                      <% } else { %>
-                        <% if (submission.reviews && submission.reviews.length > 0) { %>
-                          <h6>Peer Review</h6>
-                          <div class="table-responsive mb-3">
-                            <table class="table table-sm table-bordered align-middle">
-                              <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
-                              <tbody>
-                                <% submission.reviews.forEach(function(r) { %>
-                                  <tr>
-                                    <td><%= r.name || 'Unknown' %></td>
-                                    <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
-                                    <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
-                                  </tr>
-                                <% }); %>
-                              </tbody>
-                            </table>
-                          </div>
-                        <% } %>
+                      <p class="small text-muted text-center">
+                        <i class="bi bi-eye-fill"></i> Visible to you as soon as it's submitted - not shown to the author until results are published.
+                      </p>
 
-                        <% if (submission.revisedReviews && submission.revisedReviews.length > 0) { %>
-                          <h6>Re-Review (Revised Paper)</h6>
-                          <div class="table-responsive mb-3">
-                            <table class="table table-sm table-bordered align-middle">
-                              <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
-                              <tbody>
-                                <% submission.revisedReviews.forEach(function(r) { %>
-                                  <tr>
-                                    <td><%= r.name || 'Unknown' %></td>
-                                    <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
-                                    <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
-                                  </tr>
-                                <% }); %>
-                              </tbody>
-                            </table>
-                          </div>
-                        <% } %>
-
-                        <% if (submission.remarks) { %>
-                          <h6>Meta-Reviewer Decision</h6>
-                          <div class="table-responsive mb-3">
-                            <table class="table table-sm table-bordered align-middle">
-                              <thead class="table-light"><tr><th style="width:30%;">Decision</th><th>Remarks</th></tr></thead>
-                              <tbody>
+                      <% if (submission.reviews && submission.reviews.length > 0) { %>
+                        <h6>Peer Review</h6>
+                        <div class="table-responsive mb-3">
+                          <table class="table table-sm table-bordered align-middle">
+                            <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
+                            <tbody>
+                              <% submission.reviews.forEach(function(r) { %>
                                 <tr>
-                                  <td><%= submission.metaDecisionLabel %></td>
-                                  <td><%- sanitizeDescription(submission.remarks) %></td>
+                                  <td><%= r.name || 'Unknown' %></td>
+                                  <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
+                                  <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
                                 </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        <% } %>
+                              <% }); %>
+                            </tbody>
+                          </table>
+                        </div>
+                      <% } %>
 
-                        <% if ((!submission.reviews || submission.reviews.length === 0) && (!submission.revisedReviews || submission.revisedReviews.length === 0) && !submission.remarks) { %>
-                          <p class="text-muted text-center">No reviews yet.</p>
-                        <% } %>
+                      <% if (submission.revisedReviews && submission.revisedReviews.length > 0) { %>
+                        <h6>Re-Review (Revised Paper)</h6>
+                        <div class="table-responsive mb-3">
+                          <table class="table table-sm table-bordered align-middle">
+                            <thead class="table-light"><tr><th style="width:25%;">Reviewer</th><th style="width:15%;">Score</th><th>Remarks</th></tr></thead>
+                            <tbody>
+                              <% submission.revisedReviews.forEach(function(r) { %>
+                                <tr>
+                                  <td><%= r.name || 'Unknown' %></td>
+                                  <td><%= r.mean_score != null ? r.mean_score : '—' %></td>
+                                  <td><% if (r.remarks) { %><%- sanitizeDescription(r.remarks) %><% } else { %><em class="text-muted">No remarks provided.</em><% } %></td>
+                                </tr>
+                              <% }); %>
+                            </tbody>
+                          </table>
+                        </div>
+                      <% } %>
+
+                      <% if (submission.remarks) { %>
+                        <h6>
+                          Meta-Reviewer Decision
+                          <% if (!submission.metaDecisionPublished) { %>
+                            <span class="badge bg-warning text-dark">Pending Publication</span>
+                          <% } %>
+                        </h6>
+                        <div class="table-responsive mb-3">
+                          <table class="table table-sm table-bordered align-middle">
+                            <thead class="table-light"><tr><th style="width:30%;">Decision</th><th>Remarks</th></tr></thead>
+                            <tbody>
+                              <tr>
+                                <td><%= submission.metaDecisionLabel %></td>
+                                <td><%- sanitizeDescription(submission.remarks) %></td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      <% } %>
+
+                      <% if ((!submission.reviews || submission.reviews.length === 0) && (!submission.revisedReviews || submission.revisedReviews.length === 0) && !submission.remarks) { %>
+                        <p class="text-muted text-center">No reviews yet.</p>
                       <% } %>
                     </div>
                     <div class="modal-footer">
