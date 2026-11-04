@@ -7934,7 +7934,7 @@ app.post("/submission/register/:id", checkAuth, async (req, res) => {
     const submission = await loadRegistrationEligibleSubmission(req, res);
     if (!submission) return;
 
-    const { mode_of_presentation, attending_offline, link_to_video } = req.body;
+    const { mode_of_presentation, attending_offline, link_to_video, ppt_link } = req.body;
 
     if (!["Online", "Offline"].includes(mode_of_presentation)) {
       return res.redirect(`/submission/register/${req.params.id}?message=Please select a valid mode of presentation.`);
@@ -7947,11 +7947,18 @@ app.post("/submission/register/:id", checkAuth, async (req, res) => {
     if (!videoLink) {
       return res.redirect(`/submission/register/${req.params.id}?message=Please provide the link to your video.`);
     }
+    const pptLink = String(ppt_link || "").trim();
+    // Mandatory for Oral Presentation - advisory only (not a DB constraint,
+    // matching link_to_video's own nullable column) so this is the actual
+    // enforcement, not just the form's notice text.
+    if (submission.submission_status === "Submitted Final Camera Ready Paper for Oral Presentation" && !pptLink) {
+      return res.redirect(`/submission/register/${req.params.id}?message=Please provide the link to your PPT - it is mandatory for Oral Presentation.`);
+    }
 
     try {
       await pool.query(
-        "insert into registration (conference_id, submission_id, mode_of_presentation, link_to_video, attending_offline) values ($1,$2,$3,$4,$5)",
-        [submission.conference_id, submission.submission_id, mode_of_presentation, videoLink, attendingOfflineCount]
+        "insert into registration (conference_id, submission_id, mode_of_presentation, link_to_video, attending_offline, ppt_link) values ($1,$2,$3,$4,$5,$6)",
+        [submission.conference_id, submission.submission_id, mode_of_presentation, videoLink, attendingOfflineCount, pptLink || null]
       );
     } catch (insertErr) {
       if (insertErr.code === "23505") {
@@ -8428,9 +8435,15 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
     );
     const submissions = submissionsResult.rows;
 
-    // Fetch tracks
+    // Fetch tracks (with their Track's group_name, for the "Track: Subject
+    // Area" label used both in the filter dropdown and the chair's
+    // "Change Track" modal below - same label format as the author-facing
+    // submission form).
     const tracksResult = await pool.query(
-      `SELECT * FROM conference_tracks WHERE conference_id = $1;`,
+      `SELECT t.*, g.group_name FROM conference_tracks t
+       LEFT JOIN conference_groups g ON g.group_id = t.group_id
+       WHERE t.conference_id = $1
+       ORDER BY g.group_name NULLS LAST, t.track_name;`,
       [req.params.id]
     );
     const tracks = tracksResult.rows.map(track => ({
@@ -8672,7 +8685,7 @@ async function loadRegistrationsDashboardData(conferenceId) {
   // list (still registered, just further along) rather than disappear.
   const submissionsResult = await pool.query(
     `select s.submission_id, s.title, s.primary_author, s.co_authors, s.paper_number, s.submission_status,
-            r.mode_of_presentation, r.link_to_video, r.attending_offline
+            r.mode_of_presentation, r.link_to_video, r.attending_offline, r.ppt_link
      from submissions s
      left join registration r on r.submission_id = s.submission_id
      where s.conference_id = $1 and s.submission_status = ANY($2)
@@ -8700,6 +8713,7 @@ async function loadRegistrationsDashboardData(conferenceId) {
     modeOfPresentation: s.mode_of_presentation,
     linkToVideo: s.link_to_video,
     attendingOffline: s.attending_offline,
+    pptLink: s.ppt_link,
   }));
 
   return {
@@ -8867,6 +8881,45 @@ app.post('/chair/dashboard/delete-submission/:id', checkChairAuth, async (req, r
   } finally {
     deleteClient.release();
   }
+});
+
+// Lets a chair move a submission to a different Subject Area/Track of the
+// same conference (e.g. correcting an author's mistaken selection). This
+// only ever updates submissions.track_id - every reviewer/re-review/
+// meta-reviewer rule elsewhere (isAuthorizedReviewerForSubmission,
+// getAllowedDecisionsForTrack, allReviewersSubmitted, etc.) always looks
+// up the submission's CURRENT track_id at query time rather than a
+// snapshot taken at submission time, so they automatically follow the
+// new Track/Subject Area without any further change here.
+app.post("/chair/dashboard/change-submission-track/:id", checkChairAuth, async (req, res) => {
+  const submissionId = req.params.id;
+  const { track_id } = req.body;
+
+  const submission = await pool.query(
+    "select conference_id, primary_author, co_authors from submissions where submission_id = $1",
+    [submissionId]
+  );
+  if (!submission.rows[0] || !(await chairOwnsConference(req.user.email, submission.rows[0].conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this submission.");
+  }
+  const conferenceId = submission.rows[0].conference_id;
+
+  const trackOwned = await pool.query(
+    "select 1 from conference_tracks where track_id = $1 and conference_id = $2",
+    [track_id, conferenceId]
+  );
+  if (!trackOwned.rows[0]) {
+    return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Invalid Subject Area selected.`);
+  }
+
+  await pool.query("update submissions set track_id = $1 where submission_id = $2", [track_id, submissionId]);
+
+  await invalidateConferenceSubmissionCache(
+    [submission.rows[0].primary_author, ...(submission.rows[0].co_authors || [])],
+    conferenceId
+  );
+
+  return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Subject Area updated successfully.`);
 });
 
 

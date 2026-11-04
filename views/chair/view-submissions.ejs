@@ -138,6 +138,7 @@
                     <th style="min-width:200px;">Co-Authors</th>
                     <th style="min-width:120px;">Status</th>
                     <th style="min-width:160px;">Review Details</th>
+                    <th style="min-width:150px;">Change Track/Subject Area</th>
                     <th style="min-width:150px;">Actions</th>
                   </tr>
                 </thead>
@@ -180,6 +181,12 @@
                       <td class="text-center">
                         <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#reviewModal-<%= modalSuffix %>">
                           <i class="bi bi-clipboard-data"></i> Review Details
+                        </button>
+                      </td>
+
+                      <td class="text-center">
+                        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#changeTrackModal-<%= modalSuffix %>">
+                          <i class="bi bi-arrow-left-right"></i> Change
                         </button>
                       </td>
 
@@ -243,6 +250,42 @@
                       </a>
                       <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Modal: Change Track/Subject Area -->
+              <div class="modal fade" id="changeTrackModal-<%= modalSuffix %>" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <form method="post" action="/chair/dashboard/change-submission-track/<%= submission.submission_id %>">
+                      <div class="modal-header">
+                        <h5 class="modal-title">Change Track/Subject Area - Paper <%= paperId %></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <% if (tracks && tracks.length > 0) { %>
+                          <% tracks.forEach(function(t) { %>
+                            <div class="form-check mb-2">
+                              <input class="form-check-input" type="radio" name="track_id"
+                                     id="track-<%= modalSuffix %>-<%= t.track_id %>"
+                                     value="<%= t.track_id %>"
+                                     <%= t.track_id === submission.track_id ? 'checked' : '' %>
+                                     required>
+                              <label class="form-check-label" for="track-<%= modalSuffix %>-<%= t.track_id %>">
+                                <%= t.group_name ? t.group_name + ': ' + t.track_name : t.track_name %>
+                              </label>
+                            </div>
+                          <% }); %>
+                        <% } else { %>
+                          <p class="text-muted">No subject areas available.</p>
+                        <% } %>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               </div>
