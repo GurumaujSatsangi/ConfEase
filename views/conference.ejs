@@ -108,6 +108,36 @@
         <button type="button" class="btn btn-warning btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle"></i>
 </button>
 
+<button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#exampleModal">
+  Downloads
+</button>
+
+<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">Downloads</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <ul>
+
+          <li><a href="/IEEE_TEMPLATE.doc">IEEE Paper Template (Two Column Layout) [.doc]</a></li>
+          <li><a href="/SPRINGER_TEMPLATE.docx">Springer Paper Template (Single Column Layout) [.docx]</a></li>
+          <li><a href="/OP_Template.pptx">Oral Presentation PPT Template [.pptx]</a></li>
+
+        </ul>
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <% if(isInvitee) { %>
 <div class="modal fade" id="MySubmissions2" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl">
