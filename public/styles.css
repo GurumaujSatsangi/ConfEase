@@ -786,6 +786,12 @@ table td, table th {
   }
 }
 
+
+.tooltip-inner {
+    text-align: justify;
+    max-width: 350px;
+}
+
 /* Print styles */
 @media print {
   .navbar, .btn, .accordion-button {
