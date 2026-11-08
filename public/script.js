@@ -197,3 +197,7 @@ function togglePasswordVisibility(inputId, button) {
   }
   button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
 }
+
+
+const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
