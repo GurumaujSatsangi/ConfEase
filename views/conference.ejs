@@ -384,25 +384,26 @@
         <div class="table-responsive">
         <table class="table">
 
-            <tr>
-                <th>FULL PAPER SUBMISSION</th>
-                <th>ACCEPTANCE NOTIFICATION</th>
-                <th>FINAL CAMERA READY PAPER SUBMISSION</th>
-                <th>REGISTRATION </th> <p class="muted">
-    Registration details
-    <i class="bi bi-info-circle-fill text-primary ms-1"
-       data-bs-toggle="tooltip"
-       data-bs-placement="top"
-       data-bs-html="true"
-       title="The Registration Link will be enabled only after the Primary Author has submitted the Final Camera-Ready Paper.<br><br>
-       The registration form must be completed by the Primary Author and requires the following details:<br>
-       &bull; Mode of presentation (Oral/Poster, as applicable).<br>
-       &bull; Link to a video explaining the research paper.<br>
-       &bull; Number of authors attending the conference offline.<br>
-       &bull; Final presentation in PPTX format, to be used during the conference.">
-    </i>
-</p>
-            </tr>
+           <tr>
+    <th>FULL PAPER SUBMISSION</th>
+    <th>ACCEPTANCE NOTIFICATION</th>
+    <th>FINAL CAMERA READY PAPER SUBMISSION</th>
+    <th>
+        REGISTRATION
+        <i class="bi bi-info-circle-fill text-primary ms-1"
+           style="cursor: pointer;"
+           data-bs-toggle="tooltip"
+           data-bs-placement="top"
+           data-bs-html="true"
+           title="The Registration Link will be enabled only after the Primary Author has submitted the Final Camera-Ready Paper.<br><br>
+           The registration form must be completed by the Primary Author only and requires the following details:<br>
+           &bull; Preferred mode of presentation.<br>
+           &bull; Link to a video explaining the research paper.<br>
+           &bull; Number of authors attending the conference in person.<br>
+           &bull; Final presentation in PPTX format, to be used during the conference.">
+        </i>
+    </th>
+</tr>
             <tr>
                 <td><%= conference.full_paper_submission %> (11:59 PM)</td>
                 <td><%= conference.acceptance_notification %></td>
