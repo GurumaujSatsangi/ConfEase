@@ -4150,6 +4150,48 @@ app.post("/send-password-reset-link", authRateLimitMemory, accountRateLimit((req
   }
 })
 
+
+
+// app.get("/virtual-poster-presentation/:id", async (req, res) => {
+//     try {
+//         const conference = await pool.query(
+//             "SELECT * FROM conferences WHERE conference_id = $1",
+//             [req.params.id]
+//         );
+
+//         if (conference.rows.length === 0) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "Conference not found"
+//             });
+//         }
+
+//         const submissions = await pool.query(
+//             `SELECT 
+//                 a1.title,
+//                 a1.primary_author,
+//                 a1.co_authors,
+//                 r1.link_to_video
+//              FROM final_camera_ready_submissions a1
+//              LEFT JOIN registrations r1
+//                 ON a1.submission_id = r1.submission_id
+//              WHERE a1.conference_id = $1`,
+//             [req.params.id]
+//         );
+
+//         return res.render("vpp.ejs",{conference, submissions})
+
+//     } catch (error) {
+//         console.error("Error fetching virtual poster presentations:", error);
+
+//         return res.status(500).json({
+//             success: false,
+//             message: "Internal server error"
+//         });
+//     }
+// });
+
+
 app.get("/reset-password/:token", async (req, res) => {
     const { token } = req.params;
   const message = req.query.message || null;
