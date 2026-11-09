@@ -4191,6 +4191,18 @@ app.post("/send-password-reset-link", authRateLimitMemory, accountRateLimit((req
 //     }
 // });
 
+app.post("/contact-chair", checkAuth, async(req,res)=>{
+
+  const {subject, msgbody} = req.body;
+  
+  const result = await sendMail("gurumaujsatsangi@gmail.com",req.user.email+" has sent you a message | "+subject,"Message from "+req.user.email+": "+msgbody);
+
+  if(result){
+    return res.redirect("/dashboard?message=Your message has been sent to the Conference Chairs. You will hear from them soon.");
+  }
+
+})
+
 
 app.get("/reset-password/:token", async (req, res) => {
     const { token } = req.params;

@@ -109,9 +109,42 @@
   Downloads <i class="bi bi-cloud-arrow-down-fill"></i>
 </button>
 
+<button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#contactChairModal">
+  Contact Chairs <i class="bi bi-envelope-check"></i>
+</button>
+
         <button type="button" class="btn btn-warning btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle"></i>
 </button>
 
+<div class="modal fade" id="contactChairModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">Contact Chairs</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <form action="/contact-chair" method="post">
+
+          <input class="form-control" type="text" name="subject" id="subject" required placeholder="MESSAGE SUBJECT">
+          <textarea id="msgbody" class="form-control" name="msgbody" required placeholder="MESSAGE BODY"></textarea>
+
+  <button type="submit" class="btn btn-primary btn-sm">Send Emails</button>
+
+        </form>
+
+
+
+      
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 
 <div class="modal fade" id="downloadModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
