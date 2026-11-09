@@ -4195,8 +4195,26 @@ app.post("/contact-chair", checkAuth, async(req,res)=>{
 
   const {subject, msgbody} = req.body;
   
-  const result = await sendMail("gurumaujsatsangi@gmail.com",req.user.email+" has sent you a message | "+subject,"Message from "+req.user.email+": "+msgbody);
+const htmlBody = `
+    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.8;">
+        <p>
+            <strong>Message from:</strong> ${req.user.email}
+        </p>
+        <p>
+            ${msgbody.replace(/\n/g, "<br>")}
+        </p>
+        <br>
+        <p style="margin-top: 20px;">
+    We would appreciate it if the Chairs could kindly respond at their convenience.
+</p>
+    </div>
+`;
 
+const result = await sendMail(
+    "gurumaujsatsangi@gmail.com",
+    req.user.email + " has sent you a message | " + subject,
+    htmlBody
+);
   if(result){
     return res.redirect("/dashboard?message=Your message has been sent to the Conference Chairs. You will hear from them soon.");
   }
