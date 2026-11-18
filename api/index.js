@@ -207,13 +207,40 @@ async function deleteSupersededCloudinaryAsset({ publicId, resourceType, type })
 // Returns null (not the row's stored, never-to-be-rendered file_url) when
 // there's nothing to sign, so templates' existing `if (x.file_url)`
 // guards keep working unchanged.
-function getSignedPaperUrl(row, { expiresInSeconds = 600 } = {}) {
+// Was private_download_url() - that generates a link to Cloudinary's
+// api.cloudinary.com *download* endpoint (its name is literal: it's built
+// for downloading, not viewing). Verified directly against this app's own
+// Cloudinary account: for anything stored as resource_type "raw" (e.g. a
+// .doc/.docx submission), that endpoint sends back
+// Content-Disposition: attachment regardless of this call's own
+// attachment:false - a known limitation of that specific endpoint for raw
+// resources - forcing a download on every click instead of opening the
+// paper in the browser's own viewer. The reviewer page's <iframe
+// src="..."> hit the same URL and got refused by the browser for a
+// second, independent reason: it's a cross-origin frame with no
+// `frameSrc` allowance in this app's own CSP (see CSP_DIRECTIVES below),
+// which defaults a missing frame-src back to default-src 'self' - fixed
+// there too.
+//
+// cloudinary.url(..., { sign_url: true }) instead generates a normal,
+// signed CDN delivery URL (res.cloudinary.com, not the admin-API download
+// host) - confirmed by test to send no Content-Disposition header at all
+// for any resource type, so the browser just displays it (a PDF opens in
+// its native viewer; embeddable in an iframe once CSP allows the host).
+// Trade-off worth knowing: unlike private_download_url's expires_at, this
+// signed delivery URL has no built-in expiry - it's valid for as long as
+// the public_id/format/type stay the same, not just expiresInSeconds.
+// Genuinely time-limited links would need Cloudinary's separate "Auth
+// Token" feature, which requires an extra signing key configured on the
+// Cloudinary account itself - not something available from here.
+function getSignedPaperUrl(row) {
   if (!row || !row.file_public_id) return null;
-  return cloudinary.utils.private_download_url(row.file_public_id, row.file_format || undefined, {
+  return cloudinary.url(row.file_public_id, {
     resource_type: row.file_resource_type || "image",
     type: "private",
-    attachment: false,
-    expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    format: row.file_format || undefined,
+    sign_url: true,
+    secure: true,
   });
 }
 
@@ -772,6 +799,12 @@ const CSP_DIRECTIVES = {
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
+  // Without frameSrc, CSP falls back to childSrc, then to defaultSrc
+  // ('self') - which silently blocked the reviewer page's own
+  // <iframe src="..."> from ever loading a submission's paper from
+  // Cloudinary, regardless of which Cloudinary URL style was used
+  // (confirmed directly - see getSignedPaperUrl's comment).
+  frameSrc: ["'self'", "https://res.cloudinary.com"],
 };
 
 app.use(helmet({

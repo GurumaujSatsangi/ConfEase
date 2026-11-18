@@ -292,14 +292,15 @@ test("Meta-Reviewer dashboard/form/decision are all gated on EVERY assigned revi
   const formHtml2 = await (await get(`/meta-reviewer/dashboard/recommendation-submission/${submissionId}`, metaToken)).text();
   assert.ok(formHtml2.includes(reviewerEmail) && formHtml2.includes(secondReviewerEmail), "both reviewers must be shown");
   // Paper ID and a link to the paper must be shown on the form. The link
-  // is a freshly-signed Cloudinary download URL, not the stored file_url
-  // itself (FILE-04) - assert on the signed download API's own URL shape
-  // and the asset's public_id, which it must always contain.
+  // is a freshly-signed Cloudinary delivery URL, not the stored file_url
+  // itself (FILE-04) - assert on the signed delivery URL's own shape
+  // (res.cloudinary.com, not the admin-API download endpoint - see
+  // getSignedPaperUrl) and the asset's public_id, which it must always contain.
   const paperRow = await pool.query("select paper_number, file_public_id from submissions where submission_id = $1", [submissionId]);
   assert.ok(formHtml2.includes(String(paperRow.rows[0].paper_number)), "the Paper ID must be shown on the recommendation form");
   assert.ok(
-    formHtml2.includes("/image/download") && formHtml2.includes(encodeURIComponent(paperRow.rows[0].file_public_id)),
-    "a signed download link for the paper file must be shown on the recommendation form"
+    formHtml2.includes("res.cloudinary.com") && formHtml2.includes(paperRow.rows[0].file_public_id),
+    "a signed delivery link for the paper file must be shown on the recommendation form"
   );
 });
 

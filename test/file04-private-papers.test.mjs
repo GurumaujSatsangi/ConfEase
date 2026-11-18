@@ -15,9 +15,21 @@
 // These tests seed rows directly (not through a real Cloudinary upload,
 // which would invoke the real external service) with a plausible
 // public_id/resource_type/format, then assert on what the rendered HTML
-// actually contains: a signed download-API link bearing that public_id,
+// actually contains: a signed delivery-CDN link bearing that public_id,
 // and - the regression this guards against - never the raw stored
 // file_url string itself.
+//
+// getSignedPaperUrl used to build this via private_download_url(), a link
+// to Cloudinary's api.cloudinary.com *download* endpoint - verified
+// directly against this app's real Cloudinary account that this endpoint
+// forces Content-Disposition: attachment for resource_type "raw"
+// regardless of the attachment:false passed to it, and that the
+// reviewer page's own <iframe src="..."> to that same host was separately
+// blocked by this app's own CSP (no frameSrc, falling back to
+// defaultSrc 'self'). Both fixed: the signed link now comes from
+// cloudinary.url(..., { sign_url: true }) - a normal, directly-embeddable
+// res.cloudinary.com CDN URL with no forced attachment header - and
+// CSP_DIRECTIVES now has an explicit frameSrc allowing that host.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -86,16 +98,16 @@ after(async () => {
   setImmediate(() => process.exit(0));
 });
 
-test("the author's own conference view shows a signed download link for their paper, never the stored permanent URL", async () => {
+test("the author's own conference view shows a signed delivery link for their paper, never the stored permanent URL", async () => {
   const html = await (await get(`/conference/${conferenceId}`, authorToken)).text();
-  assert.ok(html.includes(encodeURIComponent(FILE_PUBLIC_ID)), "the rendered page must link to the paper via its public_id in a signed download URL");
-  assert.ok(html.includes("/image/download"), "the link must be Cloudinary's signed download API action, not a direct asset URL");
+  assert.ok(html.includes(FILE_PUBLIC_ID), "the rendered page must link to the paper via its public_id in a signed delivery URL");
+  assert.ok(html.includes("res.cloudinary.com") && html.includes("/image/private/"), "the link must be a signed CDN delivery URL (res.cloudinary.com/.../private/...), not the admin-API download endpoint");
   assert.ok(!html.includes(STORED_FILE_URL), "the permanent stored file_url must never appear in the rendered page");
 });
 
 test("a reviewer assigned to the submission's track sees the same signed link on the review page", async () => {
   const html = await (await get("/reviewer/dashboard/review/FILE04A", reviewerToken)).text();
-  assert.ok(html.includes(encodeURIComponent(FILE_PUBLIC_ID)), "the review page must link to the paper via its public_id in a signed download URL");
+  assert.ok(html.includes(FILE_PUBLIC_ID), "the review page must link to the paper via its public_id in a signed delivery URL");
   assert.ok(!html.includes(STORED_FILE_URL), "the permanent stored file_url must never appear in the rendered page");
 });
 
