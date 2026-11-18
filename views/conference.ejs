@@ -20,6 +20,14 @@
         <p class="small"><a href="<%= conference.cfp_link %>" target="_blank" class="btn btn-primary btn-sm" rel="noopener">Call for Papers&nbsp; <i class="bi bi-box-arrow-up-right"></i></a></p>
       <% } %>
 
+       <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#downloadModal">
+  Downloads <i class="bi bi-cloud-arrow-down-fill"></i>
+</button>
+
+<button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#contactChairModal">
+  Contact Chairs <i class="bi bi-envelope-check"></i>
+</button>
+
         <%
           // Driven by a live conference_roles read (passed in as liveRoles),
           // not the JWT's cached roles claim - a revoked role (or one
@@ -105,13 +113,7 @@
         
         <% }%>
 
-        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#downloadModal">
-  Downloads <i class="bi bi-cloud-arrow-down-fill"></i>
-</button>
-
-<button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#contactChairModal">
-  Contact Chairs <i class="bi bi-envelope-check"></i>
-</button>
+       
 
         <button type="button" class="btn btn-warning btn-sm" data-bs-container="body" data-bs-toggle="popover" data-bs-placement="right" data-bs-content="Can't see a specific role you were expecting? Kindly logout and re-login. If the issue still persists, please contact the conference chairs."><i class="bi bi-info-circle"></i>
 </button>
@@ -163,12 +165,12 @@
         <ul>
 
           <li><a style="text-decoration: none;" href="/IEEE_TEMPLATE.doc">IEEE Paper Template (Two Column Layout) [.doc]</a></li>
-          <li><a style="text-decoration: none;" href="/https://www.overleaf.com/latex/templates/ieee-conference-template/grfzhhncsfqn">IEEE Paper Template (Two Column Layout) [Overleaf]</a></li>
+          <li><a style="text-decoration: none;" href="https://www.overleaf.com/latex/templates/ieee-conference-template/grfzhhncsfqn">IEEE Paper Template (Two Column Layout) [Overleaf]</a></li>
 
           <li><a style="text-decoration: none;" href="/SPRINGER_TEMPLATE.docx">Springer Paper Template (Single Column Layout) [.docx]</a></li>
           <li><a style="text-decoration: none;" href="https://www.overleaf.com/latex/templates/springer-nature-latex-template/myxmhdsbzkyd">Springer Paper Template (Single Column Layout) [Overleaf]</a></li>
 
-          <li><a style="text-decoration: none;" href="/OP_Template.pptx">Oral Presentation PPT Template [.pptx]</a></li>
+          <li><a style="text-decoration: none;" href="/OP_Template.potx">Oral Presentation PPT Template [.potx]</a></li>
 
         </ul>
         
