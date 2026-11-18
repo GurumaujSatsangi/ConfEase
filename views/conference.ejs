@@ -16,17 +16,19 @@
 
       <p class="small"><%- sanitizeDescription(conference.description) %></p>
 
-      <% if (conference.cfp_link) { %>
-        <p class="small"><a href="<%= conference.cfp_link %>" target="_blank" class="btn btn-primary btn-sm" rel="noopener">Call for Papers&nbsp; <i class="bi bi-box-arrow-up-right"></i></a></p>
-      <% } %>
+      <div class="small d-flex flex-wrap gap-2 mb-2">
+        <% if (conference.cfp_link) { %>
+          <a href="<%= conference.cfp_link %>" target="_blank" class="btn btn-primary btn-sm" rel="noopener">Call for Papers&nbsp; <i class="bi bi-box-arrow-up-right"></i></a>
+        <% } %>
 
-       <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#downloadModal">
-  Downloads <i class="bi bi-cloud-arrow-down-fill"></i>
-</button>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#downloadModal">
+          Downloads <i class="bi bi-cloud-arrow-down-fill"></i>
+        </button>
 
-<button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#contactChairModal">
-  Contact Chairs <i class="bi bi-envelope-check"></i>
-</button>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#contactChairModal">
+          Contact Chairs <i class="bi bi-envelope-check"></i>
+        </button>
+      </div>
 
         <%
           // Driven by a live conference_roles read (passed in as liveRoles),

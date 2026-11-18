@@ -101,7 +101,7 @@ const rootDir = path.resolve(__dirname, "..");
 // call site, instead of silently leaving req.file undefined - which at
 // least one call site (edit-submission) would otherwise misinterpret as
 // "no new file was attached" rather than "a disallowed file was rejected".
-const DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".doc"];
+const DOCUMENT_EXTENSIONS = [".pdf"];
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
 // Field-aware: every upload in this app is a "file" (document) except
@@ -116,7 +116,7 @@ function rejectDisallowedFileExtension(req, file, cb) {
     const err = new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname);
     err.message = isProfilePhoto
       ? "Only JPG, JPEG, PNG, and WEBP images are allowed."
-      : "Only PDF, DOC, and DOCX files are allowed.";
+      : "Only PDF files are allowed.";
     return cb(err);
   }
   return cb(null, true);
@@ -2097,21 +2097,13 @@ function getAppUrl() {
   return url;
 }
 
+// Submissions are now PDF-only (DOC/DOCX no longer accepted). Still
+// checked by magic bytes, not just the extension - a renamed non-PDF file
+// must not pass.
 function isAllowedDocument(file) {
   const ext = path.extname(file.originalname || "").toLowerCase();
   const head = file.buffer.subarray(0, 8);
   if (ext === ".pdf") return head.subarray(0, 4).toString("latin1") === "%PDF";
-  if (ext === ".docx") {
-    // FILE-02: the generic ZIP signature alone is true of any ZIP archive,
-    // not specifically a DOCX. Every real OOXML document (docx/xlsx/pptx)
-    // stores its manifest entry name "[Content_Types].xml" as a literal,
-    // uncompressed string in its ZIP local file headers, so a direct byte
-    // search for it - without adding a ZIP-parsing dependency - confirms
-    // this is actually an Office document and not just any same-signature
-    // ZIP file (e.g. a renamed .zip).
-    return head.subarray(0, 2).toString("latin1") === "PK" && file.buffer.includes("[Content_Types].xml");
-  }
-  if (ext === ".doc") return head.equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
   return false;
 }
 
@@ -8578,7 +8570,7 @@ app.post("/final-camera-ready-submission", checkAuth, (req, res) => {
 
       // 2. Upload to Cloudinary
       if (!isAllowedDocument(req.file)) {
-        return res.redirect(`${postActionRedirect(confid)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
+        return res.redirect(`${postActionRedirect(confid)}?message=Error: Only PDF files are allowed.`);
       }
       // FILE-04: type:"private" - this is the camera-ready paper/poster,
       // same sensitivity as the original manuscript, visible only through
@@ -9414,7 +9406,7 @@ app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
         // 3. Upload File
         //
         if (!isAllowedDocument(req.file)) {
-          return res.redirect(`${postActionRedirect(submission.conference_id)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
+          return res.redirect(`${postActionRedirect(submission.conference_id)}?message=Error: Only PDF files are allowed.`);
         }
         // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -9523,7 +9515,7 @@ app.post("/edit-submission", checkAuth, (req, res) => {
       // If user uploaded a new file
       if (req.file) {
         if (!isAllowedDocument(req.file)) {
-          return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
+          return res.redirect(`${postActionRedirect(editRow.conference_id)}?message=Error: Only PDF files are allowed.`);
         }
         // FILE-04: type:"private" - see getSignedPaperUrl.
         const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -9703,7 +9695,7 @@ app.post("/submit", checkAuth, async (req, res) => {
 
       // Cloudinary Upload
       if (!isAllowedDocument(req.file)) {
-        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed.`);
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF files are allowed.`);
       }
       // FILE-04: type:"private" - see getSignedPaperUrl.
       const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
@@ -9861,7 +9853,7 @@ app.post("/submit-invited-talk", checkAuth, (req, res, next) => {
         return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only JPG, JPEG, PNG, and WEBP images are allowed for the profile photo.`);
       }
       if (paperFile && !isAllowedDocument(paperFile)) {
-        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF, DOC and DOCX files are allowed for the paper.`);
+        return res.redirect(`${postActionRedirect(conferenceId)}?message=Error: Only PDF files are allowed for the paper.`);
       }
 
       const profilePhotoUploadResult = await uploadBufferToCloudinary(profilePhotoFile.buffer, {

@@ -6,10 +6,16 @@
 // magic-byte check (isAllowedDocument) ran. A fileFilter now rejects
 // disallowed extensions at the multer layer itself, before buffering.
 //
-// FILE-02: the .docx branch of isAllowedDocument only checked the generic
-// "PK" ZIP signature, true of any ZIP archive, not specifically an Office
-// document. It now also requires the literal "[Content_Types].xml" ZIP
-// entry name that every real docx/xlsx/pptx stores.
+// FILE-02: the content check must not trust the extension alone - a file
+// merely named "paper.pdf" must still be rejected if its actual bytes
+// aren't a real PDF (magic bytes "%PDF"). Submissions are now PDF-only
+// (DOC/DOCX removed entirely, both from DOCUMENT_EXTENSIONS - the
+// fileFilter's own allow-list - and from isAllowedDocument's content
+// check), so the original version of this test (a .docx-named ZIP that
+// passes the extension filter but fails the Office-document content
+// check) no longer applies: a .docx extension is now rejected at the
+// earlier fileFilter layer before the content check ever runs. Rewritten
+// to the equivalent PDF case instead.
 //
 // Both tests below use POST /submit and deliberately stop short of a real
 // upload: a rejected file (wrong extension, or wrong content) never
@@ -78,16 +84,20 @@ test("FILE-01: a disallowed file extension is rejected by multer's fileFilter be
   const res = await submitWithFile(Buffer.from("just some plain text, not a document"), "notes.txt");
   assert.equal(res.status, 302);
   const location = decodeURIComponent(res.headers.get("location") || "");
-  assert.match(location, /Only PDF, DOC, and DOCX files are allowed/, `expected the fileFilter's rejection message, got redirect to: ${location}`);
+  assert.match(location, /Only PDF files are allowed/, `expected the fileFilter's rejection message, got redirect to: ${location}`);
 });
 
-test("FILE-02: a .docx-named file that is a ZIP but not actually an OOXML document is rejected by the content check", async () => {
-  // Generic ZIP local-file-header signature ("PK\x03\x04") followed by
-  // arbitrary bytes - passes the old "starts with PK" check, but contains
-  // no "[Content_Types].xml" entry, so it isn't a real Office document.
-  const fakeZip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("not an office document, just zip-flavored bytes")]);
-  const res = await submitWithFile(fakeZip, "paper.docx");
+test("submissions are PDF-only: a .docx file is rejected by the fileFilter's extension allow-list, before the content check even runs", async () => {
+  const realDocxLikeBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("[Content_Types].xml")]);
+  const res = await submitWithFile(realDocxLikeBytes, "paper.docx");
   assert.equal(res.status, 302);
   const location = decodeURIComponent(res.headers.get("location") || "");
-  assert.match(location, /Only PDF, DOC and DOCX files are allowed/, `expected isAllowedDocument's rejection message, got redirect to: ${location}`);
+  assert.match(location, /Only PDF files are allowed/, `expected the fileFilter's rejection message, got redirect to: ${location}`);
+});
+
+test("FILE-02: a file merely named paper.pdf is still rejected if its actual bytes aren't a real PDF", async () => {
+  const res = await submitWithFile(Buffer.from("not a real PDF, just text with a .pdf extension"), "paper.pdf");
+  assert.equal(res.status, 302);
+  const location = decodeURIComponent(res.headers.get("location") || "");
+  assert.match(location, /Only PDF files are allowed/, `expected isAllowedDocument's rejection message, got redirect to: ${location}`);
 });

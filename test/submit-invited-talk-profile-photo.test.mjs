@@ -131,6 +131,7 @@ test("a paper with a disallowed extension is rejected even though the paper itse
   const location = decodeURIComponent(res.headers.get("location") || "");
   // multer's own fileFilter rejects the .txt paper before either file's
   // content is checked - this is the same "file" field extension
-  // allow-list every other document upload in this app already uses.
-  assert.match(location, /Only PDF, DOC, and DOCX files are allowed/);
+  // allow-list every other document upload in this app already uses
+  // (PDF-only).
+  assert.match(location, /Only PDF files are allowed/);
 });
