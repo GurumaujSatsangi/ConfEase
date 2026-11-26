@@ -2748,7 +2748,15 @@ app.post("/chair/dashboard/desk/upload-plagiarism-report/:id", checkChairAuth, u
     return res.redirect("/chair/dashboard?message=You are not authorized to manage this submission.");
   }
 
-  const redirectTo = `/chair/dashboard/desk/${submission.conference_id}`;
+  // Allows this same upload form to be submitted from either the Desk
+  // Review page (only ever shows submissions still awaiting a decision)
+  // or Manage Submissions (shows every submission, including ones
+  // already DESK ACCEPT/DESK REJECT - the only place a chair can attach
+  // or replace a report once the decision has already been made) and
+  // land back wherever the chair actually was.
+  const redirectTo = req.body?.return_to === "view-submissions"
+    ? `/chair/dashboard/view-submissions/${submission.conference_id}`
+    : `/chair/dashboard/desk/${submission.conference_id}`;
 
   if (!req.file) {
     return res.redirect(`${redirectTo}?message=` + encodeURIComponent("Please choose a PDF file to upload."));
@@ -9171,7 +9179,7 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
 
     res.render("chair/view-submissions.ejs", {
       user: req.user,
-      submissions: submissionsWithTracks.map(withSignedPaperUrl),
+      submissions: submissionsWithTracks.map((s) => ({ ...withSignedPaperUrl(s), plagiarismReportUrl: getSignedPlagiarismReportUrl(s) })),
       tracks,
       uniqueStatuses,
       conferencedata: req.params.id,

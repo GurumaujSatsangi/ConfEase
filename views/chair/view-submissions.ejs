@@ -215,6 +215,19 @@
                           </button>
                           </form>
 
+                          <% if (submission.plagiarismReportUrl) { %>
+                            <a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
+                              <i class="bi bi-file-earmark-pdf"></i> View DrillBit Report
+                            </a>
+                          <% } %>
+                          <form method="POST" action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" enctype="multipart/form-data" class="d-flex gap-1">
+                            <input type="hidden" name="return_to" value="view-submissions">
+                            <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm" required>
+                            <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                              <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %> Report
+                            </button>
+                          </form>
+
                           <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper') { %>
 
                             <p class="small" style="color:red">

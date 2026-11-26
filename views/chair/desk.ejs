@@ -75,6 +75,7 @@
                       </a>
                     <% } %>
                     <form action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+                      <input type="hidden" name="return_to" value="desk">
                       <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm" required>
                       <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
                         <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %>
