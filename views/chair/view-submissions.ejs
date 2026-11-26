@@ -46,8 +46,9 @@
         </form>
         <hr>
 
+        <% const uniqueGroupNames = [...new Set((tracks || []).map(t => t.group_name).filter(Boolean))]; %>
         <div class="row mb-4">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <div class="form-group">
               <label for="searchInput">Search Submissions</label>
               <input
@@ -58,7 +59,18 @@
               >
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
+            <div class="form-group">
+              <label for="groupFilter">Filter by Track</label>
+              <select id="groupFilter" class="form-control">
+                <option value="">All Tracks</option>
+                <% uniqueGroupNames.forEach(function(groupName) { %>
+                  <option value="<%= groupName %>"><%= groupName %></option>
+                <% }); %>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-3">
             <div class="form-group">
               <label for="trackFilter">Filter by Subject Area</label>
               <select id="trackFilter" class="form-control">
@@ -71,7 +83,7 @@
               </select>
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <div class="form-group">
               <label for="statusFilter">Filter by Status</label>
               <select id="statusFilter" class="form-control">
@@ -133,6 +145,7 @@
                 <thead class="table-light text-center">
                   <tr>
                     <th style="min-width:100px;">Paper ID</th>
+                    <th style="min-width:140px;">Track</th>
                     <th style="min-width:180px;">Subject Area</th>
                     <th style="min-width:200px;">Primary Author</th>
                     <th style="min-width:200px;">Co-Authors</th>
@@ -149,6 +162,7 @@
                     <% const modalSuffix = submission.submission_id; %>
                     <tr class="submission-item"
                         data-title="<%= submission.title ? submission.title.toLowerCase() : '' %>"
+                        data-group="<%= submission.group_name || '' %>"
                         data-track="<%= submission.track_name || '' %>"
                         data-status="<%= submission.submission_status || '' %>"
                         data-author="<%= submission.primary_author_formatted ? submission.primary_author_formatted.toLowerCase() : '' %>"
@@ -161,6 +175,8 @@
                           <i class="bi bi-file-earmark-text"></i> Details
                         </button>
                       </td>
+
+                      <td><%= submission.group_name || '—' %></td>
 
                       <td><%= submission.track_name || '—' %></td>
 
@@ -415,6 +431,7 @@
     <script>
       document.addEventListener('DOMContentLoaded', function() {
         const searchInput = document.getElementById('searchInput');
+        const groupFilter = document.getElementById('groupFilter');
         const trackFilter = document.getElementById('trackFilter');
         const statusFilter = document.getElementById('statusFilter');
         const clearFiltersBtn = document.getElementById('clearFilters');
@@ -428,14 +445,16 @@
 
         function filterSubmissions() {
           const searchTerm = searchInput.value.toLowerCase().trim();
+          const selectedGroup = groupFilter.value;
           const selectedTrack = trackFilter.value;
           const selectedStatus = statusFilter.value;
-          
+
           let visibleCount = 0;
-          let hasActiveFilters = searchTerm || selectedTrack || selectedStatus;
+          let hasActiveFilters = searchTerm || selectedGroup || selectedTrack || selectedStatus;
 
           submissionItems.forEach(item => {
             const title = item.getAttribute('data-title') || '';
+            const group = item.getAttribute('data-group') || '';
             const track = item.getAttribute('data-track') || '';
             const status = item.getAttribute('data-status') || '';
             const author = item.getAttribute('data-author') || '';
@@ -449,14 +468,17 @@
               coauthors.includes(searchTerm) || 
               papercode.includes(searchTerm);
 
-            // Check track filter
+            // Check track (group) filter
+            const matchesGroup = !selectedGroup || group === selectedGroup;
+
+            // Check subject area filter
             const matchesTrack = !selectedTrack || track === selectedTrack;
 
             // Check status filter
             const matchesStatus = !selectedStatus || status === selectedStatus;
 
             // Show/hide item based on all criteria
-            const isVisible = matchesSearch && matchesTrack && matchesStatus;
+            const isVisible = matchesSearch && matchesGroup && matchesTrack && matchesStatus;
             item.style.display = isVisible ? '' : 'none'; // Use empty string to retain default table row display
 
             if (isVisible) visibleCount++;
@@ -483,6 +505,7 @@
 
         function clearAllFilters() {
           searchInput.value = '';
+          groupFilter.value = '';
           trackFilter.value = '';
           statusFilter.value = '';
           filterSubmissions();
@@ -490,6 +513,7 @@
 
         // Event listeners
         searchInput.addEventListener('input', filterSubmissions);
+        groupFilter.addEventListener('change', filterSubmissions);
         trackFilter.addEventListener('change', filterSubmissions);
         statusFilter.addEventListener('change', filterSubmissions);
         clearFiltersBtn.addEventListener('click', clearAllFilters);

@@ -8884,9 +8884,10 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
       camera_ready_paper_submission: formatDate(confdataRaw.camera_ready_paper_submission)
     };
 
-    // Track map for lookup
+    // Track map for lookup (both the Subject Area's own name, and the
+    // Track/group it belongs to)
     const trackMap = {};
-    tracks.forEach(t => (trackMap[t.track_id] = t.track_name));
+    tracks.forEach(t => (trackMap[t.track_id] = { track_name: t.track_name, group_name: t.group_name }));
 
     // Build set of all author emails
     const allEmails = new Set();
@@ -8914,7 +8915,8 @@ app.get("/chair/dashboard/view-submissions/:id", checkChairAuth, async (req, res
     // Attach formatted fields
     const submissionsWithTracks = submissions.map(sub => ({
       ...sub,
-      track_name: trackMap[sub.track_id] || "Unknown Track",
+      track_name: trackMap[sub.track_id]?.track_name || "Unknown Subject Area",
+      group_name: trackMap[sub.track_id]?.group_name || "Unknown Track",
       primary_author_formatted: formatNameEmail(sub.primary_author),
       co_authors_formatted: Array.isArray(sub.co_authors)
         ? sub.co_authors.map(formatNameEmail).join(", ")
