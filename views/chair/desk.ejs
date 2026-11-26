@@ -14,6 +14,10 @@
         <h4>Desk Review</h4>
         <h6><%= conference.title %></h6>
 
+        <% if (message) { %>
+          <div class="alert alert-info"><%= message %></div>
+        <% } %>
+
         <% if(submissions && submissions.length>0) { %>
           <a href="/chair/dashboard/desk/download-all/<%= conference.conference_id %>" class="btn btn-outline-primary mb-2">
             <i class="bi bi-file-earmark-zip"></i> Download All Submissions (.zip)
@@ -33,6 +37,7 @@
                     <th>VIEW PAPER</th>
                     <th>DECISION</th>
                     <th>ACTION</th>
+                    <th>DRILLBIT AI &amp; PLAGIARISM REPORT</th>
                 </tr>
             <% submissions.forEach(function(submission){ %>
 
@@ -61,6 +66,22 @@
                   <button type="submit" value="Save" class="btn btn-success btn-sm">Save</button>
                 </td>
             </tr></form>
+                <tr>
+                  <td colspan="6"></td>
+                  <td>
+                    <% if (submission.plagiarismReportUrl) { %>
+                      <a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm mb-1">
+                        <i class="bi bi-file-earmark-pdf"></i> View Current Report
+                      </a>
+                    <% } %>
+                    <form action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+                      <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm" required>
+                      <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                        <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %>
+                      </button>
+                    </form>
+                  </td>
+                </tr>
 
             <div class="modal fade" id="exampleModal1" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
   <div class="modal-dialog">

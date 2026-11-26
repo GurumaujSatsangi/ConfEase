@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DEI CMT</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
+</head>
+<body>
+    <%- include('partials/dashboard/header') %>
+
+    <div class="container">
+        <h4>Reviews</h4>
+        <h6>Paper <%= submission.paper_number != null ? String(submission.paper_number).padStart(4, '0') : '—' %>: <%= submission.title %></h6>
+        <hr>
+
+        <h6>Reason for Desk Rejection</h6>
+        <% if (remarks) { %>
+            <p class="small" style="white-space: pre-wrap;"><%= remarks %></p>
+        <% } else { %>
+            <p class="small text-muted">No remarks have been recorded yet.</p>
+        <% } %>
+    </div>
+
+    <%- include('partials/footer') %>
+
+    <script src="/script.js"></script>
+</body>
+</html>

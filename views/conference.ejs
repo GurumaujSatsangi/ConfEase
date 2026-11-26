@@ -309,6 +309,15 @@
                             <br><a href="/submission/final-camera-ready/primary-author/<%= submission.submission_id %>">Submit Final Camera Ready Paper</a>
                         <% } else if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
                             <br><strong><%= submission.scheduleText %></strong>
+                        <% } else if (submission.submission_status === 'DESK ACCEPT') { %>
+                            <% if (submission.plagiarismReportUrl) { %>
+                                <br><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a>
+                            <% } %>
+                        <% } else if (submission.submission_status === 'DESK REJECT') { %>
+                            <br><a href="/submission/desk-reject-reviews/<%= submission.submission_id %>" target="_blank">Reviews</a>
+                            <% if (submission.plagiarismReportUrl) { %>
+                                <br><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a>
+                            <% } %>
                         <% } %>
                     </td>
                     <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>

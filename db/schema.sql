@@ -723,7 +723,10 @@ CREATE TABLE public.submissions (
     paper_number integer,
     file_public_id text,
     file_resource_type text,
-    file_format text
+    file_format text,
+    plagiarism_report_public_id text,
+    plagiarism_report_resource_type text,
+    plagiarism_report_format text
 );
 
 

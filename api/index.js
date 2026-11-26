@@ -253,6 +253,22 @@ function withSignedPaperUrl(row) {
   return { ...row, file_url: getSignedPaperUrl(row) };
 }
 
+// Same signing pattern as getSignedPaperUrl, for the chair-uploaded
+// DrillBit AI & Plagiarism Report (submissions.plagiarism_report_*) -
+// a separate, optional PDF a chair attaches from the Desk Review page,
+// shown to the primary author and co-authors once the submission has
+// been desk-accepted or desk-rejected (see GET /conference/:id).
+function getSignedPlagiarismReportUrl(row) {
+  if (!row || !row.plagiarism_report_public_id) return null;
+  return cloudinary.url(row.plagiarism_report_public_id, {
+    resource_type: row.plagiarism_report_resource_type || "image",
+    type: "private",
+    format: row.plagiarism_report_format || undefined,
+    sign_url: true,
+    secure: true,
+  });
+}
+
 // Certificates use a different Canva Brand Template per submission status /
 // role (see /chair/dashboard/enable-pdf-download/:id and GET
 // /admin/canva/dataset). Some of these are deliberately empty until their
@@ -2547,6 +2563,45 @@ app.get("/submission/view-co-author-requests/:id",checkAuth, async(req,res)=>{
 
 })
 
+// The "Reviews" link shown next to a DESK REJECT submission in My
+// Submissions (conference.ejs) - the chair's own desk-rejection remarks,
+// read-only, for the primary author and co-authors.
+app.get("/submission/desk-reject-reviews/:id", checkAuth, async (req, res) => {
+  const submissionId = req.params.id;
+
+  const submissionResult = await pool.query(
+    "select submission_id, title, paper_number, primary_author, co_authors, submission_status from submissions where submission_id = $1",
+    [submissionId]
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission) {
+    return res.redirect("/dashboard?message=Submission not found.");
+  }
+
+  const isAuthorized = submission.primary_author === req.user.email ||
+    (Array.isArray(submission.co_authors) && submission.co_authors.includes(req.user.email));
+  if (!isAuthorized) {
+    return res.redirect("/dashboard?message=You are not authorized to view these reviews.");
+  }
+  if (submission.submission_status !== "DESK REJECT") {
+    return res.redirect("/dashboard?message=" + encodeURIComponent("Reviews are only available for a desk-rejected submission."));
+  }
+
+  // No unique constraint guarantees exactly one desk_review row per
+  // paper_id - order by recency defensively, same as the Manage
+  // Submissions page's own batched lookup (GET
+  // /chair/dashboard/view-submissions/:id) does implicitly.
+  const deskReviewResult = await pool.query(
+    "select remarks from desk_review where paper_id = $1 order by created_at desc limit 1",
+    [submissionId]
+  );
+
+  return res.render("desk-reject-reviews.ejs", {
+    submission,
+    remarks: deskReviewResult.rows[0]?.remarks || null,
+  });
+});
+
 app.get("/reviewer/:id", checkAuth, async(req,res)=>{
   if (!hasConferenceRole(req.user, req.params.id, "reviewer")) {
     return res.redirect("/dashboard?message=Reviewer role not found in your current session for this conference. If a chair has just assigned you as a reviewer, please log out and log back in. If you think this is an error, please reach out to the conference chair.");
@@ -2662,9 +2717,71 @@ app.get("/chair/dashboard/desk/:id",checkChairAuth,async(req,res)=>{
   const conference = await pool.query("select * from conferences where conference_id=$1",[conference_id]);
   const submissions = await pool.query("select * from submissions where conference_id=$1 and submission_status=$2",[conference_id,"Submitted for Review"]);
 
-  return res.render("chair/desk.ejs",{conference:conference.rows[0], submissions:submissions.rows.map(withSignedPaperUrl)});
+  return res.render("chair/desk.ejs",{
+    conference: conference.rows[0],
+    submissions: submissions.rows.map((s) => ({ ...withSignedPaperUrl(s), plagiarismReportUrl: getSignedPlagiarismReportUrl(s) })),
+    message: req.query.message || null,
+  });
 
 })
+
+// A chair's manual alternative to the never-finished automated Drillbit
+// API integration (see db/migrations/027_drillbit_integration.sql, still
+// unused anywhere in this app) - the chair runs the check themselves in
+// DrillBit's own tool and attaches the resulting PDF report here. Shown to
+// the primary author and co-authors (GET /conference/:id) once the
+// submission has been desk-accepted or desk-rejected. Can be uploaded (or
+// re-uploaded, replacing the previous file) from the Desk Review page at
+// any point while the submission is still awaiting a decision.
+app.post("/chair/dashboard/desk/upload-plagiarism-report/:id", checkChairAuth, upload.single("plagiarism_report"), async (req, res) => {
+  const submissionId = req.params.id;
+
+  const ownerCheck = await pool.query(
+    "select conference_id, plagiarism_report_public_id, plagiarism_report_resource_type from submissions where submission_id = $1",
+    [submissionId]
+  );
+  const submission = ownerCheck.rows[0];
+  if (!submission) {
+    return res.redirect("/chair/dashboard?message=Submission not found.");
+  }
+  if (!(await chairOwnsConference(req.user.email, submission.conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this submission.");
+  }
+
+  const redirectTo = `/chair/dashboard/desk/${submission.conference_id}`;
+
+  if (!req.file) {
+    return res.redirect(`${redirectTo}?message=` + encodeURIComponent("Please choose a PDF file to upload."));
+  }
+  if (!isAllowedDocument(req.file)) {
+    return res.redirect(`${redirectTo}?message=` + encodeURIComponent("Only PDF files are allowed."));
+  }
+
+  try {
+    const uploadResult = await uploadBufferToCloudinary(req.file.buffer, {
+      resource_type: "auto",
+      type: "private",
+      folder: "plagiarism-reports",
+      public_id: `${sanitizeCloudinaryIdSegment(req.user.user_id)}-${Date.now()}-DrillBit`,
+    });
+
+    await pool.query(
+      "update submissions set plagiarism_report_public_id = $1, plagiarism_report_resource_type = $2, plagiarism_report_format = $3 where submission_id = $4",
+      [uploadResult.public_id, uploadResult.resource_type, uploadResult.format, submissionId]
+    );
+
+    await deleteSupersededCloudinaryAsset({
+      publicId: submission.plagiarism_report_public_id,
+      resourceType: submission.plagiarism_report_resource_type,
+      type: "private",
+    });
+
+    return res.redirect(`${redirectTo}?message=` + encodeURIComponent("DrillBit AI & Plagiarism Report uploaded."));
+  } catch (err) {
+    console.error("Error uploading plagiarism report:", err);
+    return res.redirect(`${redirectTo}?message=` + encodeURIComponent("An unexpected error occurred while uploading the report."));
+  }
+});
 
 // Streams every submission currently awaiting desk review (same query as
 // the page itself) into a single .zip, fetched one at a time from
@@ -3082,6 +3199,7 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
       posterInstructions: s.submission_status === "Submitted Final Camera Ready Paper for Poster Presentation" ? (posterSchedule?.instructions || null) : null,
       posterBoothNumber: boothBySubmission[s.submission_id] ?? null,
       subjectAreaLabel: trackLabelById[s.track_id] || null,
+      plagiarismReportUrl: getSignedPlagiarismReportUrl(s),
     };
   });
 
