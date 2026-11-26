@@ -9357,6 +9357,62 @@ app.post("/chair/dashboard/change-submission-track/:id", checkChairAuth, async (
   return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=Subject Area updated successfully.`);
 });
 
+// Lets a chair nudge a primary author to add their co-authors on the
+// portal (e.g. the chair notices, from the uploaded paper itself, that
+// co-authors are listed there but never joined via Paper Code). Purely a
+// notification - no database write beyond what's needed to compose it.
+app.post("/chair/dashboard/request-co-author-update/:id", checkChairAuth, async (req, res) => {
+  const submissionId = req.params.id;
+
+  const submissionResult = await pool.query(
+    "select conference_id, primary_author, title, paper_code, paper_number from submissions where submission_id = $1",
+    [submissionId]
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission || !(await chairOwnsConference(req.user.email, submission.conference_id))) {
+    return res.redirect("/chair/dashboard?message=You are not authorized to manage this submission.");
+  }
+  const conferenceId = submission.conference_id;
+
+  try {
+    const conferenceResult = await pool.query(
+      "select title, full_paper_submission from conferences where conference_id = $1 limit 1",
+      [conferenceId]
+    );
+    const conferenceTitle = conferenceResult.rows[0]?.title || "";
+    const rawDeadline = conferenceResult.rows[0]?.full_paper_submission;
+    const deadline = rawDeadline
+      ? (() => {
+          const d = new Date(rawDeadline);
+          return `${String(d.getUTCDate()).padStart(2, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${d.getUTCFullYear()}`;
+        })()
+      : "Not yet set";
+
+    const primaryAuthorName = await getUserDisplayName(submission.primary_author);
+    const paperId = formatPaperId(submission.paper_number) || submission.paper_code;
+
+    const subject = `Request to Add Co-Authors on the DEI CMT Portal | Paper ID: ${paperId} | ${conferenceTitle}`;
+    const body =
+      `${greeting(primaryAuthorName)}<br><br>` +
+      `Greetings!<br><br>` +
+      `We noticed that while the co-authors are mentioned in your submitted paper, they have not yet been added to the DEI CMT portal.<br><br>` +
+      `<b>Paper ID:</b> ${escapeHtml(paperId)}<br>` +
+      `<b>Paper Title:</b> ${escapeHtml(submission.title)}<br>` +
+      `<b>Paper Code:</b> ${escapeHtml(submission.paper_code)}<br><br>` +
+      `We kindly request you to ensure that all co-authors are added to the portal. Co-authors can join the paper as co-authors by logging into the DEI CMT portal and using the Paper Code associated with the submission.<br><br>` +
+      `Please note, the deadline to join a paper as co-author is <b>${escapeHtml(deadline)}</b>.<br><br>` +
+      `We request you to complete this process at the earliest to ensure that all authors are correctly reflected in the conference records.<br><br>` +
+      `Thank you for your cooperation.`;
+
+    await sendMail(submission.primary_author, subject, null, body);
+
+    return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=` + encodeURIComponent("Co-author update request emailed to the primary author."));
+  } catch (err) {
+    console.error("Error sending co-author update request:", err);
+    return res.redirect(`/chair/dashboard/view-submissions/${conferenceId}?message=` + encodeURIComponent("An unexpected error occurred while sending the email."));
+  }
+});
+
 
 app.post("/submit-revised-paper", checkAuth, (req, res, next) => {
   upload.single("file")(req, res, (err) => {

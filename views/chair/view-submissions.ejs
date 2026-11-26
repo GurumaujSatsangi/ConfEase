@@ -192,6 +192,13 @@
 
                       <td class="text-center">
                         <div class="d-grid gap-2">
+                          <form method="POST" action="/chair/dashboard/request-co-author-update/<%= submission.submission_id %>" class="d-inline"
+                           onsubmit="return confirm('Email the primary author to add their co-authors on the portal?');">
+                          <button type="submit" class="btn btn-outline-secondary btn-sm">
+                          <i class="bi bi-envelope"></i> Co-Author Update Required
+                          </button>
+                          </form>
+
                           <% if(submission.submission_status!='Submitted for Review' && submission.submission_status!='Submitted Revised Paper') { %>
 
                             <p class="small" style="color:red">
