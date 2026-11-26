@@ -207,8 +207,9 @@
 
                           <% } else { %>
 
-                            <form method="POST" action="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" class="d-inline"
-                             onsubmit="return confirm('Delete this submission? This action cannot be undone.');">
+                            <form method="POST" action="/chair/dashboard/delete-submission/<%= submission.submission_id %>?conference_id=<%= confdata.conference_id %>" class="d-inline confirm-delete-form"
+                             data-confirm-title="Delete this submission?"
+                             data-confirm-text="This action cannot be undone.">
                             <button type="submit" class="btn btn-danger btn-sm">
                             <i class="bi bi-trash"></i> Delete
                             </button>

@@ -227,7 +227,9 @@
                         <% } %>
                     </td>
                     <td>
-                        <form method="POST" action="/submission/delete/invitee/<%= submission.paper_id %>" class="m-0">
+                        <form method="POST" action="/submission/delete/invitee/<%= submission.paper_id %>" class="m-0 confirm-delete-form"
+                          data-confirm-title="Delete this submission?"
+                          data-confirm-text="This action cannot be undone.">
                           <button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button>
                         </form>
                     </td>
@@ -390,7 +392,7 @@
                     <td>
                         <% if (submission.isPrimaryAuthor) { %>
                         <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0"><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
+                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0 confirm-delete-form" data-confirm-title="Delete this submission?" data-confirm-text="This action cannot be undone."><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
                 <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
 
             </p>

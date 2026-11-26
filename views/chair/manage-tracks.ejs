@@ -51,7 +51,9 @@
             </form>
           </td>
           <td>
-            <form method="post" action="/chair/dashboard/delete-group/<%= g.group_id %>">
+            <form method="post" action="/chair/dashboard/delete-group/<%= g.group_id %>" class="confirm-delete-form"
+              data-confirm-title="Delete this track?"
+              data-confirm-text="This action cannot be undone.">
               <button type="submit" class="btn btn-danger">Delete</button>
             </form>
           </td>
@@ -228,7 +230,9 @@
               Update
             </button>
             <br>
-            <button type="submit" class="btn btn-danger" formaction="/chair/dashboard/delete-track/<%= track.track_id %>" formmethod="post">Delete</button>
+            <button type="submit" class="btn btn-danger confirm-delete-button" formaction="/chair/dashboard/delete-track/<%= track.track_id %>" formmethod="post"
+              data-confirm-title="Delete this subject area?"
+              data-confirm-text="This action cannot be undone.">Delete</button>
           </td>
 
         </form>

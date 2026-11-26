@@ -8,6 +8,72 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
+// Shared "Are you sure?" SweetAlert confirmation for every delete form in
+// the app - add class="confirm-delete-form" to a <form>, optionally with
+// data-confirm-title/data-confirm-text/data-confirm-button to customize
+// the wording, and this replaces whatever plain confirm()/no-confirmation
+// it had before. e.preventDefault() here, then form.submit() on
+// confirmation, does NOT re-trigger this same 'submit' event listener
+// (HTMLFormElement.submit() bypasses it entirely, unlike a user clicking
+// the submit button again) - same pattern already used for the co-author
+// join and registration confirmations elsewhere in this app, so this is
+// safe to call without an extra reentrancy guard.
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("form.confirm-delete-form").forEach(function (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      e.stopImmediatePropagation(); // also stops the loading-modal listener below from firing for a submission that isn't happening yet
+      Swal.fire({
+        icon: "warning",
+        title: form.dataset.confirmTitle || "Are you sure?",
+        text: form.dataset.confirmText || "This action cannot be undone.",
+        showCancelButton: true,
+        confirmButtonText: form.dataset.confirmButton || "Yes, delete it",
+        confirmButtonColor: "#dc3545",
+        cancelButtonText: "Cancel",
+      }).then(function (result) {
+        if (result.isConfirmed) {
+          form.submit();
+        }
+      });
+    });
+  });
+});
+
+// Same confirmation, for a delete action that's a <button formaction="...">
+// inside a larger form it doesn't own (e.g. an "Update" form that also has
+// a "Delete" button pointing somewhere else via formaction/formmethod) -
+// a class on the <form> itself would wrongly gate every submit of that
+// form, not just the delete button's. Intercepting the button's own click
+// event instead, and - since calling form.submit() programmatically
+// ignores a button's formaction/formmethod, unlike a real click - copying
+// them onto the form before submitting.
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("button.confirm-delete-button").forEach(function (button) {
+    button.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const form = button.closest("form");
+      if (!form) return;
+      Swal.fire({
+        icon: "warning",
+        title: button.dataset.confirmTitle || "Are you sure?",
+        text: button.dataset.confirmText || "This action cannot be undone.",
+        showCancelButton: true,
+        confirmButtonText: button.dataset.confirmButton || "Yes, delete it",
+        confirmButtonColor: "#dc3545",
+        cancelButtonText: "Cancel",
+      }).then(function (result) {
+        if (result.isConfirmed) {
+          if (button.formAction) form.action = button.formAction;
+          if (button.formMethod) form.method = button.formMethod;
+          form.submit();
+        }
+      });
+    });
+  });
+});
+
 // Show loading modal on form submission (auto-creates modal if not present)
 document.addEventListener("DOMContentLoaded", function () {
   const forms = document.querySelectorAll("form");

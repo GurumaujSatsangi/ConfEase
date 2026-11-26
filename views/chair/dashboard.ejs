@@ -121,7 +121,10 @@
               <form
                 method="POST"
                 action="/chair/dashboard/delete-conference/<%= conference.conference_id %>"
-                class="d-inline"
+                class="d-inline confirm-delete-form"
+                data-confirm-title="Delete this conference?"
+                data-confirm-text="This will permanently delete the conference and all of its submissions, reviews, registrations, and certificates. This action cannot be undone."
+                data-confirm-button="Yes, delete conference"
                 >
                 <button type="submit" class="btn btn-danger btn-uniform">Delete Conference </button>
               </form>
