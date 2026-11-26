@@ -50,11 +50,11 @@
           <div class="col-md-4">
             <div class="form-group">
               <label for="searchInput">Search Submissions</label>
-              <input 
-                type="text" 
-                id="searchInput" 
-                class="form-control" 
-                placeholder="Search by title, author, or paper code..."
+              <input
+                type="text"
+                id="searchInput"
+                class="form-control"
+                placeholder="Search by title, author, or paper ID..."
               >
             </div>
           </div>
@@ -153,7 +153,7 @@
                         data-status="<%= submission.submission_status || '' %>"
                         data-author="<%= submission.primary_author_formatted ? submission.primary_author_formatted.toLowerCase() : '' %>"
                         data-coauthors="<%= submission.co_authors_formatted ? submission.co_authors_formatted.toLowerCase() : '' %>"
-                        data-papercode="<%= submission.submission_id ? submission.submission_id.toLowerCase() : '' %>">
+                        data-papercode="<%= (paperId + ' ' + (submission.paper_code || '')).toLowerCase() %>">
 
                       <td class="text-center">
                         <div class="fw-bold mb-2"><%= paperId %></div>
