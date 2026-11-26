@@ -2737,7 +2737,7 @@ app.post("/chair/dashboard/desk/upload-plagiarism-report/:id", checkChairAuth, u
   const submissionId = req.params.id;
 
   const ownerCheck = await pool.query(
-    "select conference_id, plagiarism_report_public_id, plagiarism_report_resource_type from submissions where submission_id = $1",
+    "select conference_id, primary_author, co_authors, plagiarism_report_public_id, plagiarism_report_resource_type from submissions where submission_id = $1",
     [submissionId]
   );
   const submission = ownerCheck.rows[0];
@@ -2783,6 +2783,15 @@ app.post("/chair/dashboard/desk/upload-plagiarism-report/:id", checkChairAuth, u
       resourceType: submission.plagiarism_report_resource_type,
       type: "private",
     });
+
+    // Without this, the primary author/co-authors' "My Submissions" view
+    // (GET /conference/:id) keeps serving whatever was cached before this
+    // upload - which never had a report link at all - until that cache
+    // entry's own TTL expires on its own.
+    await invalidateConferenceSubmissionCache(
+      [submission.primary_author, ...(submission.co_authors || [])],
+      submission.conference_id
+    );
 
     return res.redirect(`${redirectTo}?message=` + encodeURIComponent("DrillBit AI & Plagiarism Report uploaded."));
   } catch (err) {
