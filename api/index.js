@@ -2919,7 +2919,16 @@ app.get("/conference/:id",checkAuth,async(req,res)=>{
   if (conference.rows.length === 0) {
     return res.redirect("/dashboard?message=" + encodeURIComponent("That conference could not be found."));
   }
-  const conference_tracks = await pool.query("select t.*, g.group_name from conference_tracks t left join conference_groups g on g.group_id = t.group_id where t.conference_id=$1 order by g.group_name nulls last, t.track_name",[req.params.id]);
+  const conference_tracks = await pool.query(
+    `select t.*, g.group_name,
+       coalesce(g.allow_oral_decision, true) as allow_oral_decision,
+       coalesce(g.allow_poster_decision, true) as allow_poster_decision
+     from conference_tracks t
+     left join conference_groups g on g.group_id = t.group_id
+     where t.conference_id=$1
+     order by g.group_name nulls last, t.track_name`,
+    [req.params.id]
+  );
   let submissions = [];
   const conferenceSubmissionsCacheKey = submissionsCacheKey(req.user.email, req.params.id);
 

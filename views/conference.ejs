@@ -469,6 +469,7 @@
                 <tr>
                   <th>Track</th>
                   <th>Subject Area</th>
+                  <th>Possible Decisions</th>
                 </tr>
               </thead>
               <tbody>
@@ -481,6 +482,16 @@
                     <td rowspan="<%= trackSpan %>"><%= ct.group_name || 'Conference level' %></td>
                   <% } %>
                   <td><%= ct.track_name %></td>
+                  <td>
+                    <% if (ct.allow_oral_decision) { %>
+                      <span class="badge bg-primary me-1">Accepted for Oral Presentation</span>
+                    <% } %>
+                    <% if (ct.allow_poster_decision) { %>
+                      <span class="badge bg-info text-dark me-1">Accepted for Poster Presentation</span>
+                    <% } %>
+                    <span class="badge bg-secondary me-1">Revision Required</span>
+                    <span class="badge bg-danger">Rejected</span>
+                  </td>
                 </tr>
                 <% }); %>
               </tbody>
