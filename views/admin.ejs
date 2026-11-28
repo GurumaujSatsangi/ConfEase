@@ -119,13 +119,18 @@
                 </tr>
 
             <% conferences.forEach(function(conferences){ %>
-            
+
             <tr>
                 <td><%= conferences.title%></td>
                 <td><%= conferences.created_by %></td>
-                <td><a href="" class="btn btn-danger">Terminate Conference</a></td>
+                <td>
+                  <a href="" class="btn btn-danger btn-sm">Terminate Conference</a>
+                  <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#coAuthorRequestsModal-<%= conferences.conference_id %>">
+                    Manage Co-Author Requests
+                  </button>
+                </td>
             </tr>
-            
+
             <% }) %>
             </table>
         <% } else { %>
@@ -140,6 +145,66 @@
       </div>
     </div>
   </div>
+
+  <% (conferences || []).forEach(function(conf) {
+       const submissionsWithRequests = (coAuthorRequestsByConference && coAuthorRequestsByConference[conf.conference_id]) || [];
+  %>
+  <div class="modal fade" id="coAuthorRequestsModal-<%= conf.conference_id %>" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Co-Author Requests - <%= conf.title %></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <% if (submissionsWithRequests.length > 0) { %>
+            <% submissionsWithRequests.forEach(function(sub) { %>
+              <p class="mb-1">
+                <b>Paper ID:</b> <%= sub.paperId %><br>
+                <b>Title:</b> <%= sub.title %><br>
+                <b>Primary Author:</b> <%= sub.primary_author %>
+              </p>
+              <ul>
+                <% sub.requests.forEach(function(r) { %>
+                  <li class="mb-2">
+                    <%= r.co_author %> (<%= r.status %>)
+                    <% if (r.status === 'Pending') { %>
+                      <div class="d-inline-flex gap-1 ms-2">
+                        <form method="post" action="/admin/co-author-requests/accept/<%= r.request_id %>" class="d-inline">
+                          <button type="submit" class="btn btn-success btn-sm">Approve Request</button>
+                        </form>
+                        <form method="post" action="/admin/co-author-requests/send-reminder/<%= sub.submission_id %>" class="d-inline">
+                          <button type="submit" class="btn btn-outline-secondary btn-sm">Send Email Alert</button>
+                        </form>
+                        <form method="post" action="/admin/co-author-requests/reject/<%= r.request_id %>" class="d-inline">
+                          <button type="submit" class="btn btn-danger btn-sm">Reject</button>
+                        </form>
+                      </div>
+                    <% } else if (r.status === 'Accepted') { %>
+                      <div class="d-inline-flex ms-2">
+                        <form method="post" action="/admin/co-author-requests/remove/<%= sub.submission_id %>/<%= encodeURIComponent(r.co_author) %>" class="d-inline confirm-delete-form"
+                          data-confirm-title="Remove this co-author?"
+                          data-confirm-text="This action cannot be undone.">
+                          <button type="submit" class="btn btn-warning btn-sm">Remove Co-Author</button>
+                        </form>
+                      </div>
+                    <% } %>
+                  </li>
+                <% }) %>
+              </ul>
+              <hr>
+            <% }) %>
+          <% } else { %>
+            <p class="small">No co-author requests for this conference.</p>
+          <% } %>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% }) %>
 
   <div class="accordion-item">
     <h2 class="accordion-header">
@@ -167,6 +232,10 @@
 
         <% if (users && users.length > 0) { %>
 
+          <div class="form-group mb-3">
+            <input type="text" id="userSearchInput" class="form-control" placeholder="Search by name or email ID...">
+          </div>
+
           <div class="table-responsive">
           <table class="table">
             <tr>
@@ -184,7 +253,7 @@
               <input type="hidden" name="remarks" id="profileUpdateRemarks-<%= idx %>">
             </form>
 
-            <tr>
+            <tr class="user-row" data-name="<%= (u.name || '').toLowerCase() %>" data-email="<%= (u.email || '').toLowerCase() %>">
               <td><input type="text" form="updateForm-<%= idx %>" name="name" class="form-control form-control-sm" value="<%= u.name || '' %>" required></td>
               <td><%= u.email %></td>
               <td><input type="text" form="updateForm-<%= idx %>" name="contact_number" class="form-control form-control-sm" value="<%= u.contact_number || '' %>"></td>
@@ -273,6 +342,19 @@
     <%- include('partials/footer') %>
 
     <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('userSearchInput');
+        if (!searchInput) return;
+        const rows = document.querySelectorAll('.user-row');
+        searchInput.addEventListener('input', function () {
+          const term = searchInput.value.trim().toLowerCase();
+          rows.forEach(function (row) {
+            const matches = !term || row.dataset.name.includes(term) || row.dataset.email.includes(term);
+            row.style.display = matches ? '' : 'none';
+          });
+        });
+      });
+
       function requestProfileUpdate(idx, email) {
         Swal.fire({
           icon: 'warning',

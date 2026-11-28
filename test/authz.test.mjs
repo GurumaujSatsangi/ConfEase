@@ -32,6 +32,10 @@ const ADMIN_ROUTES = [
   ["POST", "/admin/users/delete/user%40example.com"],
   ["POST", "/admin/users/reset-password/user%40example.com"],
   ["POST", "/admin/users/request-profile-update/user%40example.com"],
+  ["POST", "/admin/co-author-requests/accept/00000000-0000-0000-0000-000000000000"],
+  ["POST", "/admin/co-author-requests/reject/00000000-0000-0000-0000-000000000000"],
+  ["POST", "/admin/co-author-requests/remove/00000000-0000-0000-0000-000000000000/co-author%40example.com"],
+  ["POST", "/admin/co-author-requests/send-reminder/00000000-0000-0000-0000-000000000000"],
 ];
 
 test("admin routes: anonymous users are sent to login", async () => {

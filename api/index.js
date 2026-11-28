@@ -5249,10 +5249,49 @@ app.get("/admin", checkAuth, requireAdmin, async (req, res) => {
   const conferences = await pool.query("select conference_id, title, created_by from conferences");
   const users = await pool.query("select id, name, email, contact_number, affiliation, status from users order by name nulls last, email");
   const canvaConnection = await canva.getConnectionInfo();
+
+  // "Manage Co-Author Requests" (Manage Conferences accordion) - every
+  // co-author request, for every submission, for every conference, grouped
+  // below into { [conference_id]: [ { submission, requests: [...] }, ... ] }
+  // so the view can render one self-contained modal per conference with no
+  // further queries of its own. co_author_requests is authoritative for
+  // every co-author relationship, accepted ones included (the accept route
+  // flips its status to 'Accepted' rather than deleting the row) - a
+  // revoked one is the only case actually deleted (see
+  // /remove-co-author/:submission_id/:co_author), which is correct here
+  // too since there is then nothing left to show.
+  const coAuthorRequestsResult = await pool.query(
+    `select cr.request_id, cr.conference_id, cr.submission_id, cr.co_author, cr.status,
+            s.title, s.paper_number, s.primary_author
+     from co_author_requests cr
+     join submissions s on s.submission_id = cr.submission_id
+     order by s.paper_number nulls last, cr.co_author`
+  );
+  const coAuthorRequestsByConference = {};
+  const submissionsByConference = {};
+  for (const row of coAuthorRequestsResult.rows) {
+    if (!submissionsByConference[row.conference_id]) submissionsByConference[row.conference_id] = {};
+    const bySubmission = submissionsByConference[row.conference_id];
+    if (!bySubmission[row.submission_id]) {
+      bySubmission[row.submission_id] = {
+        submission_id: row.submission_id,
+        paperId: formatPaperId(row.paper_number) || row.submission_id,
+        title: row.title,
+        primary_author: row.primary_author,
+        requests: [],
+      };
+    }
+    bySubmission[row.submission_id].requests.push({ request_id: row.request_id, co_author: row.co_author, status: row.status });
+  }
+  for (const [conferenceId, bySubmission] of Object.entries(submissionsByConference)) {
+    coAuthorRequestsByConference[conferenceId] = Object.values(bySubmission);
+  }
+
   res.render("admin", {
     chairs: chairs.rows,
     conferences: conferences.rows,
     users: users.rows,
+    coAuthorRequestsByConference,
     message: req.query.message || null,
     canvaConnection,
   });
@@ -8027,6 +8066,236 @@ app.post("/remove-co-author/:submission_id/:co_author", checkAuth, async (req, r
   }
 });
 
+// Admin equivalents of the three routes just above (accept/reject/remove),
+// for the "Manage Co-Author Requests" modal on the admin dashboard's
+// Manage Conferences accordion. Separate routes rather than widening the
+// primary-author-only checks on the originals, so the heavily-exercised
+// author-facing flow above is untouched; these three gate on requireAdmin
+// instead of submission ownership, and redirect back to /admin.
+
+app.post("/admin/co-author-requests/accept/:request_id", checkAuth, requireAdmin, async (req, res) => {
+  const requestId = req.params.request_id;
+
+  try {
+    const coAuthorReqResult = await pool.query(`SELECT * FROM co_author_requests WHERE request_id = $1 LIMIT 1;`, [requestId]);
+    const coAuthorRequest = coAuthorReqResult.rows[0];
+    if (!coAuthorRequest) {
+      return res.redirect("/admin?message=Co-author request not found.");
+    }
+    if (coAuthorRequest.status !== "Pending") {
+      return res.redirect("/admin?message=This co-author request is no longer pending.");
+    }
+
+    const submissionResult = await pool.query(`SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`, [coAuthorRequest.submission_id]);
+    const submission = submissionResult.rows[0];
+    if (!submission) {
+      return res.redirect("/admin?message=Submission not found.");
+    }
+
+    const acceptClient = await pool.connect();
+    let coAuthors;
+    try {
+      await acceptClient.query("BEGIN");
+      const updatedSubmission = await acceptClient.query(
+        `UPDATE submissions
+         SET co_authors = array_append(COALESCE(co_authors, ARRAY[]::text[]), $1)
+         WHERE submission_id = $2 AND NOT ($1 = ANY(COALESCE(co_authors, ARRAY[]::text[])))
+         RETURNING co_authors;`,
+        [coAuthorRequest.co_author, coAuthorRequest.submission_id]
+      );
+      coAuthors = updatedSubmission.rows[0]?.co_authors || submission.co_authors || [];
+
+      const statusUpdate = await acceptClient.query(
+        `UPDATE co_author_requests SET status = 'Accepted' WHERE request_id = $1 AND status = 'Pending';`,
+        [requestId]
+      );
+      if (statusUpdate.rowCount === 0) {
+        await acceptClient.query("ROLLBACK");
+        return res.redirect("/admin?message=This co-author request is no longer pending.");
+      }
+      await acceptClient.query("COMMIT");
+    } catch (txErr) {
+      await acceptClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      acceptClient.release();
+    }
+
+    await invalidateConferenceSubmissionCache([submission.primary_author, ...coAuthors], submission.conference_id);
+
+    const coAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+    const acceptConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const acceptPaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      coAuthorRequest.co_author,
+      `Your request to join the Paper ID - ${acceptPaperId} as Co-Author has been APPROVED | ${acceptConferenceTitle}`,
+      null,
+      `<p>${greeting(coAuthorName)}</p>
+       <p>Your request to join the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${acceptPaperId}) has been approved.</p>
+       <p>The submission is now available on your dashboard under the My Submissions section.</p>`,
+      submission.primary_author
+    );
+
+    return res.redirect("/admin?message=" + encodeURIComponent("Co-author request accepted."));
+  } catch (err) {
+    console.error("Error accepting co-author request (admin):", err);
+    return res.redirect("/admin?message=Something went wrong.");
+  }
+});
+
+app.post("/admin/co-author-requests/reject/:request_id", checkAuth, requireAdmin, async (req, res) => {
+  const requestId = req.params.request_id;
+
+  try {
+    const coAuthorReqResult = await pool.query(`SELECT * FROM co_author_requests WHERE request_id = $1 LIMIT 1;`, [requestId]);
+    const coAuthorRequest = coAuthorReqResult.rows[0];
+    if (!coAuthorRequest) {
+      return res.redirect("/admin?message=Co-author request not found.");
+    }
+    if (coAuthorRequest.status !== "Pending") {
+      return res.redirect("/admin?message=This co-author request is no longer pending.");
+    }
+
+    const submissionResult = await pool.query(`SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`, [coAuthorRequest.submission_id]);
+    const submission = submissionResult.rows[0];
+    if (!submission) {
+      return res.redirect("/admin?message=Submission not found.");
+    }
+
+    await pool.query(`UPDATE co_author_requests SET status = 'Rejected' WHERE request_id = $1;`, [requestId]);
+
+    const rejectedCoAuthorName = await getUserDisplayName(coAuthorRequest.co_author);
+    const rejectConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const rejectPaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      coAuthorRequest.co_author,
+      `Your request to join the Paper ID - ${rejectPaperId} as Co-Author has been REJECTED | ${rejectConferenceTitle}`,
+      null,
+      `<p>${greeting(rejectedCoAuthorName)}</p>
+       <p>Your request to join the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${rejectPaperId}) has been rejected.</p>`,
+      submission.primary_author
+    );
+
+    return res.redirect("/admin?message=" + encodeURIComponent("Co-author request rejected."));
+  } catch (err) {
+    console.error("Error rejecting co-author request (admin):", err);
+    return res.redirect("/admin?message=Something went wrong.");
+  }
+});
+
+app.post("/admin/co-author-requests/remove/:submission_id/:co_author", checkAuth, requireAdmin, async (req, res) => {
+  const { submission_id } = req.params;
+  const co_author = decodeURIComponent(req.params.co_author);
+
+  try {
+    const submissionResult = await pool.query(`SELECT * FROM submissions WHERE submission_id = $1 LIMIT 1;`, [submission_id]);
+    const submission = submissionResult.rows[0];
+    if (!submission) {
+      return res.redirect("/admin?message=Submission not found.");
+    }
+
+    const removeClient = await pool.connect();
+    let remainingCoAuthors;
+    try {
+      await removeClient.query("BEGIN");
+      const updated = await removeClient.query(
+        `UPDATE submissions SET co_authors = array_remove(COALESCE(co_authors, ARRAY[]::text[]), $1) WHERE submission_id = $2 RETURNING co_authors;`,
+        [co_author, submission_id]
+      );
+      remainingCoAuthors = updated.rows[0]?.co_authors || [];
+      await removeClient.query(
+        `DELETE FROM co_author_requests WHERE submission_id = $1 AND lower(co_author) = lower($2);`,
+        [submission_id, co_author]
+      );
+      await removeClient.query("COMMIT");
+    } catch (txErr) {
+      await removeClient.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      removeClient.release();
+    }
+
+    await invalidateConferenceSubmissionCache([submission.primary_author, co_author, ...remainingCoAuthors], submission.conference_id);
+
+    const removedCoAuthorName = await getUserDisplayName(co_author);
+    const removeConferenceTitle = (await pool.query("select title from conferences where conference_id = $1", [submission.conference_id])).rows[0]?.title || "the conference";
+    const removePaperId = formatPaperId(submission.paper_number);
+    await sendMail(
+      co_author,
+      `You have been removed as a Co-Author from Paper ID - ${removePaperId} | ${removeConferenceTitle}`,
+      null,
+      `<p>${greeting(removedCoAuthorName)}</p>
+       <p>You have been removed as a co-author from the paper titled &ldquo;${escapeHtml(submission.title)}&rdquo; (${removePaperId}).</p>`,
+      submission.primary_author
+    );
+
+    return res.redirect("/admin?message=" + encodeURIComponent("Co-author removed successfully."));
+  } catch (err) {
+    console.error("Error removing co-author (admin):", err);
+    return res.redirect("/admin?message=Something went wrong.");
+  }
+});
+
+// "Send Email Alert" (Manage Co-Author Requests modal, admin dashboard) -
+// reminds the primary author that this submission has pending co-author
+// requests awaiting their decision. Lists every currently-pending request
+// for the submission (not just whichever one the admin clicked from),
+// since the email itself is phrased as a general reminder, not about one
+// specific request.
+app.post("/admin/co-author-requests/send-reminder/:submission_id", checkAuth, requireAdmin, async (req, res) => {
+  const submissionId = req.params.submission_id;
+
+  const submissionResult = await pool.query(
+    "select conference_id, primary_author, title, paper_number from submissions where submission_id = $1",
+    [submissionId]
+  );
+  const submission = submissionResult.rows[0];
+  if (!submission) {
+    return res.redirect("/admin?message=Submission not found.");
+  }
+
+  const pendingResult = await pool.query(
+    "select co_author from co_author_requests where submission_id = $1 and status = 'Pending'",
+    [submissionId]
+  );
+  if (pendingResult.rows.length === 0) {
+    return res.redirect("/admin?message=" + encodeURIComponent("There are no pending co-author requests for this submission."));
+  }
+
+  try {
+    const conferenceResult = await pool.query("select title from conferences where conference_id = $1", [submission.conference_id]);
+    const conferenceTitle = conferenceResult.rows[0]?.title || "the conference";
+    const primaryAuthorName = await getUserDisplayName(submission.primary_author);
+    const paperId = formatPaperId(submission.paper_number);
+
+    const pendingList = await Promise.all(
+      pendingResult.rows.map(async (r) => {
+        const name = await getUserDisplayName(r.co_author);
+        return name ? `${escapeHtml(name)} (${escapeHtml(r.co_author)})` : escapeHtml(r.co_author);
+      })
+    );
+
+    const subject = `Action Required: Pending Co-Author Requests | Paper ID: ${paperId} | ${conferenceTitle}`;
+    const body =
+      `${greeting(primaryAuthorName)}<br><br>` +
+      `Greetings!<br><br>` +
+      `There are pending co-author requests associated with your submission on the DEI CMT portal that require your attention.<br><br>` +
+      `<b>Paper ID:</b> ${escapeHtml(paperId)}<br>` +
+      `<b>Paper Title:</b> ${escapeHtml(submission.title)}<br><br>` +
+      `<b>Pending Co-Author Requests:</b> ${pendingList.join(", ")}<br><br>` +
+      `We kindly request you to log in to the portal and review the pending requests at the earliest.<br><br>` +
+      `1) Click on My Submissions<br>` +
+      `2) Click on Co-Author Requests<br>` +
+      `3) Approve or Reject Co-Author Requests<br><br>` +
+      `Thank you for your cooperation.`;
+
+    await sendMail(submission.primary_author, subject, null, body);
+    return res.redirect("/admin?message=" + encodeURIComponent("Reminder emailed to the primary author."));
+  } catch (err) {
+    console.error("Error sending co-author request reminder:", err);
+    return res.redirect("/admin?message=" + encodeURIComponent("An unexpected error occurred while sending the email."));
+  }
+});
 
 app.post("/create-new-conference", checkChairAuth,async (req, res) => {
   const {
