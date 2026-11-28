@@ -37,7 +37,7 @@
                     <th>VIEW PAPER</th>
                     <th>DECISION</th>
                     <th>ACTION</th>
-                    <th>DRILLBIT AI &amp; PLAGIARISM REPORT</th>
+                    <th style="min-width:220px;">DRILLBIT AI &amp; PLAGIARISM REPORT</th>
                 </tr>
             <% submissions.forEach(function(submission){ %>
 
@@ -68,19 +68,21 @@
             </tr></form>
                 <tr>
                   <td colspan="6"></td>
-                  <td>
-                    <% if (submission.plagiarismReportUrl) { %>
-                      <a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm mb-1">
-                        <i class="bi bi-file-earmark-pdf"></i> View Current Report
-                      </a>
-                    <% } %>
-                    <form action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
-                      <input type="hidden" name="return_to" value="desk">
-                      <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm" required>
-                      <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
-                        <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %>
-                      </button>
-                    </form>
+                  <td style="min-width:220px;">
+                    <div class="d-flex flex-column gap-2">
+                      <% if (submission.plagiarismReportUrl) { %>
+                        <a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
+                          <i class="bi bi-file-earmark-pdf"></i> View Current Report
+                        </a>
+                      <% } %>
+                      <form action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" method="post" enctype="multipart/form-data" class="d-flex flex-column gap-2">
+                        <input type="hidden" name="return_to" value="desk">
+                        <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm w-100" required>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                          <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %>
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
 

@@ -2682,9 +2682,14 @@ app.get("/reviewer/:id", checkAuth, async(req,res)=>{
 
 app.post("/update-profile", checkAuth, async(req,res)=>{
   try {
+    const name = String(req.body.name || "").trim();
     const affiliation = String(req.body.affiliation || "").trim();
 
-    await pool.query("update users set affiliation=$1 where email=$2", [affiliation || null, req.user.email]);
+    if (!name) {
+      return res.redirect("/my-profile?message=" + encodeURIComponent("Name cannot be empty."));
+    }
+
+    await pool.query("update users set name=$1, affiliation=$2 where email=$3", [name, affiliation || null, req.user.email]);
 
     return res.redirect("/my-profile?message=" + encodeURIComponent("Profile updated successfully!"));
   } catch (err) {
@@ -5239,14 +5244,19 @@ app.post("/activation-check", authRateLimitMemory, accountRateLimit((req) => req
 
 
 
-// app.get("/admin",  async(req,res)=>{
-
-
-// const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
-// const conferences = await pool.query("select conference_id, title, created_by from conferences");
-// const canvaConnection = await canva.getConnectionInfo();
-// res.render("admin",{chairs:chairs.rows,conferences:conferences.rows,message:req.query.message || null, canvaConnection});
-// })
+app.get("/admin", checkAuth, requireAdmin, async (req, res) => {
+  const chairs = await pool.query("select name, email, contact_number, faculty, department, status from chairs");
+  const conferences = await pool.query("select conference_id, title, created_by from conferences");
+  const users = await pool.query("select id, name, email, contact_number, affiliation, status from users order by name nulls last, email");
+  const canvaConnection = await canva.getConnectionInfo();
+  res.render("admin", {
+    chairs: chairs.rows,
+    conferences: conferences.rows,
+    users: users.rows,
+    message: req.query.message || null,
+    canvaConnection,
+  });
+})
 
 // Admin authorization: explicit allow-list in ADMIN_EMAILS (comma-separated). Fails closed when unset or empty.
 // Chair status, reviewer roles, and client-supplied fields never grant admin access.
@@ -5377,7 +5387,11 @@ async function issueAccountSetupLink(email) {
   return `${getAppUrl()}/chair-password-setup?token=${token}`;
 }
 
-app.post("/create-chair-credentials", async(req,res)=>{
+// AUTHZ-01 (security-audit/COMPLETE_FINDINGS_REGISTER.md): this route had
+// no auth middleware at all - anyone could create a fully-activated Chair
+// account. Every sibling admin route already carries checkAuth,
+// requireAdmin; this one was missing it.
+app.post("/create-chair-credentials", checkAuth, requireAdmin, async(req,res)=>{
 
   const {name,email,contact_number, faculty, department} = req.body;
 
@@ -5524,6 +5538,134 @@ app.post("/delete-account/:id", checkAuth, requireAdmin, async(req,res)=>{
   }
   return res.redirect("/admin?message=Chair not found.");
 })
+
+// Same setup-link pattern as issueAccountSetupLink (above), but for the
+// users table - completed via the existing self-service flow (GET
+// /reset-password/:token, POST /update-password), which already updates
+// `users`, not chair-password-setup (which only ever updates `chairs`).
+async function issueUserPasswordResetLink(email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await pool.query("DELETE FROM password_resets WHERE email = $1", [email]);
+  await pool.query(
+    "INSERT INTO password_resets (email, token, expires_at) VALUES ($1, $2, $3)",
+    [email, hashToken(token), new Date(Date.now() + 1000 * 60 * 60 * 24)]
+  );
+  return `${getAppUrl()}/reset-password/${token}`;
+}
+
+// Admin "Manage Users" (the `users` table - authors/reviewers/etc, distinct
+// from the `chairs` table managed above). Admin-created accounts skip the
+// self-signup activation-code flow (ACTIVATION PENDING) and start directly
+// ACCOUNT ACTIVATED, same convention as create-chair-credentials.
+app.post("/admin/users/create", checkAuth, requireAdmin, async (req, res) => {
+  const { name, email, contact_number, affiliation } = req.body;
+
+  if (!getAppUrl()) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is missing or not HTTPS in production; the setup link cannot be sent."));
+  }
+
+  const existing = await pool.query("select 1 from users where email = $1", [email]);
+  if (existing.rows.length > 0) {
+    return res.redirect("/admin?message=" + encodeURIComponent("A user with that email already exists."));
+  }
+
+  const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+  await pool.query(
+    "insert into users(name,email,contact_number,affiliation,password,status) values($1,$2,$3,$4,$5,$6)",
+    [name, email, contact_number, affiliation, unusablePassword, "ACCOUNT ACTIVATED"]
+  );
+
+  const setupLink = await issueUserPasswordResetLink(email);
+  await sendMail(
+    email,
+    "DEI CMT Account Created",
+    null,
+    `${greeting(name)}<br><br>An account has been created for you on the DEI CMT portal. Please set your password using the link below. The link is valid for 24 hours.<br><br><a href="${setupLink}">Set your password</a><br><br>In case of any technical assistance, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+  );
+
+  return res.redirect("/admin?message=" + encodeURIComponent("Account created for " + name + " (" + email + "). A password setup link has been sent to the user."));
+});
+
+app.post("/admin/users/update/:email", checkAuth, requireAdmin, async (req, res) => {
+  const email = req.params.email;
+  const name = String(req.body.name || "").trim();
+  const contact_number = String(req.body.contact_number || "").trim();
+  const affiliation = String(req.body.affiliation || "").trim();
+
+  if (!name) {
+    return res.redirect("/admin?message=" + encodeURIComponent("Name cannot be empty."));
+  }
+
+  const data = await pool.query(
+    "update users set name=$1, contact_number=$2, affiliation=$3 where email=$4 returning email",
+    [name, contact_number || null, affiliation || null, email]
+  );
+  if (!data.rows[0]) {
+    return res.redirect("/admin?message=User not found.");
+  }
+
+  return res.redirect("/admin?message=" + encodeURIComponent("Profile updated for " + email + "."));
+});
+
+app.post("/admin/users/delete/:email", checkAuth, requireAdmin, async (req, res) => {
+  const email = req.params.email;
+  const data = await pool.query("delete from users where email = $1 returning *", [email]);
+
+  if (data.rows[0]) {
+    return res.redirect("/admin?message=" + encodeURIComponent("Account (" + email + ") Deleted!"));
+  }
+  return res.redirect("/admin?message=User not found.");
+});
+
+app.post("/admin/users/reset-password/:email", checkAuth, requireAdmin, async (req, res) => {
+  const email = req.params.email;
+
+  if (!getAppUrl()) {
+    return res.redirect("/admin?message=" + encodeURIComponent("APP_URL is missing or not HTTPS in production; the reset link cannot be sent."));
+  }
+
+  const data = await pool.query("select name from users where email = $1", [email]);
+  if (!data.rows[0]) {
+    return res.redirect("/admin?message=User not found.");
+  }
+
+  const resetLink = await issueUserPasswordResetLink(email);
+  await sendMail(
+    email,
+    "DEI CMT Password Reset",
+    null,
+    `${greeting(data.rows[0].name)}<br><br>The Admin has reset your DEI CMT portal password. Please set a new password using the link below. The link is valid for 24 hours.<br><br><a href="${resetLink}">Set your password</a><br><br>In case of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+  );
+
+  return res.redirect("/admin?message=" + encodeURIComponent("A password reset link has been sent to " + email + "."));
+});
+
+// "Profile Update Required" (chair/admin-dashboard button, My Submissions-
+// style pattern) - the admin enters a short remarks note, included verbatim
+// in the email. Exact wording/template still TBD from the user; this is a
+// reasonable placeholder until that's supplied.
+app.post("/admin/users/request-profile-update/:email", checkAuth, requireAdmin, async (req, res) => {
+  const email = req.params.email;
+  const remarks = String(req.body.remarks || "").trim();
+
+  if (!remarks) {
+    return res.redirect("/admin?message=" + encodeURIComponent("Please enter remarks before sending."));
+  }
+
+  const data = await pool.query("select name from users where email = $1", [email]);
+  if (!data.rows[0]) {
+    return res.redirect("/admin?message=User not found.");
+  }
+
+  await sendMail(
+    email,
+    "Action Required: Update Your DEI CMT Profile",
+    null,
+    `${greeting(data.rows[0].name)}<br><br>Greetings!<br><br>We request you to update your profile on the DEI CMT portal at your earliest convenience.<br><br><b>Remarks from the Admin:</b><br>${escapeHtml(remarks)}<br><br>You can update your profile by logging into the DEI CMT portal and visiting the My Profile section.<br><br>In case of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
+  );
+
+  return res.redirect("/admin?message=" + encodeURIComponent("Profile update request emailed to " + email + "."));
+});
 
 
 // See the comment on /user-login above - the account lockout replaces this

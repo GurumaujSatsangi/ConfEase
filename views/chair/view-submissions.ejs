@@ -220,10 +220,10 @@
                               <i class="bi bi-file-earmark-pdf"></i> View DrillBit Report
                             </a>
                           <% } %>
-                          <form method="POST" action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" enctype="multipart/form-data" class="d-flex gap-1">
+                          <form method="POST" action="/chair/dashboard/desk/upload-plagiarism-report/<%= submission.submission_id %>" enctype="multipart/form-data" class="d-flex flex-column gap-1">
                             <input type="hidden" name="return_to" value="view-submissions">
-                            <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm" required>
-                            <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                            <input type="file" name="plagiarism_report" accept="application/pdf" class="form-control form-control-sm w-100" required>
+                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
                               <%= submission.plagiarismReportUrl ? 'Replace' : 'Upload' %> Report
                             </button>
                           </form>

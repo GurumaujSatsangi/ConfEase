@@ -27,6 +27,11 @@ const ADMIN_ROUTES = [
   ["POST", "/grant-access/chair%40example.com"],
   ["POST", "/revoke-access/chair%40example.com"],
   ["POST", "/delete-account/chair%40example.com"],
+  ["POST", "/admin/users/create"],
+  ["POST", "/admin/users/update/user%40example.com"],
+  ["POST", "/admin/users/delete/user%40example.com"],
+  ["POST", "/admin/users/reset-password/user%40example.com"],
+  ["POST", "/admin/users/request-profile-update/user%40example.com"],
 ];
 
 test("admin routes: anonymous users are sent to login", async () => {

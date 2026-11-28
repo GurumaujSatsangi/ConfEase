@@ -8,10 +8,11 @@
     <link rel="shortcut icon" href="/dei_logo.png" type="image/x-icon">
 </head>
 <body>
-    <%- include('partials/header copy') %>
+    <%- include('partials/dashboard/header') %>
 
     <div class="container">
 
+        <h4>Admin Dashboard</h4><hr>
 
         <div class="accordion" id="accordionExample">
   <div class="accordion-item">
@@ -142,6 +143,88 @@
 
   <div class="accordion-item">
     <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseUsers" aria-expanded="false" aria-controls="collapseUsers">
+        <strong>Manage Users</strong>
+      </button>
+    </h2>
+    <div id="collapseUsers" class="accordion-collapse collapse" data-bs-parent="#accordionExample">
+      <div class="accordion-body">
+
+        <h5>Create New User</h5><hr>
+
+        <form action="/admin/users/create" method="post">
+
+          <input class="form-control" type="text" name="name" placeholder="Name" required><br>
+          <input class="form-control" type="email" name="email" placeholder="Email ID" required><br>
+          <input class="form-control" type="text" name="contact_number" placeholder="Contact Number"><br>
+          <input class="form-control" type="text" name="affiliation" placeholder="Affiliation"><br>
+          <input class="btn btn-primary" type="submit" value="Create User"><br>
+          <p class="small">(An auto-generated password will be sent to the user)</p>
+
+        </form><hr>
+
+        <h5>Existing Users</h5><hr>
+
+        <% if (users && users.length > 0) { %>
+
+          <div class="table-responsive">
+          <table class="table">
+            <tr>
+              <th style="min-width:150px;">Name</th>
+              <th>Email ID</th>
+              <th style="min-width:140px;">Contact Number</th>
+              <th style="min-width:160px;">Affiliation</th>
+              <th>Status</th>
+              <th style="min-width:200px;">Action</th>
+            </tr>
+            <% users.forEach(function(u, idx){ %>
+
+            <form id="updateForm-<%= idx %>" method="post" action="/admin/users/update/<%= encodeURIComponent(u.email) %>"></form>
+            <form id="profileUpdateForm-<%= idx %>" method="post" action="/admin/users/request-profile-update/<%= encodeURIComponent(u.email) %>">
+              <input type="hidden" name="remarks" id="profileUpdateRemarks-<%= idx %>">
+            </form>
+
+            <tr>
+              <td><input type="text" form="updateForm-<%= idx %>" name="name" class="form-control form-control-sm" value="<%= u.name || '' %>" required></td>
+              <td><%= u.email %></td>
+              <td><input type="text" form="updateForm-<%= idx %>" name="contact_number" class="form-control form-control-sm" value="<%= u.contact_number || '' %>"></td>
+              <td><input type="text" form="updateForm-<%= idx %>" name="affiliation" class="form-control form-control-sm" value="<%= u.affiliation || '' %>"></td>
+              <td><%= u.status || '—' %></td>
+              <td>
+                <div class="d-flex flex-column gap-1">
+                  <button type="submit" form="updateForm-<%= idx %>" class="btn btn-success btn-sm w-100">Save</button>
+
+                  <form method="post" action="/admin/users/reset-password/<%= encodeURIComponent(u.email) %>">
+                    <button type="submit" class="btn btn-secondary btn-sm w-100">Reset Password</button>
+                  </form>
+
+                  <button type="button" class="btn btn-outline-warning btn-sm w-100" onclick="requestProfileUpdate(<%= idx %>, '<%= u.email.replace(/'/g, "\\'") %>')">Profile Update Required</button>
+
+                  <form method="post" action="/admin/users/delete/<%= encodeURIComponent(u.email) %>" class="confirm-delete-form"
+                    data-confirm-title="Delete this user?"
+                    data-confirm-text="This action cannot be undone.">
+                    <button type="submit" class="btn btn-danger btn-sm w-100">Delete User</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+
+            <% }) %>
+          </table>
+          </div>
+
+        <% } else { %>
+
+          <p class="small">No Users Found!</p>
+
+          <% } %>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item">
+    <h2 class="accordion-header">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCanva" aria-expanded="false" aria-controls="collapseCanva">
         <strong>Canva Integration (Certificates)</strong>
       </button>
@@ -189,6 +272,27 @@
 
     <%- include('partials/footer') %>
 
-    
+    <script>
+      function requestProfileUpdate(idx, email) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Profile Update Required',
+          text: 'This will email ' + email + ' asking them to update their profile.',
+          input: 'textarea',
+          inputLabel: 'Remarks (included in the email)',
+          inputPlaceholder: 'e.g. Please update your affiliation to your current institution.',
+          showCancelButton: true,
+          confirmButtonText: 'Send Email',
+          inputValidator: function (value) {
+            return !value ? 'Please enter remarks before sending.' : undefined;
+          }
+        }).then(function (result) {
+          if (result.isConfirmed) {
+            document.getElementById('profileUpdateRemarks-' + idx).value = result.value;
+            document.getElementById('profileUpdateForm-' + idx).submit();
+          }
+        });
+      }
+    </script>
 </body>
 </html>

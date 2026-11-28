@@ -64,14 +64,26 @@ test("an unauthenticated request is blocked", async () => {
   assert.equal(row.rows[0].affiliation, null, "an unauthenticated request must never write the affiliation");
 });
 
-test("POST /update-profile saves the affiliation and redirects back to /my-profile with a confirmation message", async () => {
-  const res = await post("/update-profile", userToken, { affiliation: "DEI Multimedia Laboratory" });
+test("POST /update-profile saves the name and affiliation and redirects back to /my-profile with a confirmation message", async () => {
+  const res = await post("/update-profile", userToken, { name: "Update Profile Test Renamed", affiliation: "DEI Multimedia Laboratory" });
   assert.equal(res.status, 302);
   const location = decodeURIComponent(res.headers.get("location") || "");
   assert.match(location, /^\/my-profile\?message=/, "must redirect back to /my-profile, not /dashboard");
   assert.match(location, /Profile updated successfully/);
 
-  const row = await pool.query("select affiliation from users where email = $1", [userEmail]);
+  const row = await pool.query("select name, affiliation from users where email = $1", [userEmail]);
+  assert.equal(row.rows[0].name, "Update Profile Test Renamed");
+  assert.equal(row.rows[0].affiliation, "DEI Multimedia Laboratory");
+});
+
+test("POST /update-profile rejects an empty name, leaving the stored name unchanged", async () => {
+  const res = await post("/update-profile", userToken, { name: "   ", affiliation: "Should not be saved either" });
+  assert.equal(res.status, 302);
+  const location = decodeURIComponent(res.headers.get("location") || "");
+  assert.match(location, /Name cannot be empty/);
+
+  const row = await pool.query("select name, affiliation from users where email = $1", [userEmail]);
+  assert.equal(row.rows[0].name, "Update Profile Test Renamed");
   assert.equal(row.rows[0].affiliation, "DEI Multimedia Laboratory");
 });
 
