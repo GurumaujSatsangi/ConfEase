@@ -5657,12 +5657,17 @@ app.post("/admin/users/request-profile-update/:email", checkAuth, requireAdmin, 
     return res.redirect("/admin?message=User not found.");
   }
 
-  await sendMail(
-    email,
-    "Action Required: Update Your DEI CMT Profile",
-    null,
-    `${greeting(data.rows[0].name)}<br><br>Greetings!<br><br>We request you to update your profile on the DEI CMT portal at your earliest convenience.<br><br><b>Remarks from the Admin:</b><br>${escapeHtml(remarks)}<br><br>You can update your profile by logging into the DEI CMT portal and visiting the My Profile section.<br><br>In case of any queries, please feel free to reach out to us at multimedia@dei.ac.in or contact us at +91 9875691340.<br><br>Thanks & Regards,<br>Team DEI Conference Management Toolkit`
-  );
+  const subject = "Action Required: Profile Details Update on DEI CMT Portal";
+  const body =
+    `${greeting(data.rows[0].name)}<br><br>` +
+    `Greetings!<br><br>` +
+    `We have identified certain inconsistencies in the profile details associated with your account on the DEI CMT portal that require your attention.<br><br>` +
+    `<b>Remarks:</b> ${escapeHtml(remarks)}<br><br>` +
+    `We kindly request you to log in to the portal, review your profile information carefully, and make the necessary corrections to ensure that all details are accurate and up to date.<br><br>` +
+    `Please treat this as a priority and complete the required updates at the earliest to avoid any discrepancies in the conference records.<br><br>` +
+    `Thank you for your prompt attention and cooperation.`;
+
+  await sendMail(email, subject, null, body);
 
   return res.redirect("/admin?message=" + encodeURIComponent("Profile update request emailed to " + email + "."));
 });
