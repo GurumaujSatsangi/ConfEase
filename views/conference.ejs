@@ -12,6 +12,12 @@
 
     <div class="container">
 
+        <div class="alert alert-danger" role="alert">
+
+         <b>Please note, it is mandatory to add all the Co-Authors on the portal.</b>
+    
+</div>
+
         <h4><%= conference.title %></h4>
 
       <p class="small"><%- sanitizeDescription(conference.description) %></p>
@@ -311,13 +317,17 @@
                             <br><strong><%= submission.scheduleText %></strong>
                         <% } else if (submission.submission_status === 'DESK ACCEPT') { %>
                             <% if (submission.plagiarismReportUrl) { %>
-                                <br><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a>
+                                <ul class="submission-action-list">
+                                    <li><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a></li>
+                                </ul>
                             <% } %>
                         <% } else if (submission.submission_status === 'DESK REJECT') { %>
-                            <br><a href="/submission/desk-reject-reviews/<%= submission.submission_id %>" target="_blank">Reviews</a>
-                            <% if (submission.plagiarismReportUrl) { %>
-                                <br><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a>
-                            <% } %>
+                            <ul class="submission-action-list">
+                                <li><a href="/submission/desk-reject-reviews/<%= submission.submission_id %>" target="_blank">Reviews</a></li>
+                                <% if (submission.plagiarismReportUrl) { %>
+                                    <li><a href="<%= submission.plagiarismReportUrl %>" target="_blank" rel="noopener">DrillBit AI &amp; Plagiarism Report</a></li>
+                                <% } %>
+                            </ul>
                         <% } %>
                     </td>
                     <% if (submission.submission_status === 'Submitted Final Camera Ready Paper for Oral Presentation' || submission.submission_status === 'Submitted Final Camera Ready Paper for Poster Presentation') { %>
@@ -400,11 +410,11 @@
                     <% } else { %>
                     <td>
                         <% if (submission.isPrimaryAuthor) { %>
-                        <p class="small"><li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a>
-                    </li><li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0 confirm-delete-form" data-confirm-title="Delete this submission?" data-confirm-text="This action cannot be undone."><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
-                <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
-
-            </p>
+                        <ul class="submission-action-list">
+                            <li><a href="/submission/edit/primary-author/<%= submission.submission_id %>">Edit Submission</a></li>
+                            <li><form method="POST" action="/submission/delete/primary-author/<%= submission.submission_id %>" class="m-0 confirm-delete-form" data-confirm-title="Delete this submission?" data-confirm-text="This action cannot be undone."><button type="submit" class="btn btn-link p-0 border-0 align-baseline">Delete Submission</button></form></li>
+                            <li><a target="_blank" href="/submission/view-co-author-requests/<%= submission.submission_id %>">Co-Author Requests</a></li>
+                        </ul>
                         <% } else { %>
                             <p class="small">None</p>
                         <% } %>

@@ -792,6 +792,17 @@ table td, table th {
     max-width: 350px;
 }
 
+.submission-action-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.submission-action-list li {
+  margin-top: 0.25rem;
+}
+
 /* Print styles */
 @media print {
   .navbar, .btn, .accordion-button {
